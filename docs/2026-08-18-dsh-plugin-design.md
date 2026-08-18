@@ -402,3 +402,41 @@ v0.1 的 Q1–Q16 见 git 历史（0910e65）。v0.2 审计新增：
 - v0.1（0910e65）：初稿，brainstorming 产物，Section 5/6/7 为占位
 - v0.2：审计会话修订——修 4 处硬伤、补全 §5/§6/§7、新增 §1.4 范围边界与 §3.3 已知限制、决策日志 Q17–Q25
 - 下次修订触发条件：实现期验证点 V1–V4 的结论、首个里程碑（骨架安装）落地后的事实修正
+
+---
+
+## 12. 交付形态分阶段（2026-08-18 用户讨论）
+
+用户提出：插件能不能以"插件页面为主、agent session 隐身为后端"形态交付，而非当前设计的 session-first？架构答案：**可行，且 7 个 tool 是两种形态共享的后端**。
+
+### 两层 "session"
+
+- **DSH agent session**：完整的 agent 运行时（model + tools + event loop）。要调任何 tool，必须有一个 session 在调它——"agent session 必须有，否则没人在调 tool"
+- **plugin ContractSession**（session.ts 的状态文件）：流程状态机，由首次 intake 自动创建，用户不需要"启动"它
+
+### 两种形态对比
+
+| | v1 session-first（当前骨架） | v2 插件工作台 |
+|---|---|---|
+| 主操作面 | agent 聊天（"审查这份合同"） | 插件页面（表单上传、卡片检视、按钮触发） |
+| agent session 可见性 | 可见（聊天即 session） | 默认不可见，必要时可展开审计轨迹 |
+| intake 收集 | 模型调 ask_user_question 转问用户 | 页面表单直收，作为 tool 参数一次提交 |
+| 底层 tool | **同一套 7 个 tool** | **同一套 7 个 tool** |
+| DSH 支撑 | 默认 | client `ui-slots` 注册页面 + `agents.create()` 编程式驱动后台 agent |
+
+### 关键架构支撑（已核实）
+
+- `packages/client/ui-slots` slot registry：插件可在声明的 slot 注册 React 组件，chain-kind slot 自提名
+- `packages/core/agent/src/index.ts:405 agents.create(options)`：编程式创建 agent（headless/background）
+- `packages/bundle/headless`、`packages/sdk/server`、`packages/acp/acp`：headless 与程序化驱动已是官方支持形态
+
+### 设计倒挂需要正视
+
+用户在讨论会（§1.1）反复强调的"DSH 差异点 = 运行轨迹可暴露、实时可读取"——把 session 完全藏起来会放弃这个卖点。**更合理的措辞**："插件页面是主操作面，session 是可按需展开的审计层"（律师想看"AI 为什么这么改"时可展开），而非"session 不可见"。对合同审查这种有交付审计要求的场景，轨迹可回溯是卖点不是噪音。
+
+### v2 待确认
+
+是否在 v1 之后做工作台页面。决策影响：
+- v1 当前骨架无需任何改动即可 ship
+- v2 工作量：ui-slots 注册（约 1 个新 client 插件包）+ intake 表单 UI + 主页路由 + agents.create 编排
+- v2 也可以分两步：先加 slot 注册的侧栏入口/卡片（与 session 共存），再做独立工作台页面
