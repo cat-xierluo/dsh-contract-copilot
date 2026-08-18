@@ -1,15 +1,17 @@
 # Contract Copilot → DSH Plugin 改造设计稿
 
 > **创建日期**：2026-08-18
-> **状态**：草案（v0.1），待审计 agent 复核
-> **作者**：maoking（基于 brainstorming 会话 + 讨论会实录 + 代码实测）
-> **目标读者**：审计 agent、合作律师、未来自己
+> **状态**：v0.2（已审计修订，可进入实现）
+> **作者**：maoking（v0.1 基于 brainstorming 会话 + 讨论会实录 + 代码实测；v0.2 由审计会话逐条核对源 skill Python/DSH 仓库后修订）
+> **目标读者**：实现 agent、合作律师、未来自己
 
 ---
 
 ## 0. 摘要（TL;DR）
 
-把现有 Claude/Codex 形态的 `contract-copilot` skill（v1.6.3，~30KB SKILL.md + 14 个 Python 模块）改造为 **DeepSeek Harness plugin**，落地在独立 GitHub 仓库 `cat-xierluo/dsh-contract-copilot`。核心动作是**把 SKILL.md §3.2 定义的 4 步审查流程 plugin 化**，让 agent 不再依赖单轮对话颗粒度。**Python 脚本一行不动**，plugin 通过 `child_process` 调现有 CLI 入口。安装方式 `dsh plugin --profile <name> add ./dsh-contract-copilot`，无需 npm publish。
+把现有 Claude/Codex 形态的 `contract-copilot` skill（v1.6.3，~29KB SKILL.md + 14 个 Python 模块）改造为 **DeepSeek Harness plugin**，落地在独立 GitHub 仓库 `cat-xierluo/dsh-contract-copilot`。核心动作是**把 SKILL.md §3.2 定义的 4 步审查流程 plugin 化**，让 agent 不再依赖单轮对话颗粒度。**Python 脚本一行不动**，plugin 通过异步 `child_process.spawn` 调现有 CLI 入口。安装方式 `dsh plugin --profile <name> add ./dsh-contract-copilot`，无需 npm publish。
+
+v0.2 审计后的三个关键修正：(1) **intake 是硬前置**——Python 非交互模式下 `review_intensity` 缺失会静默默认"强势"，plugin 必须总是显式传参；(2) **进度粒度 = tool 调用粒度**——Python CLI 执行期间无任何流式输出，"监听 stdout 实时进度"不成立；(3) **integrity gate 无需 plugin 侧回滚**——Python 在写出任何正式交付物之前检查并以非零退码拒绝。
 
 ---
 
@@ -31,34 +33,43 @@
 | 痛点 | 现状 | DSH plugin 解决路径 |
 |---|---|---|
 | **单轮对话颗粒度太粗** | agent 一次问完所有 intake blocker，用户答完才能继续 | plugin 把 intake blocker 拆为独立 tool，按需 ask_user |
-| **中间状态不可见** | agent 审到第几条、还有什么没审、卡在哪——用户看不到 | plugin 监听 session 事件流 → 实时写状态文件 → UI 渲染 |
-| **不能中途插入决策** | "这条 finding 改不改" 必须等整轮跑完才知道 | plugin 在 SKILL.md 4 步流程的 4 个检查点都暴露 ask_user hook |
+| **中间状态不可见** | agent 审到第几条、还有什么没审、卡在哪——用户看不到 | 每次 tool 调用更新 session 状态 → session 事件流 → UI 渲染（粒度 = tool 调用，见 §3.3 已知限制） |
+| **不能中途插入决策** | "这条 finding 改不改" 必须等整轮跑完才知道 | plugin 在 4 步流程的检查点暴露 ask_user 决策 |
 | **长程会话断开** | "合同审到一半我关了，下次继续" 现在靠记忆 | DSH session log 本身持久化；plugin 加 session 文件做状态恢复 |
 | **多个 localhost 服务散乱** | 用户当前有案件看板、self-evolve、规则库等多个端口 | 本次**不做**（用户明确不要 F） |
 
 ### 1.3 设计原则
 
 1. **不动 Python 脚本**：所有 Python 代码一行不改，仅通过 subprocess 调
-2. **按 SKILL.md 4 步流程 plugin 化**：插件结构 = SKILL.md 流程的 1:1 映射
-3. **5 项能力分阶段落地**：A（agent 主动调）+ B（实时进度）+ C（注入上下文）+ D（决策 hook）+ E（长程会话）
+2. **按 SKILL.md 四步审查流程 plugin 化**：插件结构 = §3.2 四步（前置澄清 / 分层扫描 / 条款落地 / 交付与跟进，操作细则见 §九 9.1–9.4）的映射
+3. **5 项能力分阶段落地**：A（agent 主动调）+ B（进度可见）+ C（注入上下文）+ D（决策 hook）+ E（长程会话）
 4. **本地优先 / 不走 npm publish**：每个 plugin 一个独立 GitHub 仓库，HMR 自动生效
+5. **显式传参，不依赖隐式默认**：所有会影响审查结果的 CLI 参数由 plugin 层显式给出（见 §4.4 审计修正 2）
+
+### 1.4 范围边界（v1 显式排除）
+
+- ❌ **起草流程**（SKILL.md §十）：v1 不 plugin 化，只做审查流程
+- ❌ **§9.5 复核环节的专用 tool**：对方改稿后的再审由 `resume` + `analyze`（指向新版合同）组合覆盖，不加第 8 个 tool（决策 Q22）
+- ❌ F：整合多个 localhost 服务（用户明确不要）
+- ❌ 重写 Python 脚本
+- ❌ 贡献回 DSH 主仓库（独立仓库）
 
 ---
 
 ## 2. 命名 / 仓库 / 分发
 
-### 2.1 命名最终定型
+### 2.1 命名定型
 
 | 项 | 值 | 理由 |
 |---|---|---|
 | **本地目录路径** | `legal-dsh-plugin/dsh-contract-copilot/` | 与 `legal-skills/` 并列；DSH 社区习惯（`dsh-<name>`）|
 | **GitHub 仓库路径** | `github.com/cat-xierluo/dsh-contract-copilot` | 用现有 GitHub 账号，避免新建 |
-| **package.json `name`** | `@yangweixin/dsh-contract-copilot` | scope 作为作者标记；不走 npm 所以不强制 |
+| **package.json `name`** | `@yangweixin/dsh-contract-copilot` | scope 作为作者标记；npm 公开发布不受阻（需 `publishConfig.access: "public"`），git 安装的 `allowBuilds` key 用全名 `@yangweixin/dsh-contract-copilot: true` |
 | **Display name** | Contract Copilot | 沿用原 skill 名 |
 | **作者** | 杨卫薪律师（微信 ywxlaw） | 写在 README + package.json `author` 字段 |
 | **License** | CC-BY-NC 4.0 | 沿用原 skill |
 
-### 2.2 分发方式（来自 `docs/user/develop/basic/publish.md` + `apps/cli/src/plugin.ts`）
+### 2.2 分发方式（依据 `docs/user/develop/basic/publish.md`，已经审计核实）
 
 **推荐路径（本地开发 + 自用）**：
 
@@ -66,40 +77,46 @@
 # 一次性：把 plugin link 到 dsh profile
 dsh plugin --profile lawyer add ./dsh-contract-copilot
 # → pnpm link 到 $DSH_HOME/profiles/lawyer/package.json
-# → reconcilePlugins 读 package.json 的 dsh.bundle，自动加入 dsh.profile.bundles
-# → HMR 生效：编辑插件代码自动热更新
+# → reconcilePlugins（apps/cli/src/plugin.ts:59）读 package.json 的 dsh.bundle，
+#   自动追加到 dsh.profile.bundles
+# → HMR 生效：cordis-plugin-hmr 在 profile 启动时挂载（apps/cli/src/profile-boot.ts:283），
+#   重新 build 插件后自动热更新
 ```
 
 **替代路径（分享给其他律师）**：
 
 ```sh
-# 推到 GitHub 后
 dsh plugin --profile lawyer add github:cat-xierluo/dsh-contract-copilot
-# 需在 plugin 的 package.json 加 "prepare" script
-# 需在 profile 的 pnpm-workspace.yaml 加 allowBuilds: dsh-contract-copilot: true
+# 插件侧：package.json 需带自包含的 "prepare" 脚本（参照官方 turtle-ui：
+#   不假设 monorepo 环境，不依赖 project references）
+# 用户侧：profile 的 pnpm-workspace.yaml 需加
+#   allowBuilds:
+#     '@yangweixin/dsh-contract-copilot': true
 ```
 
-**不需要的路径**：npm publish / monorepo / 私有 registry。
+**不需要的路径**：npm publish / monorepo / 私有 registry。tarball（`pnpm pack`）是免 allowBuilds 的备选。
 
-### 2.3 仓库结构（polyrepo，不走 monorepo）
+### 2.3 仓库结构（polyrepo）
 
 ```
 dsh-contract-copilot/                  ← 独立 git 仓库
-├── .git/                              ← 已有
 ├── docs/
 │   └── 2026-08-18-dsh-plugin-design.md  ← 本文件
-├── package.json                       ← 待写（含 dsh.bundle 声明）
-├── tsconfig.json                      ← 待写
-├── src/                               ← 待写
-│   ├── index.ts                       # apply(ctx, config) 入口
-│   ├── service.ts                     # ContractCopilotSession
-│   ├── tools.ts                       # 7 个 defineTool
-│   ├── listeners.ts                   # 2 个 ctx.on
-│   └── python-bridge.ts               # subprocess 调 Python CLI
-├── cordis.patch.yml                   ← 待写（plugin 入口声明）
-├── README.md                          ← 待写（安装 + 使用说明）
-└── tests/                             ← 待写
+├── package.json                       ← dsh.bundle 声明 + prepare 构建脚本
+├── tsconfig.json                      ← NodeNext，emit 到 lib/
+├── cordis.patch.yml                   ← patch 层：插入本插件 row
+├── src/
+│   ├── index.ts                       # apply(ctx, config) 入口 + Config（schemastery）
+│   ├── session.ts                     # ContractSession 读写（~/.dsh/contract-copilot/sessions/）
+│   ├── python-bridge.ts               # 异步 spawn + 退码分类
+│   ├── progress.ts                    # formatProgressMsg（pre-step 注入用）
+│   └── tools/                         # 7 个 defineTool
+├── lib/                               ← 构建产物（gitignore）
+├── README.md                          ← 安装 + 使用说明
+└── tests/                             ← 见 §7
 ```
+
+依赖声明：`@deepseek-ai/cordis`、`@deepseek-ai/dsh-tools`、`@deepseek-ai/dsh-agent`、`@deepseek-ai/dsh-llm` 均为 **peerDependencies**（+ devDependencies 供本地构建）；profile 初始化时 `@deepseek-ai/dsh-base` 已把这些带进依赖图。
 
 ---
 
@@ -109,159 +126,254 @@ dsh-contract-copilot/                  ← 独立 git 仓库
 
 **Function plugin**（`apply(ctx, config)` + 命名导出 `name / inject / Config`），**不是** Service Definition class。
 
-理由：
-- 5 项核心能力中只有"会话状态持久化"需要长期挂在 ctx 上
-- 用 module-level 单例 + `ctx.effect()` 注册 disposer 就足够
-- 升级为 Service 会和 DSH 现有 `ctx.skills` / `ctx.tools` / `ctx.agents` 抢命名空间
+理由：本插件无跨 plugin 消费需求——7 个 tool 共享的状态用 module-level 单例 + `ctx.effect()` 注册 disposer 足够；将来若被其他 plugin 消费（例如案件看板要读审查进度），再抽 Service Definition，那是结构性升级而非预先设计。
 
-### 3.2 5 项核心能力定义（来自 brainstorming Q4）
+### 3.2 5 项核心能力定义
 
 | 能力 | 含义 | 实现依赖 |
 |---|---|---|
-| **A** | agent 自己能主动调审查步骤 | `ctx.tools.register` |
-| **B** | 实时看到审查到第几步 | `ctx.on` 监听 + 状态文件 + UI 渲染 |
-| **C** | 模型响应前后自动注入上下文 | `ctx.on('agent/pre-step', waterfall)` |
-| **D** | 关键节点让用户点确认 | DSH `ask_user` 能力 |
-| **E** | 离开再回来接着审 | session 文件 + `~/.dsh/contract-copilot/sessions/<id>.json` |
+| **A** | agent 自己能主动调审查步骤 | `ctx.tools.register` + `defineTool`（`@deepseek-ai/dsh-tools`） |
+| **B** | 实时看到审查到第几步 | tool handler 更新 session 状态文件 → 状态跃迁反映在 DSH session 事件流 → UI 渲染 |
+| **C** | 模型响应前自动注入上下文 | `ctx.on('agent/pre-step', waterfall)`（事件声明：`packages/core/agent/src/runtime-types.ts:231`） |
+| **D** | 关键节点让用户点确认 | DSH 内置 `ask_user_question` tool（`packages/interaction/tool-ask-user`，消费 `ctx.userQuestions` seam） |
+| **E** | 离开再回来接着审 | plugin session 文件 `~/.dsh/contract-copilot/sessions/<id>.json` |
 
-**不做的**：
-- ❌ F：整合多个 localhost 服务（用户明确不要）
-- ❌ 重写 Python 脚本
-- ❌ 贡献回 DSH 主仓库（独立仓库）
+**不做的**：见 §1.4。
+
+### 3.3 已知限制（审计确认，接受并明示）
+
+1. **CLI 内部无进度**：`apply_review_plan.py` 的全部 stdout（含"执行统计"行，`apply_review_plan.py:403-428`）在 main() 尾部一次性输出，执行循环内零输出。因此能力 B 的粒度是 **tool 调用级**（intake 完成 / plan 就绪 / apply 开始 / apply 结束 / 交付），不是 per-finding 级。要 per-finding 进度必须改 Python，违反原则 1，列为远期选项。
+2. **apply 期间 UI 只能看到"applying"状态**，时长取决于 CLI 执行时间（大合同可能数分钟）。
 
 ---
 
-## 4. 组件设计（Section 2 三次修订版）
+## 4. 组件设计
 
-### 4.1 设计演化（避免重复犯同样错误）
+### 4.1 设计演化
 
-| 修订次数 | 错误 | 修正 |
+| 修订 | 错误 / 动机 | 修正 |
 |---|---|---|
-| v1（首版）| 按 DSH 通用能力推，未贴 contract-copilot 实际工作流 | 修订 → |
+| v1 | 按 DSH 通用能力推，未贴 contract-copilot 实际工作流 | 修订 → |
 | v2 | 按"工作流阶段"切，但没读 Python 代码 | 改 → |
 | v3 | 忽略"Python 是原子 CLI，不能中途插入决策" | 改 → |
-| v4（现行）| 改回贴 SKILL.md §3.2 的 4 步流程 | ✅ |
+| v4 | 改回贴 SKILL.md §3.2 的 4 步流程 | ✅ |
+| **v0.2（审计）** | 4 处事实/实现错误：`agent/post-step` 事件不存在；bridge argv 错误；`spawnSync` 阻塞事件循环；"监听 stdout 实时进度"前提不成立。另有 intake 未接 `review_memory.json` / `reviewer_profile` 非交互硬失败 / integrity flag 文档超前于代码 | 全部修正，见 §4.3、§4.4、§5、§6 |
 
-### 4.2 7 个 Tools（按 SKILL.md 4 步流程 1:1 映射）
+### 4.2 7 个 Tools（SKILL.md §3.2 四步 + §九 9.1–9.4 的映射）
 
-| # | Tool 名 | 阶段 | 能力 | 何时调 |
+| # | Tool 名 | 对应流程 | 能力 | 职责 |
 |---|---|---|---|---|
-| 1 | `contract_copilot_intake` | §3.2.1 前置澄清 | **D** | CLI 前：ask_user 收集立场/目的/口径/客户/截止 |
-| 2 | `contract_copilot_analyze` | §3.2.2 分层扫描 | **C** | CLI 前：读 references，生成 plan |
-| 3 | `contract_copilot_list_findings` | 横切 | **B + C** | analyze 后 / apply 前：让用户检视 plan |
-| 4 | `contract_copilot_apply` | §3.2.3 风险处理 | **A + B** | CLI 中：调 apply_review_plan.py，监听 stdout |
-| 5 | `contract_copilot_finalize` | §3.2.4 交付 | **B + E** | CLI 后：收集 DOCX + 报告，写 session |
-| 6 | `contract_copilot_inspect_session` | 横切 | **B** | 任何时候：看 session 当前状态 |
-| 7 | `contract_copilot_resume` | 横切 | **E** | 长程续接：读 session 恢复状态 |
+| 1 | `contract_copilot_intake` | §3.2.1 前置澄清（9.1 启动） | **D** | 读 `reviewer_profile.json` + `review_memory.json`（按合同名归一化 key 查命中）→ 缺什么问什么（阻塞项：立场/目的/口径三齐才放行）→ 写 session |
+| 2 | `contract_copilot_analyze` | §3.2.2 分层扫描（9.2） | **C** | 接收 agent 产出的 findings 数组，组装完整 review-plan.json（meta 用 intake 值填充）写入 session 目录，校验最小 schema |
+| 3 | `contract_copilot_list_findings` | 横切（plan 检视点） | **B + C** | 列出 plan 中的 findings 供用户检视；暴露 `edit_policy` 决策点（默认 revise-first） |
+| 4 | `contract_copilot_apply` | §3.2.3 条款落地（9.3 风险处理） | **A + B** | 异步 spawn CLI，**全量显式传参**（见 §4.4），按退码分类更新状态 |
+| 5 | `contract_copilot_finalize` | §3.2.4 交付与跟进（9.4 交付） | **B + E** | 收集双 DOCX 产物路径 + 归档目录，写入 session，标记 delivered |
+| 6 | `contract_copilot_inspect_session` | 横切 | **B** | 任何时候查看 session 当前状态 |
+| 7 | `contract_copilot_resume` | 横切（含 §9.5 复核回路的入口） | **E** | 按 DSH session id 或合同名索引恢复 session；对方向：`resume` 后对**新版合同**重跑 `analyze` 即覆盖 §9.5 对方改稿再审场景 |
 
-### 4.3 2 个 Listeners
+阶段命名口径：§3.2 的步骤名（前置澄清/分层扫描/条款落地/交付与跟进）为流程骨架，§九 9.1–9.4 为操作细则，两处引用统一为"§3.2.X（9.Y）"。
+
+### 4.3 1 个 Listener + tool 内持久化
+
+**只有一个事件监听**（能力 C）。v0.1 的第二个 listener 监听的 `agent/post-step` 事件**在 DSH 中不存在**（实际事件集：`pre-step / status / request / request-error / error / inbox / session / session-start / turn-stopping / disposed`）。状态写盘改在**每个 tool handler 的尾部**完成——tool 执行完是天然的状态变更点，无需事件。
 
 ```ts
-// 监听 agent 生命周期，注入上下文（能力 C）
-ctx.on('agent/pre-step', async (payload, next) => {
-  const decision = await next()  // 必须调 next()，不能 short-circuit
-  const session = service.getSession()
-  if (!session) return decision
+// 能力 C：每步注入进度上下文（参照 time-context 的成熟写法，
+// packages/context/time-context/src/index.ts:170）
+ctx.on('agent/pre-step', async (
+  { agent, turn, step, signal },   // payload 见 runtime-types.ts:231
+  next,
+): Promise<PreStepDecision> => {
+  const decision = await next()    // 必须先调 next()，不能 short-circuit
+  if (decision.kind === 'reject' || signal.aborted) return decision
+  const session = store.current()
+  if (!session || !store.progressChangedSinceLastInjection(session)) return decision
   return {
     kind: 'enter',
-    messages: [...decision.messages, formatProgressMsg(session)]
+    messages: [...decision.messages, createUserMessage(formatProgressMsg(session))],
   }
 })
-
-// 状态写盘（能力 E）
-ctx.on('agent/post-step', ({ session, agent }) => {
-  service.persistSession(currentSessionId)
-})
 ```
 
-### 4.4 1 个 CLI bridge（`python-bridge.ts`）
+**幂等控制**（v0.1 缺失）：`progressChangedSinceLastInjection` 按 `session.state` + 单调计数器判断，只有状态真的变化才注入，避免每步重复注入同一条进度消息膨胀 transcript。
 
-通过 `child_process.spawnSync('python3', [...])` 调 contract-copilot 的现有 CLI 入口：
+### 4.4 CLI bridge（`python-bridge.ts`）
+
+**调用方式（v0.2 修正）**：异步 `spawn`（不是 `spawnSync`——apply 可能运行数分钟，同步调用会阻塞整个 harness 事件循环，冻结 HMR / UI / 其他 listener），支持 `AbortSignal`（中断时 kill 子进程）：
 
 ```ts
-// 不重写 Python，仅做 CLI wrapper
-const result = spawnSync('python3', [
-  '-', '/path/to/contract-copilot',
-  'scripts.review.apply_review_plan',
-  '--input', docxPath,
-  '--plan', planPath,
-  '--output', outputDocxPath,
-  '--author', author,
-  '--organization', org,
-  '--client-name', client,
-  '--party-role', partyRole,
-  '--review-intensity', intensity,
-  '--edit-policy', editPolicy,
-], { encoding: 'utf-8' })
+const child = spawn(
+  config.pythonExecutable,                          // 默认 'python3'，Config 字段
+  [
+    `${config.skillRoot}/scripts/review/apply_review_plan.py`,  // 脚本绝对路径
+    '--input', docxPath,
+    '--plan', planPath,
+    '--output', outputDocxPath,
+    '--report-docx', reportDocxPath,                // 产物路径钉死在 session 目录
+    '--client-name', intake.clientName,
+    '--party-role', intake.partyRole,
+    '--review-intensity', intake.reviewIntensity,
+    '--edit-policy', intake.editPolicy ?? 'revise-first',
+    '--author', intake.reviewer.author,
+    '--organization', intake.reviewer.organization,
+    ...(intake.reviewer.department ? ['--department', intake.reviewer.department] : []),
+  ],
+  { signal },                                       // abort 即终止
+)
 ```
 
-stdout 解析：监听"执行统计: 成功=X"等行（apply_review_plan.py:411-423），更新实时进度（能力 B）。
+脚本自带 sys.path 引导（`apply_review_plan.py:22-25`），任意 cwd 可用；v0.1 草稿里 `'-'` + 模块路径的 argv 写法是错误的。
+
+**显式传参是硬要求（审计修正 2）**。Python 非交互判定是 `sys.stdin.isatty() and sys.stdout.isatty()`（`review_runtime.py:203`），经 child_process 调用自动非交互，**无需也不存在 `--no-interactive` flag**。但非交互默认值有陷阱：
+
+| 参数 | 缺失时的非交互行为 | 位置 | 后果 |
+|---|---|---|---|
+| `--review-intensity` | **静默默认"强势"** | `review_runtime.py:52` | 没问口径就按最激进口径审完——事故级 |
+| `--party-role` | 保持空串（代码注释明言"交调用方显式请求确认"） | `review_runtime.py:466` | 报告立场栏为空 |
+| `--client-name` | 推断或"未提及/待补充" | `review_runtime.py:456-464` | 报告客户栏降级 |
+| `--author`/`--organization` | **直接 raise ValueError**（fail loud） | `resolve_reviewer_profile` | apply 失败 |
+
+所以 plugin 层 intake 收集的信息必须全量显式传入，一个都不能靠 Python 默认值兜底。
+
+**stdout 解析**：只在进程结束后解析尾部固定行（"输出 DOCX / 输出报告 DOCX / 归档目录 / 审查上下文 / 执行统计"），提取产物路径与统计数字写入 session。执行期间无任何输出可解析（§3.3 限制 1）。
+
+**退码分类**（§6 详述）：`0` = 全部成功；`1` + integrity 失败信息 = 拒绝交付（无正式产物）；`1` + "存在失败项" = 部分成功（有产物）；其他非零 = 异常。
+
+**副作用须知**：`resolve_review_context` 每次运行都会**写回** `review_memory.json`（`review_runtime.py:504`）——plugin 与 Python 的状态边界是：**intake 读 memory，apply 全量显式传参，写回自然发生**，plugin 不另行维护 review_memory 的副本。
 
 ---
 
-## 5. 数据流（TODO：brainstorming 未完）
+## 5. 数据流（v0.2 补全）
 
-> **状态**：本节为占位，brainstorming 流程未完成 Section 3。需要补充：
-> - 用户说"审查这份合同"到 plugin 接管的完整事件链
-> - 4 步流程中每步的工具调用顺序
-> - session 状态机的转换图
-> - integrity gate 在 plugin 视角的接入点
+### 5.1 事件链：用户说"审查这份合同"
+
+```
+用户消息 ─→ agent-loop step ─→ agent 读插件 tool 描述
+  ─→ [1] contract_copilot_intake(contractPath)
+        读 config/reviewer_profile.json：缺 author/org → 问用户（D）
+        读 config/review_memory.json：按合同名归一化 key 命中 → 沿用上次客户/立场/口径（§3.2.1）
+        阻塞项校验：立场 + 目的 + 口径 三齐才放行；缺一即返回缺失清单，不推进
+        → 写 session（state: intake_done）
+  ─→ [2] agent 读 references（routing/framework/revision-strategy），产出 findings
+  ─→ [3] contract_copilot_analyze(findings)
+        组装 review-plan.json（meta = intake 值）→ 写 session 目录（state: plan_ready）
+  ─→ [4] contract_copilot_list_findings() → 用户检视（D：edit_policy / 删改 finding）
+  ─→ [5] contract_copilot_apply()
+        异步 spawn CLI（全量显式参数）→ state: applying
+        结束后按退码分类 → state: applied | rejected | partial | failed
+  ─→ [6] contract_copilot_finalize()
+        解析产物路径（审核修订版 DOCX + 审查报告 DOCX + 归档目录）→ state: delivered
+  ─→ agent 向用户交付文件（IM 回传语义沿用 SKILL.md §9.4）
+```
+
+### 5.2 状态机
+
+```
+created ──intake──▶ intake_done ──analyze──▶ plan_ready
+   ▲                                              │ list_findings（可反复）
+   │                                              ▼
+delivered ◀──finalize──── applied ◀────apply──── applying
+                   │                            （abort/interrupt 可回 plan_ready）
+                   │
+        rejected / partial / failed（apply 的终态分支，见 §6）
+```
+
+- 任意持久态可通过 `inspect_session` 查看当前值
+- `resume` 从任意持久态恢复到内存（跨 DSH 会话）
+- integrity 拒绝（rejected）：修 plan 后可重新 apply（回 plan_ready）
+
+### 5.3 session 文件与 DSH session 的映射
+
+- 路径：`~/.dsh/contract-copilot/sessions/<id>.json`（`sessionsDir` 是 Config 字段）
+- `<id>` 首选 **DSH session id**（实现期验证点 V3：通过 ctx 的 session 服务获取；若第三方插件不可得，回退为 `<合同key>-<时间戳>` 并在文件里同时记录 `dshSessionId` 字段，`resume` 按 `dshSessionId || contractKey + 最近 updatedAt` 索引）
+- 字段：`version / dshSessionId / contractPath / contractKey / intake{...} / planPath / state / progressCounter / outputs{reviewedDocx, reportDocx, archiveDir, stats} / history[] / createdAt / updatedAt`
+- 写入时机：每个 tool handler 尾部原子写（临时文件 + rename），progressCounter 单调递增供 pre-step 幂等判断
+
+### 5.4 integrity gate 在 plugin 视角的接入点
+
+integrity 检查在 Python **写出任何正式 DOCX 之前**执行（`apply_review_plan.py:361-364`）：失败 → stderr 输出原因（`format_integrity_failure`）→ `SystemExit(1)`，**不留正式交付物**。plugin 不做也不需要自己的回滚；职责是把退码分类为 `rejected`、透出 stderr 原因、引导 agent 修 plan 后重跑（§6）。
+
+注意：SKILL.md §9.4 写的 `--skip-integrity-check --draft-authorization` **在当前 argparse 中不存在**（文档超前于代码，已列入 §9 待反馈源 skill）。plugin 不基于该 flag 设计任何路径。
 
 ---
 
-## 6. 错误处理（TODO：brainstorming 未完）
+## 6. 错误处理（v0.2 补全）
 
-> **状态**：本节为占位。需要补充：
-> - intake 阶段用户拒绝填字段的处理
-> - Python CLI 失败的错误传播（exit code != 0）
-> - integrity gate 失败时的回滚策略
-> - session 文件损坏的恢复机制
+### 6.1 intake 阶段
+
+| 情形 | 处理 |
+|---|---|
+| 用户拒绝填阻塞项（立场/目的/口径） | intake 返回明确的缺失清单 + "补齐后可继续"说明；session 停在 `created`；agent 不得推进实质审查（对齐 SKILL.md §3.2.1 暂停语义：只允许输出缺口清单与待确认问题） |
+| 用户授权"按默认口径处理" | 记录授权来源到 session.intake.authorization，方可采用默认值（对齐 §3.2.1） |
+| `reviewer_profile.json` 缺失/未确认 | intake 内先问审查人姓名/律所/部门（一次），answer 写回靠 apply 首次运行的 `save_profile`；plugin 不直接写该文件（保持 Python 单一写者） |
+
+### 6.2 Python CLI 失败传播（退码分类）
+
+| 分类 | 判据 | 产物 | 状态 | agent 应做 |
+|---|---|---|---|---|
+| `success` | exit 0 | 双 DOCX + 归档 | `applied` | → finalize |
+| `rejected`（integrity） | exit 1 + stderr 含 integrity 失败详情 | **无正式交付物** | `rejected` | 按 stderr 逐项修 plan（补法条依据/消占位）→ 重新 apply |
+| `partial`（部分成功） | exit 1 + stderr "存在失败项" | 双 DOCX **已产出**，存在未写入 Word 的审查项 | `partial` | 读归档执行日志定位失败项 → 决定：修 plan 重跑，或带失败清单进入 finalize 并向用户明示 |
+| `error` | 其他非零（ValueError / FileNotFoundError / ImportError: defusedxml） | 不确定 | `failed` | 透出 stderr 分类处理（缺依赖 → 提示 `pip install -r scripts/requirements.txt`；输入不存在 → 回 intake） |
+
+两种非零退码的语义差异是 v0.1 完全没有区分的：`rejected` 连临时 DOCX 都不落（integrity 在 save 之前），`partial` 是"有交付物但注明失败项"——UI 与 agent 的话术必须分开。
+
+### 6.3 中断与超时
+
+- apply 支持 `AbortSignal`：用户/agent 中断 → kill 子进程 → 状态回 `plan_ready`，输出目录中半成品 DOCX 删除（该文件由 plugin 传参指定路径，属 plugin 管辖，可安全清理）
+- 长时间无响应依赖 DSH 侧 tool-timeout/guard 插件配置，plugin 不自建超时逻辑
+
+### 6.4 session 文件损坏
+
+- 读到非法 JSON：改名 `<id>.json.corrupt-<n>` 留证，按 `created` 空态重建，`inspect_session` 明示发生过损坏重建
+- `state` 值未知（版本不匹配）：同上处理，`version` 字段前向不兼容时拒绝加载并明示
 
 ---
 
-## 7. 测试（TODO：brainstorming 未完）
+## 7. 测试（v0.2 补全，映射源 skill 现有覆盖）
 
-> **状态**：本节为占位。需要补充：
-> - 单元测试覆盖（每个 tool 的 happy path + 异常 path）
-> - 集成测试（plugin + Python CLI 真实跑一个 sample 合同）
-> - snapshot 测试（DSH 事件流的产物对照）
-> - 真实 e2e（`pnpm dsh --profile lawyer "审查这份合同"` 验证）
+源 skill 现有：`scripts/tests/test_report_integrity.py`、`test_runtime_regressions.py`、`regression/contract-calibration/`（unittest discover 约定）。plugin 层按四层：
+
+| 层 | 内容 | 依赖 |
+|---|---|---|
+| 单元（纯 TS） | session 状态机转换、pre-step 幂等判断、bridge argv 拼装、退码分类、review_memory 归一化 key 复刻逻辑 | vitest，无 Python |
+| 集成 | fixture DOCX + 最小 plan 跑真实 CLI：成功 / 人为破坏法条依据触发 integrity 拒绝 / 含不可定位条款触发 partial，断言三分类 | 本机 python3 + defusedxml |
+| 快照 | ACP/headless transcript 一份：intake→analyze→apply→finalize 全链路的 session 事件流对照（第三方仓库简化版 DSH snapshot 政策） | DEEPSEEK_API_KEY |
+| e2e | `dsh --profile lawyer "审查这份合同"`（真实样例合同）人工验收：产物双 DOCX 可开、归档完整、resume 可续 | 同上 |
 
 ---
 
-## 8. 决策日志（来自 brainstorming 完整记录）
+## 8. 决策日志
+
+v0.1 的 Q1–Q16 见 git 历史（0910e65）。v0.2 审计新增：
 
 | # | 决策点 | 选项 | 选择 | 理由 |
 |---|---|---|---|---|
-| Q1 | 目标用户 | A 自己/客户/平台/最小验证 | A 自己+律师 | 主要自用 |
-| Q2 | 核心交互能力（多选）| 可批注/进度可见/中途决策/长程会话 | 全部 4 项都要 | Discussion 里 maoking 反复强调 |
-| Q3 | 改造路径 | A 最小验证 / B 结构化拆分 / C 全功能重构 | A 最小验证 | 但 Q4 后转为 A+B+C+D+E 一次到位 |
-| Q4 | plugin 能力（多选）| A/B/C/D/E/F | A+B+C+D+E，不要 F | Discussion 核心痛点 |
-| Q5 | 新文件夹名 | 多个候选 | 和 legal-skills 平级（最终 Q6 定 legal-dsh-plugin） | 法律领域 |
-| Q6 | 法律 plugin 名 | legal-dsh-plugins / -plugin | `legal-dsh-plugin`（单数） | DSH 官方习惯 |
-| Q7 | package scope | @maoking / @ywxlaw / @yangweixin / 其他 | @yangweixin | 用户倾向 |
-| Q8 | 是否走 npm publish | yes / no | **no** | GitHub 直接装即可 |
-| Q9 | scope 选择 | 多 | yangweixin | |
-| Q10 | GitHub 用户名 | maoking / yangweixin / cat-xierluo | cat-xierluo（用户现有） | 不新建账号 |
-| Q11 | GitHub 用户名确认 | cat-xierluo | cat-xierluo | |
-| Q12 | Section 2 v1 是否对 | 是/否 | 否，需修订 | 不够贴原 skill |
-| Q13 | Section 2 v2 是否对 | 是/否 | 否，需再修订 | 没贴 Python 实际代码 |
-| Q14 | 路线 trade-off | A 不动 Python / B 重构 Python | 通过重新理解"中途决策"绕过 | plugin 化 SKILL.md 4 步流程，每步都可插决策 |
-| Q15 | Section 2 v3 是否对 | 是/否 | 是 | 贴合 SKILL.md §3.2 4 步流程 |
-| Q16 | 计划文件落盘位置 | 多个 | `docs/2026-08-18-dsh-plugin-design.md` | 标准化日期前缀 |
+| Q17 | 状态写盘机制 | 监听 `agent/post-step` / tool handler 内写 / 监听 session 事件 | **tool handler 内写** | `agent/post-step` 在 DSH 中不存在；tool 执行点是天然状态变更点；session 事件流由 DSH 本身保证 |
+| Q18 | CLI 调用原语 | `spawnSync` / 异步 `spawn` | **异步 spawn + AbortSignal** | apply 长任务同步阻塞会冻结整个 harness（HMR/UI/listener）；且异步才能支持中断 |
+| Q19 | 能力 B 进度粒度 | CLI stdout 流式 / tool 调用粒度 / 改 Python | **tool 调用粒度** | Python 执行期间零输出（实测 `apply_review_plan.py` 全部 print 在 main 尾部）；改 Python 违反原则 1 |
+| Q20 | 非交互参数策略 | 依赖 Python 默认值 / plugin 全量显式传参 | **全量显式传参** | `review_intensity` 缺失静默默认"强势"（`review_runtime.py:52`）；口径必须来自用户确认 |
+| Q21 | integrity 失败处理 | plugin 自建回滚（删临时 DOCX）/ 沿用 Python 写前拒绝语义 | **沿用 Python 语义，plugin 只分类退码** | Python 已在 save 之前检查并 `SystemExit(1)`，无产物可回滚（`apply_review_plan.py:361-364`） |
+| Q22 | §9.5 复核环节 | 第 8 个 tool / resume+analyze 组合 | **组合覆盖** | 对方改稿再审 = resume 旧 session + analyze 指向新 DOCX，无需新 tool；v1 收敛范围 |
+| Q23 | 起草流程 | 一并 plugin 化 / 显式排除 | **v1 排除** | 先把审查回路做穿；起草无 Python CLI 可包，收益结构不同 |
+| Q24 | 归档位置 | 重定向到 session 目录 / 沿用 skill 默认归档 | **沿用默认** | 不改变用户"去 skill archive/ 看留痕"的既有习惯；session 只记录返回的归档路径 |
+| Q25 | ask 交互实现 | tool 内直接调 `ctx.userQuestions` / 返回缺失清单由 agent 转调内置 `ask_user_question` | **首选 tool 内直调，失败回退返回清单** | 直调是原子的一次 tool call（能力 D 的体验）；`userQuestions` seam 的 tool 内可用性为实现期验证点 V2 |
 
----
+## 9. 审计回执（2026-08-18，v0.1 → v0.2）
 
-## 9. 待审计 agent 重点检查
+**核实为准确的引用**：`dsh plugin --profile add` 机制与 `dsh.bundle` 声明（publish.md）、`reconcilePlugins`（`apps/cli/src/plugin.ts:59`）、HMR（`profile-boot.ts:283` 挂载 cordis-plugin-hmr）、github 安装的 prepare + allowBuilds 陷阱、`agent/pre-step` waterfall 语义、`ask_user_question` 为内置 tool、Python 模块数（14）与 SKILL.md 体量（~29KB）、skill 版本 1.6.3（CHANGELOG）。
 
-**请审计 agent 重点关注**：
+**修正的引用**：`agent/post-step` 不存在（§4.3）；bridge argv（§4.4）；spawnSync（§4.4）；进度粒度（§3.3）；阶段命名统一为"§3.2.X（9.Y）"。
 
-1. **Section 4.2 的 7 个 Tools 是否真的 1:1 覆盖了 SKILL.md §3.2 4 步流程**？有没有遗漏的检查点？
-2. **Section 4.4 的 CLI bridge 是否会让 Python 重复跑 intake blocker**？即：plugin 已经通过 `contract_copilot_intake` 收集了信息，但 Python 在 `resolve_review_context` 里还是会二次 prompt。是否需要在 plugin 层用 `--no-interactive` 或环境变量跳过？
-3. **Section 5 数据流未完成**：审计 agent 可以基于 Section 4 + SKILL.md §3.2 自己推一版数据流，作为对比。
-4. **Section 6 错误处理未完成**：尤其是 integrity gate 失败时的回滚——是直接把临时 DOCX 删除，还是让用户决定？
-5. **Section 7 测试未完成**：建议审计 agent 直接参考 contract-copilot 现有 `scripts/tests/` 的测试覆盖，映射到 plugin 层。
-6. **Section 2.2 的 package.json name 是否需要带 scope**：如果用户后续真要走 npm publish，带 `@yangweixin/` scope 会卡住吗？
+**待反馈源 skill 的两个问题**（不阻塞本插件）：
+1. SKILL.md §十三 版本戳仍为 1.6.1（2026-08-11），CHANGELOG 已 1.6.3——版本戳未同步
+2. §9.4 的 `--skip-integrity-check` / `--draft-authorization` 在 argparse 中不存在——文档超前于代码
+
+**实现期验证点**（动工时逐个确认，不验证不进入下一里程碑）：
+- V1：link 安装的插件在 profile 内能否解析 `@deepseek-ai/dsh-tools` / `dsh-llm` / `dsh-agent` 的运行时导入（peerDependencies 声明 + pnpm 解析行为）
+- V2：tool handler 内调 `ctx.userQuestions` 的可用性与 headless 行为
+- V3：获取当前 DSH session id 的公开 API
+- V4：cordis-plugin-hmr 对 `link:` 本地插件的 watch 范围（lib/ 重建是否触发热更）
 
 ---
 
@@ -269,24 +381,24 @@ stdout 解析：监听"执行统计: 成功=X"等行（apply_review_plan.py:411-
 
 | 类型 | 路径 |
 |---|---|
-| 原 skill 入口 | `legal-skills/skills/contract-copilot/SKILL.md` |
-| 原 skill README | `legal-skills/skills/contract-copilot/README.md` |
-| 原 skill 决策日志 | `legal-skills/skills/contract-copilot/DECISIONS.md` |
-| Python 主入口 | `scripts/review/apply_review_plan.py` |
-| Python reviewer profile | `scripts/review/review_runtime.py` |
-| Python 动作执行 | `scripts/review/action_executor.py` |
-| Python 完整性门禁 | `scripts/report/integrity.py` |
+| 原 skill 入口 | `legal-skills/skills/contract-copilot/SKILL.md`（§3.2 四步、§八 文档操作、§九 标准审查流程） |
+| 原 skill 变更日志 | `legal-skills/skills/contract-copilot/CHANGELOG.md`（1.6.3） |
+| Python 主入口 | `scripts/review/apply_review_plan.py`（argparse 163-214；integrity 361-364；统计输出 403-428） |
+| Python 审查上下文 | `scripts/review/review_runtime.py`（isatty 判定 :203；非交互默认 :455-469；memory 写回 :504；reviewer_profile :517） |
+| DSH 仓库 | `参考项目/deepseek-harness/`（AGENTS.md / CLAUDE.md） |
+| DSH 插件分发 | `docs/user/develop/basic/publish.md` + `apps/cli/src/plugin.ts` |
+| DSH 插件教程 | `docs/user/develop/basic/index.md` + `tool.md`（defineTool 用法） |
+| pre-step 事件声明 | `packages/core/agent/src/runtime-types.ts:231` |
+| pre-step 实现参照 | `packages/context/time-context/src/index.ts:170`、`packages/skill/tool-skill/src/index.ts` |
+| ask_user 内置工具 | `packages/interaction/tool-ask-user/src/index.ts` |
+| HMR 挂载 | `apps/cli/src/profile-boot.ts:283` |
 | 讨论会实录 | `Documents/Mac同步文件夹/.../260818 讨论会实录（逐字稿+PPT截图）_corrected.md` |
-| DSH 仓库 | `参考项目/deepseek-harness/CLAUDE.md` + `AGENTS.md` |
-| DSH 插件加载机制 | `apps/cli/src/plugin.ts` + `docs/user/develop/basic/publish.md` |
-| DSH 插件社区 | `awesome-dsh-plugin/awesome-dsh-plugin` |
-| DSH 第一插件教程 | `docs/user/develop/basic/index.md` |
-| DSH Capability Seams Agent Note | `.agents/notes/implemented/architecture/2026-06-13-capability-seams.md` |
 
 ---
 
 ## 11. 元信息
 
-- 文档版本：v0.1（草案）
-- 下次修订触发条件：审计 agent 反馈、Section 3/4/5 补充完成、用户对 Section 4 提出调整
-- 关联文件：本仓库 `docs/` 下后续可能新增 `data-flow.md`、`error-handling.md`、`testing.md`
+- 文档版本：v0.2（已审计修订）
+- v0.1（0910e65）：初稿，brainstorming 产物，Section 5/6/7 为占位
+- v0.2：审计会话修订——修 4 处硬伤、补全 §5/§6/§7、新增 §1.4 范围边界与 §3.3 已知限制、决策日志 Q17–Q25
+- 下次修订触发条件：实现期验证点 V1–V4 的结论、首个里程碑（骨架安装）落地后的事实修正
