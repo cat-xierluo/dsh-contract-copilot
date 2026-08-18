@@ -183,7 +183,9 @@ export class SessionStore {
 
   /** 按合同 key 找最近 session（resume 按合同名索引的回退路径）。 */
   latestByContractKey(contractKey: string): ContractSession | undefined {
-    const hit = this.listRecent(200).find((entry) => entry.id.split('-')[0] === contractKey.slice(0, 40))
+    const trimmed = contractKey.trim()
+    if (trimmed === '') return undefined
+    const hit = this.listRecent(200).find((entry) => entry.id.startsWith(`${trimmed}-`))
     return hit === undefined ? undefined : this.get(hit.id)
   }
 
