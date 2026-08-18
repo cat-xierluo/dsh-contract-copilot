@@ -36,6 +36,13 @@ export function apply(ctx: Context, raw: PluginConfig): void {
   registerInspectSessionTool(ctx, store)
   registerResumeTool(ctx, store)
 
+  // DSH 的 lossless JSON 校验（packages/core/session/src/json.ts）拒绝任何值为
+  // undefined 的属性（递归）。本插件返回的对象里有大量可选字段（reviewer.department
+  // / missing / memoryHit / note 等），最简的合规做法是每个 tool 在 execute 末尾
+  // 包 compactUndefinedDeep 返回值。
+  // tools/post-execute listener 在失败路径拿不到 value（snapshotJsonValue 已抛出
+  // ToolOutputError），所以不能做统一拦截。
+
   if (config.injectProgress) {
     // 能力 C：每步注入审查进度（幂等：仅状态变化后注入一次）
     ctx.on('agent/pre-step', async ({ signal }, next): Promise<PreStepDecision> => {

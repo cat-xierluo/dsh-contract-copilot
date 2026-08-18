@@ -8,6 +8,7 @@
 import { readFileSync, writeFileSync } from 'node:fs'
 import type { Context } from '@deepseek-ai/cordis'
 import { defineTool } from '@deepseek-ai/dsh-tools'
+import { compactUndefinedDeep } from '../json.ts'
 import type { SessionStore } from '../session.ts'
 
 type FindingBrief = {
@@ -96,7 +97,7 @@ export function registerListFindingsTool(ctx: Context, store: SessionStore): voi
           || finding.insert_text !== undefined
           || finding.recommended_text !== undefined,
       }))
-      return {
+      return compactUndefinedDeep({
         sessionId: session.id,
         editPolicy,
         counts: {
@@ -104,7 +105,7 @@ export function registerListFindingsTool(ctx: Context, store: SessionStore): voi
           withEditPayload: findings.filter((f) => f.hasEditPayload).length,
         },
         findings,
-      }
+      })
     },
   }))
 }

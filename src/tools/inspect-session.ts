@@ -6,6 +6,7 @@
 
 import type { Context } from '@deepseek-ai/cordis'
 import { defineTool } from '@deepseek-ai/dsh-tools'
+import { compactUndefinedDeep } from '../json.ts'
 import type { ContractSession, SessionStore } from '../session.ts'
 
 type InspectValue = {
@@ -43,11 +44,11 @@ export function registerInspectSessionTool(ctx: Context, store: SessionStore): v
     },
     async execute(args): Promise<InspectValue> {
       if (args.sessionId === undefined || args.sessionId === '') {
-        return { recent: store.listRecent() }
+        return compactUndefinedDeep({ recent: store.listRecent() })
       }
       const session = store.get(args.sessionId)
       if (session === undefined) throw new Error(`contract-copilot: session 不存在: ${args.sessionId}`)
-      return {
+      return compactUndefinedDeep({
         sessionId: session.id,
         session: {
           contractName: session.contractName,
@@ -59,7 +60,7 @@ export function registerInspectSessionTool(ctx: Context, store: SessionStore): v
           updatedAt: session.updatedAt,
           historyTail: session.history.slice(-8),
         },
-      }
+      })
     },
   }))
 }

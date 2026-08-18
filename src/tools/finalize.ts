@@ -8,6 +8,7 @@
 import { existsSync } from 'node:fs'
 import type { Context } from '@deepseek-ai/cordis'
 import { defineTool } from '@deepseek-ai/dsh-tools'
+import { compactUndefinedDeep } from '../json.ts'
 import type { SessionStore } from '../session.ts'
 
 type FinalizeValue = {
@@ -58,14 +59,14 @@ export function registerFinalizeTool(ctx: Context, store: SessionStore): void {
         session.outputs.archiveDir === undefined ? undefined : `过程留痕（plan/执行日志/MD 报告）: ${session.outputs.archiveDir}`,
         '两件 Word 文件交付给用户才算完成；IM 发起的任务请回传原会话',
       ].filter((item): item is string => item !== undefined)
-      return {
+      return compactUndefinedDeep({
         sessionId: session.id,
         reviewedDocx,
         reportDocx,
         archiveDir: session.outputs.archiveDir,
         stats: session.outputs.stats,
         checklist,
-      }
+      })
     },
   }))
 }

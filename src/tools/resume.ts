@@ -9,6 +9,7 @@ import path from 'node:path'
 import { existsSync } from 'node:fs'
 import type { Context } from '@deepseek-ai/cordis'
 import { defineTool } from '@deepseek-ai/dsh-tools'
+import { compactUndefinedDeep } from '../json.ts'
 import type { ContractSession, SessionStore } from '../session.ts'
 import { expandHome, normalizeContractKey } from '../paths.ts'
 
@@ -78,13 +79,13 @@ export function registerResumeTool(ctx: Context, store: SessionStore): void {
 
       store.setCurrent(session.id)
       const refreshed = store.get(session.id) ?? session
-      return {
+      return compactUndefinedDeep({
         sessionId: refreshed.id,
         contractName: refreshed.contractName,
         state: refreshed.state,
         nextStep: nextStepFor(refreshed.state),
-        note,
-      }
+        ...(note !== undefined ? { note } : {}),
+      })
     },
   }))
 }

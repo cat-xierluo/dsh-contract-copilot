@@ -10,6 +10,7 @@ import path from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { PluginConfig } from '../config.ts'
+import { compactUndefinedDeep } from '../json.ts'
 import { runApplyCli } from '../python-bridge.ts'
 import type { BridgeKind } from '../python-bridge.ts'
 import type { SessionState, SessionStore } from '../session.ts'
@@ -99,12 +100,12 @@ export function registerApplyTool(ctx: Context, config: PluginConfig, store: Ses
         // §6.3：中断回 plan_ready；输出路径由 plugin 管理，半成品可安全清理
         if (existsSync(outputDocx)) unlinkSync(outputDocx)
         store.transition(session.id, 'contract_copilot_apply', 'plan_ready')
-        return {
+        return compactUndefinedDeep({
           sessionId: session.id,
-          kind: 'aborted',
+          kind: 'aborted' as const,
           exitCode: result.exitCode,
           guidance: '执行被中断，输出半成品已清理；可重新 apply',
-        }
+        })
       }
 
       store.transition(session.id, 'contract_copilot_apply', kindToState(result.kind), (target) => {
@@ -115,15 +116,15 @@ export function registerApplyTool(ctx: Context, config: PluginConfig, store: Ses
           stats: result.parsed.stats,
         }
       })
-      return {
+      return compactUndefinedDeep({
         sessionId: session.id,
         kind: result.kind,
         exitCode: result.exitCode,
         stats: result.parsed.stats,
         outputs: result.parsed,
         guidance: KIND_GUIDANCE[result.kind],
-        stderrTail: result.kind === 'success' ? undefined : result.stderr.slice(-1500),
-      }
+        ...(result.kind === 'success' ? {} : { stderrTail: result.stderr.slice(-1500) }),
+      })
     },
   }))
 }

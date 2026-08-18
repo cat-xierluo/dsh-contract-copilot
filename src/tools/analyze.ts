@@ -11,7 +11,7 @@ import path from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { PluginConfig } from '../config.ts'
-import { asObjectArray, asString } from '../json.ts'
+import { asObjectArray, asString, compactUndefinedDeep } from '../json.ts'
 import type { SessionStore } from '../session.ts'
 
 type AnalyzeValue = {
@@ -114,7 +114,7 @@ export function registerAnalyzeTool(ctx: Context, config: PluginConfig, store: S
       store.transition(session.id, 'contract_copilot_analyze', 'plan_ready', (target) => {
         target.planPath = planPath
       })
-      return {
+      return compactUndefinedDeep({
         sessionId: session.id,
         planPath,
         findingsCount: findings.length,
@@ -122,7 +122,7 @@ export function registerAnalyzeTool(ctx: Context, config: PluginConfig, store: S
         nextStep: missingLegalBasis.length > 0
           ? '补齐缺失的法律依据后重新提交 analyze'
           : 'contract_copilot_list_findings 供用户检视，或直接 contract_copilot_apply',
-      }
+      })
     },
   }))
 }

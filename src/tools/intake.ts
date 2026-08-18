@@ -11,6 +11,7 @@ import path from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { PluginConfig } from '../config.ts'
+import { compactUndefinedDeep } from '../json.ts'
 import { findContractMemory, readReviewerProfile, readReviewMemory } from '../skill-config.ts'
 import type { IntakeData, SessionStore } from '../session.ts'
 import { expandHome, normalizeContractKey } from '../paths.ts'
@@ -99,8 +100,8 @@ export function registerIntakeTool(ctx: Context, config: PluginConfig, store: Se
         // clientName 不阻塞（对齐 §3.2.1 阻塞清单），但仍在缺失清单里供 agent 一并询问
         const blockers = missing.filter((item) => item.field !== 'clientName')
         if (blockers.length > 0) {
-          return {
-            status: 'blocked',
+          return compactUndefinedDeep({
+            status: 'blocked' as const,
             sessionId: session.id,
             contractName,
             memoryHit: memory === undefined ? undefined : {
@@ -109,7 +110,7 @@ export function registerIntakeTool(ctx: Context, config: PluginConfig, store: Se
               reviewIntensity: memory.review_intensity,
             },
             missing,
-          }
+          })
         }
       }
 
@@ -119,12 +120,12 @@ export function registerIntakeTool(ctx: Context, config: PluginConfig, store: Se
         partyRole,
         reviewPurpose: args.reviewPurpose ?? '',
         reviewIntensity,
-        deadline: args.deadline,
-        priority: args.priority,
-        allowRestructure: args.allowRestructure,
         editPolicy: args.editPolicy ?? 'revise-first',
-        authorization: args.defaultAuthorization,
         reviewer: { author, organization, department: department === '' ? undefined : department },
+        ...(args.deadline !== undefined ? { deadline: args.deadline } : {}),
+        ...(args.priority !== undefined ? { priority: args.priority } : {}),
+        ...(args.allowRestructure !== undefined ? { allowRestructure: args.allowRestructure } : {}),
+        ...(args.defaultAuthorization !== undefined ? { authorization: args.defaultAuthorization } : {}),
       }
       store.transition(session.id, 'contract_copilot_intake', 'intake_done', (target) => {
         target.intake = intake
@@ -132,7 +133,13 @@ export function registerIntakeTool(ctx: Context, config: PluginConfig, store: Se
       const note = clientName === ''
         ? '客户名称未提供，暂记为"未提及/待补充"（可在 apply 前重新 intake 修正）'
         : undefined
-      return { status: 'ok', sessionId: session.id, contractName, intake, note }
+      return compactUndefinedDeep({
+        status: 'ok' as const,
+        sessionId: session.id,
+        contractName,
+        intake,
+        ...(note !== undefined ? { note } : {}),
+      })
     },
   }))
 }
