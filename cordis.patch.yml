@@ -1,0 +1,3 @@
+- insert:
+    - id: contract-copilot
+      name: '@yangweixin/dsh-contract-copilot'
