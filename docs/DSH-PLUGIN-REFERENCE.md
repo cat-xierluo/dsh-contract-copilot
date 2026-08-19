@@ -1,5 +1,7 @@
 # DSH 插件开发参考（范式与索引）
 
+> **维护源**：通用规范的持续维护在 [dsh-plugin-lint skill](../../../legal-skills/skills/dsh-plugin-lint/references/dsh-plugin-development-standards.md)（legal-skills 仓库）。本文件是本仓库落地时的快照 + 本仓库专属实例；DSH 升级后以 skill 侧为准。
+
 本仓库是 **DeepSeek Harness（DSH）的 out-of-tree 插件**。本文件沉淀本仓库实测验证过的 DSH 插件技术范式，供开发其他 DSH 插件项目复用。DSH 主仓库位于 `参考项目/deepseek-harness/`（下称 harness 仓库）。
 
 > 事实核对于 2026-08-19，对应 harness 版本 0.1.0-rc.7。升级 DSH 后请按"参考文件"逐条复核。

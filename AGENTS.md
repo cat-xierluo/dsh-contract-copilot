@@ -44,6 +44,6 @@
 2. 行为可验证：`pnpm run test` 全绿（当前 69/69）；e2e 涉及 API 时记录在 `CHANGELOG.md`
 3. 文档同步：本次变化的真实影响写入对应文档（变更日志、决策）
 4. 状态透明：剩余风险、未验证项在 `docs/ROADMAP.md` 或 `docs/DECISIONS.md` 标明
-5. **发布门禁**：发布/声称完成前跑 `dsh-plugin-lint`（`../dsh-plugin-lint/scripts/lint.mjs .` + 人工过 SKILL.md §2–§5）；不采信自报 PASS
+5. **发布门禁**：发布/声称完成前跑 `dsh-plugin-lint`（skill 位于 `../../legal-skills/skills/dsh-plugin-lint/`：`node ../../legal-skills/skills/dsh-plugin-lint/scripts/lint.mjs .` + 人工过其 SKILL.md §2–§5）；不采信自报 PASS
 
 [~/.claude/CLAUDE.md]: /Users/maoking/.claude/CLAUDE.md
