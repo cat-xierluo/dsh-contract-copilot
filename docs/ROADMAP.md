@@ -20,16 +20,18 @@
 - V2 / V3 / V4 实现期验证点
 - 53 → 66 单测扩展到覆盖 python-bridge 的 `runApplyCli` 真实 spawn 路径（需 defusedxml）
 
-### v2：DSH 原生插件 UI（**下一里程碑**）
+### v2：DSH 原生插件 UI（**核心已落地** ✅ 2026-08-19）
 
-- ✅ 方向已确认：`package.json#dsh.client` + `ctx.slots.inject(...)`（DECISIONS Q31）
-- ⏳ 拆 localhost 错路径代码（已 commit，见 CHANGELOG）
-- ⏳ 实现 `src/client/index.ts`：3 个 slot 组件（侧栏入口 / 工作台主面板 / 确认表单）
-- ⏳ 独立构建配置（tsdown browser bundle，参照 `packages/client/ui-theme`）
-- ⏳ 实测 lawyer profile web UI 中"Contract Copilot"图标可见 + 工作台可用
-- ⏳ 把 intake 的 `ask_user_question` 路径迁到页面表单（`pendingAnswers` 已在 schema 内，但表单 UI 还未做）
+- ✅ 方向确认：`package.json#dsh.client` + `ctx.slots.inject(...)`（DECISIONS Q31）
+- ✅ 拆除 localhost 错路径代码
+- ✅ `src/client/`：会话头部"📋 审查工作台"按钮 + 三栏对话框（session 列表 / Word 文档视图含修订高亮与批注 / 状态·统计·产物·发现·确认表单）
+- ✅ `src/host-api.ts` 数据面（headless 自动降级）
+- ✅ `tsdown.client.config.ts` 构建契约（两处细节修复记录在 DECISIONS Q31）
+- ✅ web profile 浏览器实测：按钮渲染 + 对话框三栏 + 合同正文 + 批注气泡 + 审查发现（截图验证通过）
+- ⏳ 剩余：确认表单 → agent 消费的端到端用户路径实测（机制已通：pendingAnswers 回路在 v1 已验证）
+- ⏳ 剩余：修订视图用带 force_edit 产物的 session 呈现（当前实测 session 是 force_edit 之前的产物，天然无 w:ins）
 
-**退出条件**：用户能在 `http://127.0.0.1:3080` 的 DSH web UI 中看到"Contract Copilot"侧栏入口，点开抽屉看到：当前 session 列表 + 选中 session 的文档预览（含 ins/del 修订高亮 + 批注气泡）+ 进度状态 + 确认表单。
+**退出条件**：用户在 DSH web UI 会话页看到工作台按钮，点开看到 session 列表 + 文档预览（修订高亮 + 批注气泡）+ 状态 + 确认表单，表单提交后 agent 可消费。**已达 90%**（表单→agent 消费的用户路径待实测）。
 
 ## 不在范围
 

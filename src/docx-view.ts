@@ -16,6 +16,7 @@
 
 import { spawnSync } from 'node:child_process'
 import type { SpawnSyncReturns } from 'node:child_process'
+import { unlinkSync, writeFileSync } from 'node:fs'
 
 export type DocxComment = {
   author: string
@@ -43,7 +44,7 @@ export function extractDocxParts(docxPath: string, pythonExecutable: string): { 
     'sys.stdout.write("\\n===COM===\\n" + safe("word/comments.xml"))',
   ].join('\n')
   const tmpScript = `${process.env.TMPDIR ?? '/tmp'}/cc-docx-${process.pid}-${Date.now()}.py`
-  require('node:fs').writeFileSync(tmpScript, script, 'utf8')
+  writeFileSync(tmpScript, script, 'utf8')
   let child: SpawnSyncReturns<string>
   try {
     child = spawnSync(pythonExecutable, [tmpScript, docxPath], {
@@ -51,7 +52,7 @@ export function extractDocxParts(docxPath: string, pythonExecutable: string): { 
       maxBuffer: 32 * 1024 * 1024,
     })
   } finally {
-    try { require('node:fs').unlinkSync(tmpScript) } catch { /* 清理失败不影响 */ }
+    try { unlinkSync(tmpScript) } catch { /* 清理失败不影响 */ }
   }
   if (child.status !== 0) {
     throw new Error(`contract-copilot workbench: python 抽取 DOCX 失败（exit ${child.status ?? 'null'}）: ${child.stderr?.slice(0, 200) ?? ''}`)

@@ -31,6 +31,7 @@ dsh plugin --profile lawyer add ./dsh-contract-copilot
 | `docs/DECISIONS.md` | 真实发生过的取舍与影响 |
 | `docs/ROADMAP.md` | 愿景、阶段退出条件、依赖风险 |
 | `docs/ARCHITECTURE.md` | 当前已实现的模块、边界、数据流 |
+| `docs/DSH-PLUGIN-REFERENCE.md` | **DSH 插件技术范式与参考文件索引**（开发其他 DSH 插件可复用） |
 | `docs/2026-08-18-dsh-plugin-design.md` | v0.2 设计稿（含审计、e2e 记录、决策日志 Q1–Q28） |
 
 ## License

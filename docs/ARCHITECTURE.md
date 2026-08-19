@@ -81,10 +81,22 @@ tests/                        # vitest 单测（66 个全绿）
 - **apply 长任务**（数分钟）会阻塞单 conversation turn；异步 spawn 已支持 AbortSignal
 - **未实现验证点**：V2（ctx.userQuestions tool 内可用性）、V3（DSH session id API）、V4（HMR watch 范围）
 
-## 8. v2 形态目标（详细在 DECISIONS.md Q31）
+## 8. v2 工作台（已实现，DECISIONS.md Q31）
 
-不再独立 localhost。改走 DSH 原生路径：
-- `package.json` 加 `dsh.client` 声明 + `exports["./client"]`
-- `src/client/index.ts`（Cordis function plugin）通过 `ctx.slots.inject(slot-name, ...)` 把 React 组件注册到 DSH web UI 的现有 slot
-- 后端 RPC：`SessionStore` 已支持订阅；用 `ctx.remote` 或 `ctx.connection` 暴露 `listSessions / getDocument / submitAnswers` 给 client
-- 复用 `docx-view.ts` 作为 React 组件 props
+双面插件：**host half**（Node）+ **client half**（浏览器）。
+
+```
+src/
+├── host-api.ts          # host 数据面：ctx.get('webServer') 可选注册 /contract-copilot/*
+│                        #   GET /state | /sessions/:id | /sessions/:id/document
+│                        #   POST /sessions/:id/answers（确认表单回收 → session.pendingAnswers）
+├── docx-view.ts         # OOXML → HTML（python3 zipfile 抽取 + 纯函数渲染：修订/批注高亮）
+└── client/              # 浏览器 half（不进 tsc node 构建；tsdown 打成 lib/client.js）
+    ├── index.tsx        # apply：ctx.slots.inject('conversation.session.header.utilities', …)
+    └── Workbench.tsx    # 按钮 + 三栏对话框（列表/文档/状态卡，轮询 3-5s）
+```
+
+- 声明：`package.json` `dsh.client {platform:web, inject:[@deepseek-ai/dsh-client-runtime]}` + `exports["./client"]`
+- 构建：`tsdown.client.config.ts` 复刻 closure-factory 工件契约（见 `docs/DSH-PLUGIN-REFERENCE.md` §4）
+- 降级：headless/无 webServer 的 profile 里数据面静默跳过，7 个 tool 照常
+- 渲染安全：文档 HTML 由 host 侧 `renderDocumentHtml` 生成（文本已 escape），client 直接注入

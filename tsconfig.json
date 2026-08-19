@@ -17,5 +17,6 @@
     "forceConsistentCasingInFileNames": true,
     "exactOptionalPropertyTypes": false
   },
-  "include": ["src"]
+  "include": ["src"],
+  "exclude": ["src/client"]
 }

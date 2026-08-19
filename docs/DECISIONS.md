@@ -61,6 +61,7 @@
 | **已验证（research only，未实现）** | (a) `ClientModuleRegistry` 扫描 loader 全 entries，写入 `window.__DSH_BOOT__`；(b) `/plugins/<id>/client.js` 由 `clientPath` 表里的磁盘路径 serve，不分 in-tree / out-of-tree；(c) `ui-slots` 实操样本（`packages/client/ui-theme` 注册到 `settings.general.item`） |
 | **未验证风险** | ① slot 名要按 `packages/client/ui-*` 实际声明逐个核实；② out-of-tree pnpm link 时 HMR watch 范围；③ `dsh.client` bundle 用 tsdown 隔离 server bundle 的 lib/ 目录 |
 | **何时重新评估** | DSH 主 web app 引入新的 slot 类型；profile 携带 client 包后启动失败 |
+| **实施状态（2026-08-19）** | ✅ **已落地并浏览器实测通过**。实施中发现并修复两处契约细节：(a) banner 必须构造 `var module = { exports: {} }; var exports = module.exports;`（否则浏览器端 `exports is not defined`）；(b) `"type":"module"` 包内 cjs 产物默认 `.cjs` 后缀，需 `outExtensions` 强制 `.js`。挂载点最终选 `conversation.session.header.utilities`（会话头部按钮 + 全屏对话框）。旁证：用户 web profile 已有 5 个社区 out-of-tree 插件（dsh-better-sidebar 等）以同机制正常运行 |
 
 ## Q32：错路径归档（commit pending，2026-08-19）
 
