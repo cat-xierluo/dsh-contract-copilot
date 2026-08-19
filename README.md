@@ -34,6 +34,19 @@ dsh plugin --profile lawyer add ./dsh-contract-copilot
 | `docs/DSH-PLUGIN-REFERENCE.md` | **DSH 插件技术范式与参考文件索引**（开发其他 DSH 插件可复用） |
 | `docs/2026-08-18-dsh-plugin-design.md` | v0.2 设计稿（含审计、e2e 记录、决策日志 Q1–Q28） |
 
+## 开发循环（本地 link 安装）
+
+**插件代码不热加载**（2026-08-19 双向实测：node half 改 `lib/` 后长驻进程不重载 apply；client half 重建 bundle 后 `__DSH_BOOT__` rev 不重扫）。改代码后必须 `pnpm run build` + 重启 dsh。
+
+macOS 免手动 build 的一行命令（fswatch）：
+
+```sh
+fswatch -o src/ | while read -r _; do pnpm run build; done
+# 重启 dsh 仍需手动（另开终端）
+```
+
+只有 profile 的 `cordis.patch.yml`（配置层）是热重载的——调 skillRoot 等配置无需重启。
+
 ## License
 
 CC-BY-NC-4.0 © 杨卫薪律师（微信 ywxlaw）
