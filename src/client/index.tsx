@@ -1,30 +1,43 @@
 /**
- * 浏览器 half（dsh.client）：把"审查工作台"挂进 DSH web UI。
+ * 浏览器 half（dsh.client）：合同审查工作台入口 + 对话框。
  *
- * 挂载点 conversation.session.header.utilities（会话头部按钮区，
- * session-log-export 同款先例）。数据从 host half 的同源数据面取
- * （/contract-copilot/*，见 src/host-api.ts）。
+ * 入口位置（用户要求）：左侧边栏 rail——与任务看板/SSH 同排。
+ * 该 rail 是社区侧栏插件占据 `sidebar` 槽后的内部区域，无公开子槽；
+ * 任务看板/SSH 的做法是自带样式 DOM 注入，此处同款：把入口节点注入
+ * 官方标记的 [data-slot=sidebar] 容器（比社区插件的私有类名稳定）。
+ * 会话头部按钮与输入区 dock 已按用户要求移除，只保留这一个入口。
  */
 
 import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
-// Type-only：拉 ui-conversation 的 SlotMap 声明合并（slot 类型与运行时声明都在
-// 所属 client 包；同时列在本包 dsh.client.inject 里保证加载顺序）。
-// sidebar 槽是 ui-layout 独占渲染槽（实测外部 entry 不生效），不用。
-import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
-import { ContractDockPanel, ContractWorkbenchButton } from './Workbench.tsx'
+import { createRoot, type Root } from 'react-dom/client'
+import { createElement } from 'react'
+import { RailEntryButton } from './Workbench.tsx'
 
 export const inject = ['slots']
 
-/** 注册两个入口：会话头部按钮（全功能）+ 输入区 dock 常驻简版（TodoPanel 同款槽）。 */
+const HOST_ID = 'contract-copilot-rail-host'
+
+/** 注入左侧 rail 入口；容器晚出现时轮询重试，卸载时清理 React root 与节点。 */
 export function apply(ctx: ClientContext): void {
-  ctx.slots.inject('conversation.session.header.utilities', () =>
-    ctx.slots.register(
-      { name: 'conversation.session.header.utilities', id: 'contract-copilot-workbench' },
-      ContractWorkbenchButton,
-    ))
-  ctx.slots.inject('conversation.input.dock', () =>
-    ctx.slots.register(
-      { name: 'conversation.input.dock', id: 'contract-copilot-dock' },
-      ContractDockPanel,
-    ))
+  let mounted = false
+  let host: HTMLElement | undefined
+  let root: Root | undefined
+  const timer = setInterval(() => {
+    if (mounted) return
+    const sidebar = document.querySelector('[data-slot=sidebar]')
+    if (sidebar === null || sidebar instanceof HTMLElement === false) return
+    host = document.createElement('div')
+    host.id = HOST_ID
+    host.dataset.plugin = 'contract-copilot'
+    sidebar.appendChild(host)
+    root = createRoot(host)
+    root.render(createElement(RailEntryButton))
+    mounted = true
+    clearInterval(timer)
+  }, 800)
+  ctx.effect(() => () => {
+    clearInterval(timer)
+    void root?.unmount()
+    host?.remove()
+  }, 'contract-copilot: rail entry')
 }

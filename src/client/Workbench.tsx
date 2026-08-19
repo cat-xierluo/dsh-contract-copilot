@@ -5,7 +5,8 @@
  * 侧渲染（renderDocumentHtml 已对文本做 escape），此处直接注入。
  */
 
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
+import { renderAsync } from 'docx-preview'
 
 interface SessionBrief {
   id: string
@@ -79,23 +80,10 @@ const insDelCss = `
   .ccp-doc sup.cc-comment { color:#2f5aae; cursor:help; margin:0 1px; }
 `
 
-/** 会话头部按钮：打开工作台。 */
-export function ContractWorkbenchButton(): React.JSX.Element {
+/** 左侧 rail 入口按钮（注入 [data-slot=sidebar]，与任务看板/SSH 同排）。 */
+export function RailEntryButton(): React.JSX.Element {
   const [open, setOpen] = useState(false)
-  return (
-    <>
-      <button type="button" style={{ ...S.btn, background: '#fff', color: '#2f5aae', border: '1px solid #c9d4ec' }} onClick={() => setOpen(true)}>
-        📋 审查工作台
-      </button>
-      {open ? <Workbench onClose={() => setOpen(false)} /> : null}
-    </>
-  )
-}
-
-/** 输入区 dock 常驻简版：最新 session 状态 + 打开工作台（TodoPanel 同款槽）。 */
-export function ContractDockPanel(): React.JSX.Element {
   const [latest, setLatest] = useState<SessionBrief | undefined>(undefined)
-  const [open, setOpen] = useState(false)
   useEffect(() => {
     let alive = true
     const load = async (): Promise<void> => {
@@ -106,22 +94,75 @@ export function ContractDockPanel(): React.JSX.Element {
       } catch { /* 静默 */ }
     }
     void load()
-    const timer = setInterval(load, 5000)
+    const timer = setInterval(load, 8000)
     return () => { alive = false; clearInterval(timer) }
   }, [])
+  const active = latest !== undefined && !['delivered'].includes(latest.state)
   return (
     <>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '4px 8px', fontSize: 12 }}>
-        <span>📋</span>
-        {latest === undefined
-          ? <span style={S.muted}>合同审查</span>
-          : <>
-            <span style={{ maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{latest.contractName}</span>
-            <span style={S.pill}>{STATE_LABELS[latest.state] ?? latest.state}</span>
-          </>}
-        <button type="button" style={{ ...S.btn, padding: '3px 10px', fontSize: 12 }} onClick={() => setOpen(true)}>工作台</button>
-      </div>
+      <button type="button"
+        title={latest === undefined ? '合同审查' : `${latest.contractName} · ${STATE_LABELS[latest.state] ?? latest.state}`}
+        onClick={() => setOpen(true)}
+        style={{
+          display: 'flex', alignItems: 'center', gap: 8, width: 'calc(100% - 12px)',
+          margin: '4px 6px', padding: '7px 10px', borderRadius: 8,
+          border: '1px solid', borderColor: active ? '#2f5aae' : 'var(--dsw-alias-border-l2, #d9d6cf)',
+          background: active ? '#eef2fb' : 'transparent',
+          color: 'var(--dsw-alias-fg-base, #1d1d1b)', fontSize: 13,
+          cursor: 'pointer', textAlign: 'left',
+        }}>
+        <span style={{ fontSize: 16 }}>📋</span>
+        <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>合同审查</span>
+        {latest !== undefined
+          ? <span style={{ width: 8, height: 8, borderRadius: 4, background: active ? '#2f5aae' : '#3fae6a', flexShrink: 0 }} />
+          : null}
+      </button>
       {open ? <Workbench onClose={() => setOpen(false)} /> : null}
+    </>
+  )
+}
+
+
+/** 中栏 Word 渲染：docx-preview 渲染真实 DOCX（分页纸张 + 修订），失败降级简版 HTML。 */
+function WordPane(props: { sessionId: string; reviewedDocx?: string; fallbackHtml: string; label: string }): React.JSX.Element {
+  const holder = useRef<HTMLDivElement | null>(null)
+  const [mode, setMode] = useState<'word' | 'simple'>('word')
+  const [error, setError] = useState<string | undefined>(undefined)
+  useEffect(() => {
+    let alive = true
+    const run = async (): Promise<void> => {
+      try {
+        const kind = props.reviewedDocx !== undefined ? 'reviewed' : 'source'
+        const r = await fetch(`/contract-copilot/sessions/${encodeURIComponent(props.sessionId)}/download/${kind}`)
+        if (!r.ok) throw new Error(`HTTP ${String(r.status)}`)
+        const blob = await r.blob()
+        const container = holder.current
+        if (!alive || container === null) return
+        container.innerHTML = ''
+        await renderAsync(blob, container, undefined, {
+          renderChanges: true,
+          ignoreLastRenderedPageBreak: false,
+          experimental: true,
+          useBase64URL: true,
+        })
+      } catch (e) {
+        if (alive) { setError(String(e)); setMode('simple') }
+      }
+    }
+    void run()
+    return () => { alive = false }
+  }, [props.sessionId, props.reviewedDocx])
+  return (
+    <>
+      <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 8 }}>
+        <span style={S.muted}>{props.label}</span>
+        <button type="button" style={{ ...S.btn, padding: '2px 10px', fontSize: 12, background: mode === 'word' ? '#2f5aae' : '#fff', color: mode === 'word' ? '#fff' : '#2f5aae', border: '1px solid #c9d4ec' }} onClick={() => setMode('word')}>Word 视图</button>
+        <button type="button" style={{ ...S.btn, padding: '2px 10px', fontSize: 12, background: mode === 'simple' ? '#2f5aae' : '#fff', color: mode === 'simple' ? '#fff' : '#2f5aae', border: '1px solid #c9d4ec' }} onClick={() => setMode('simple')}>简版（修订高亮）</button>
+        {error !== undefined ? <span style={{ ...S.muted, color: '#b03a2e' }}>Word 渲染失败已降级</span> : null}
+      </div>
+      {mode === 'word'
+        ? <div ref={holder} style={{ ...S.docFrame, padding: 0, border: 0, minHeight: 400 }} />
+        : <div className="ccp-doc" style={S.docFrame} dangerouslySetInnerHTML={{ __html: props.fallbackHtml }} />}
     </>
   )
 }
@@ -130,7 +171,7 @@ function Workbench(props: { onClose: () => void }): React.JSX.Element {
   const [sessions, setSessions] = useState<SessionBrief[]>([])
   const [selected, setSelected] = useState<string | undefined>(undefined)
   const [detail, setDetail] = useState<SessionDetail | undefined>(undefined)
-  const [doc, setDoc] = useState<{ label: string; html: string } | undefined>(undefined)
+  const [doc, setDoc] = useState<{ label: string; html: string; reviewedDocx?: string } | undefined>(undefined)
   const [answers, setAnswers] = useState<Record<string, string>>({})
   const [toast, setToast] = useState<string | undefined>(undefined)
   const [recheckPath, setRecheckPath] = useState('')
@@ -273,8 +314,9 @@ function Workbench(props: { onClose: () => void }): React.JSX.Element {
               ))}
           </div>
           <div style={S.doc}>
-            <div style={{ ...S.muted, marginBottom: 8 }}>{doc?.label ?? '选择左侧 session 查看文档'}</div>
-            <div className="ccp-doc" style={S.docFrame} dangerouslySetInnerHTML={{ __html: doc?.html ?? '<p style="color:#8a8884">—</p>' }} />
+            {doc !== undefined && selected !== undefined
+              ? <WordPane sessionId={selected} reviewedDocx={doc.reviewedDocx} fallbackHtml={doc.html} label={doc.label} />
+              : <div style={S.muted}>选择左侧 session 查看文档</div>}
           </div>
           <div style={S.side}>
             <div style={S.card}>

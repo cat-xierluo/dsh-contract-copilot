@@ -118,7 +118,7 @@ export function registerHostApi(ctx: Context, config: PluginConfig, store: Sessi
       return
     }
 
-    const sessionMatch = /^\/sessions\/([\w.-]+)(\/(detail|document|answers|recheck|download\/(reviewed|report)))?$/.exec(suffix)
+    const sessionMatch = /^\/sessions\/([\w.-]+)(\/(detail|document|answers|recheck|download\/(reviewed|report|source)))?$/.exec(suffix)
     if (sessionMatch === null) {
       json(res, 404, { error: 'not found' })
       return
@@ -208,9 +208,10 @@ export function registerHostApi(ctx: Context, config: PluginConfig, store: Sessi
       return
     }
 
-    // A1：产物下载（流式 + content-disposition）
+    // A1：产物/原合同下载（流式 + content-disposition）
     if (method === 'GET' && sessionMatch[4] !== undefined) {
-      serveDownload(res, store, id, sessionMatch[4] === 'reviewed' ? 'reviewed' : 'report')
+      const kind = sessionMatch[4]
+      serveDownload(res, store, id, kind === 'reviewed' || kind === 'source' ? kind : 'report')
       return
     }
 
@@ -242,13 +243,17 @@ function readBody(req: IncomingMessage): Promise<string> {
   })
 }
 
-function serveDownload(res: ServerResponse, store: SessionStore, id: string, kind: 'reviewed' | 'report'): void {
+function serveDownload(res: ServerResponse, store: SessionStore, id: string, kind: 'reviewed' | 'report' | 'source'): void {
   const session = store.get(id)
   if (session === undefined) {
     json(res, 404, { error: 'session not found' })
     return
   }
-  const file = kind === 'reviewed' ? session.outputs.reviewedDocx : session.outputs.reportDocx
+  const file = kind === 'reviewed'
+    ? session.outputs.reviewedDocx
+    : kind === 'source'
+      ? session.contractPath
+      : session.outputs.reportDocx
   if (file === undefined) {
     json(res, 404, { error: `${kind} DOCX 尚未产出` })
     return
