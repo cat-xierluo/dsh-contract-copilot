@@ -341,6 +341,13 @@ integrity 检查在 Python **写出任何正式 DOCX 之前**执行（`apply_rev
 | 快照 | ACP/headless transcript 一份：intake→analyze→apply→finalize 全链路的 session 事件流对照（第三方仓库简化版 DSH snapshot 政策） | DEEPSEEK_API_KEY |
 | e2e | `dsh --profile lawyer "审查这份合同"`（真实样例合同）人工验收：产物双 DOCX 可开、归档完整、resume 可续 | 同上 |
 
+**e2e 实测记录（2026-08-19，headless profile + 本地网关 deepseek-v4-flash）**：
+- intake → analyze → apply（真实 Python CLI，成功=3 失败=0 仅意见书=1）→ finalize 全链路跑通，session 状态机完整走完 `intake_done → plan_ready → applying → applied → delivered`
+- 产物落位验证：session 目录双 DOCX + skill archive 完整留痕（input/plan/执行日志/MD 报告/manifest）
+- 退码分类实测：第一轮因 plan 缺 summary 段被 integrity 拒绝 → `classify` 正确判 `rejected`（stderr 特征匹配生效）
+- Word 修订实测：`force_edit: true` 的 replace 落成 w:ins/w:del 最小差异修订（合并 w:t 后验证替换文本完整在场；未删整段，只标删差异词"全部"）
+- 首轮即抓到 3 个真实缺口（Q26/Q27/Q28），均已修复
+
 ---
 
 ## 8. 决策日志
@@ -358,6 +365,9 @@ v0.1 的 Q1–Q16 见 git 历史（0910e65）。v0.2 审计新增：
 | Q23 | 起草流程 | 一并 plugin 化 / 显式排除 | **v1 排除** | 先把审查回路做穿；起草无 Python CLI 可包，收益结构不同 |
 | Q24 | 归档位置 | 重定向到 session 目录 / 沿用 skill 默认归档 | **沿用默认** | 不改变用户"去 skill archive/ 看留痕"的既有习惯；session 只记录返回的归档路径 |
 | Q25 | ask 交互实现 | tool 内直接调 `ctx.userQuestions` / 返回缺失清单由 agent 转调内置 `ask_user_question` | **首选 tool 内直调，失败回退返回清单** | 直调是原子的一次 tool call（能力 D 的体验）；`userQuestions` seam 的 tool 内可用性为实现期验证点 V2 |
+| Q26 | plan 的 summary 段 | analyze 只写 meta+findings / analyze 必填 summary | **必填 summary**（e2e 发现） | 报告渲染器从 plan.summary 取概况/结论/建议字段，缺失逐个渲染"待补充"，16 处 > 阈值 10 → integrity 整体拒绝（reporting.py `_safe_line` fallback） |
+| Q27 | 被拒后的 re-analyze | 仅 intake_done/plan_ready 可提交 / 扩展到 rejected/partial/failed | **扩展**（e2e 发现） | integrity 拒绝后的修复回路就是"改 summary/findings 再 analyze"；不扩展则死锁在 rejected |
+| Q28 | 实质性改写的修订收束 | 依赖 action=replace / 沿用 skill 收束 + schema 告知 force_edit | **沿用收束 + schema 文档化**（e2e 发现） | action_executor.resolve_delivery_action 对 substantive rewrite（差异≥25字）默认降级批注/意见书——这是源 skill 的克制设计；finding 带 `force_edit: true` 显式授权才落 Word 修订，schema description 已告知 agent 该语义 |
 
 ## 9. 审计回执（2026-08-18，v0.1 → v0.2）
 
