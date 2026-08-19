@@ -30,6 +30,9 @@
   },
   "author": "杨卫薪律师（微信 ywxlaw）",
   "license": "CC-BY-NC-4.0",
+  "publishConfig": {
+    "access": "public"
+  },
   "dsh": {
     "bundle": {
       "patch": "./cordis.patch.yml"
