@@ -33,6 +33,13 @@ interface SessionDetail {
   findings: Array<Record<string, unknown>>
 }
 
+interface DocComment {
+  id: string
+  author: string
+  date?: string
+  text: string
+}
+
 const STATE_LABELS: Record<string, string> = {
   created: '待补齐',
   intake_done: '前置信息已确认',
@@ -85,6 +92,40 @@ export function ContractWorkbenchButton(): React.JSX.Element {
   )
 }
 
+/** 输入区 dock 常驻简版：最新 session 状态 + 打开工作台（TodoPanel 同款槽）。 */
+export function ContractDockPanel(): React.JSX.Element {
+  const [latest, setLatest] = useState<SessionBrief | undefined>(undefined)
+  const [open, setOpen] = useState(false)
+  useEffect(() => {
+    let alive = true
+    const load = async (): Promise<void> => {
+      try {
+        const r = await fetch('/contract-copilot/state')
+        const data = await r.json() as { sessions: SessionBrief[] }
+        if (alive && (data.sessions ?? []).length > 0) setLatest(data.sessions[0])
+      } catch { /* 静默 */ }
+    }
+    void load()
+    const timer = setInterval(load, 5000)
+    return () => { alive = false; clearInterval(timer) }
+  }, [])
+  return (
+    <>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '4px 8px', fontSize: 12 }}>
+        <span>📋</span>
+        {latest === undefined
+          ? <span style={S.muted}>合同审查</span>
+          : <>
+            <span style={{ maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{latest.contractName}</span>
+            <span style={S.pill}>{STATE_LABELS[latest.state] ?? latest.state}</span>
+          </>}
+        <button type="button" style={{ ...S.btn, padding: '3px 10px', fontSize: 12 }} onClick={() => setOpen(true)}>工作台</button>
+      </div>
+      {open ? <Workbench onClose={() => setOpen(false)} /> : null}
+    </>
+  )
+}
+
 function Workbench(props: { onClose: () => void }): React.JSX.Element {
   const [sessions, setSessions] = useState<SessionBrief[]>([])
   const [selected, setSelected] = useState<string | undefined>(undefined)
@@ -93,6 +134,8 @@ function Workbench(props: { onClose: () => void }): React.JSX.Element {
   const [answers, setAnswers] = useState<Record<string, string>>({})
   const [toast, setToast] = useState<string | undefined>(undefined)
   const [recheckPath, setRecheckPath] = useState('')
+  const [newContractPath, setNewContractPath] = useState('')
+  const [comments, setComments] = useState<DocComment[]>([])
 
   // A2：SSE 实时列表（连接即收 snapshot；此后 store 变更即时推送）。断线降级轮询。
   useEffect(() => {
@@ -137,7 +180,11 @@ function Workbench(props: { onClose: () => void }): React.JSX.Element {
         if (r.ok) setDetail(await r.json() as SessionDetail)
         const d = await fetch(`/contract-copilot/sessions/${encodeURIComponent(selected)}/document`)
         if (!alive) return
-        if (d.ok) setDoc(await d.json() as { label: string; html: string })
+        if (d.ok) {
+          const data = await d.json() as { label: string; html: string; comments?: DocComment[] }
+          setDoc(data)
+          setComments(data.comments ?? [])
+        }
       } catch { /* 静默 */ }
     }
     void load()
@@ -156,6 +203,29 @@ function Workbench(props: { onClose: () => void }): React.JSX.Element {
       setToast(r.ok ? '已提交。请让 agent 重调 contract_copilot_intake 消费这些答案。' : '提交失败')
     } catch (error) {
       setToast(`提交失败: ${String(error)}`)
+    }
+  }
+
+  // 工作台"新建审查"：创建 session + 预算阻塞项（表单先行），引导用户让 agent 接手
+  const startReview = async (): Promise<void> => {
+    if (newContractPath.trim() === '') return
+    try {
+      const r = await fetch('/contract-copilot/sessions/start', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ contractPath: newContractPath.trim() }),
+      })
+      const data = await r.json() as { sessionId?: string; nextStep?: string; error?: string }
+      if (!r.ok || data.sessionId === undefined) {
+        setToast(`创建失败: ${data.error ?? r.status}`)
+        return
+      }
+      setSelected(data.sessionId)
+      setAnswers({})
+      setNewContractPath('')
+      setToast(data.nextStep ?? '已创建')
+    } catch (error) {
+      setToast(`创建失败: ${String(error)}`)
     }
   }
 
@@ -188,7 +258,12 @@ function Workbench(props: { onClose: () => void }): React.JSX.Element {
         </div>
         <div style={S.body}>
           <div style={S.list}>
-            {sessions.length === 0 ? <div style={S.muted}>尚无 session——对 agent 说「审查 {'<合同路径>'}」开始。</div>
+            <div style={{ ...S.card, marginBottom: 10 }}>
+              <div style={{ ...S.muted, marginBottom: 6 }}>➕ 新建审查</div>
+              <input style={S.input} placeholder="合同 DOCX 本地绝对路径" value={newContractPath} onChange={(e) => setNewContractPath(e.target.value)} />
+              <button type="button" style={{ ...S.btn, marginTop: 6, width: '100%' }} onClick={startReview} disabled={newContractPath.trim() === ''}>开始（表单先行）</button>
+            </div>
+            {sessions.length === 0 ? <div style={S.muted}>尚无 session——上方输入合同路径，或对 agent 说「审查 {'<合同路径>'}」。</div>
               : sessions.map((s) => (
                 <div key={s.id} style={{ ...S.row, background: s.id === selected ? '#eef2fb' : undefined }}
                   onClick={() => { setSelected(s.id); setAnswers({}) }}>
@@ -245,6 +320,17 @@ function Workbench(props: { onClose: () => void }): React.JSX.Element {
                   </div>
                 ))}
                 <button type="button" style={S.btn} onClick={submitAnswers}>提交给 agent</button>
+              </div>
+            ) : null}
+            {comments.length > 0 ? (
+              <div style={S.card}>
+                <div style={{ ...S.muted, marginBottom: 6 }}>💬 批注（{comments.length}）</div>
+                {comments.slice(0, 12).map((c) => (
+                  <div key={c.id} style={{ fontSize: 12, marginBottom: 8, paddingLeft: 6, borderLeft: '2px solid #c9d4ec' }}>
+                    <div style={{ color: '#2f5aae', fontWeight: 500 }}>{c.author.split('｜')[0] ?? c.author}</div>
+                    <div style={{ color: '#5c5b59' }}>{c.text.slice(0, 120)}{c.text.length > 120 ? '…' : ''}</div>
+                  </div>
+                ))}
               </div>
             ) : null}
             {detail !== undefined && detail.findings.length > 0 ? (

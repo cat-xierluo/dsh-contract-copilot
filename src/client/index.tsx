@@ -7,18 +7,24 @@
  */
 
 import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
-// Type-only：拉 ui-conversation 的 SlotMap 声明合并（conversation.session.header.utilities
-// 的 slot 类型与运行时声明都来自它；同时它在本包 dsh.client.inject 里保证加载顺序）。
+// Type-only：拉 ui-conversation 的 SlotMap 声明合并（slot 类型与运行时声明都在
+// 所属 client 包；同时列在本包 dsh.client.inject 里保证加载顺序）。
+// sidebar 槽是 ui-layout 独占渲染槽（实测外部 entry 不生效），不用。
 import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
-import { ContractWorkbenchButton } from './Workbench.tsx'
+import { ContractDockPanel, ContractWorkbenchButton } from './Workbench.tsx'
 
 export const inject = ['slots']
 
-/** 注册会话头部的工作台按钮（打开全屏工作台对话框）。 */
+/** 注册两个入口：会话头部按钮（全功能）+ 输入区 dock 常驻简版（TodoPanel 同款槽）。 */
 export function apply(ctx: ClientContext): void {
   ctx.slots.inject('conversation.session.header.utilities', () =>
     ctx.slots.register(
       { name: 'conversation.session.header.utilities', id: 'contract-copilot-workbench' },
       ContractWorkbenchButton,
+    ))
+  ctx.slots.inject('conversation.input.dock', () =>
+    ctx.slots.register(
+      { name: 'conversation.input.dock', id: 'contract-copilot-dock' },
+      ContractDockPanel,
     ))
 }

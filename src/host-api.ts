@@ -24,9 +24,11 @@ import path from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
 import type { PluginConfig } from './config.ts'
 import { extractDocxParts, parseCommentsXml, renderDocumentHtml } from './docx-view.ts'
+import { resolveIntakeFields } from './intake-fields.ts'
 import type { ContractSession, SessionStore } from './session.ts'
 import { existsSync } from 'node:fs'
-import { expandHome } from './paths.ts'
+import { expandHome, normalizeContractKey } from './paths.ts'
+import { findContractMemory, readReviewerProfile, readReviewMemory } from './skill-config.ts'
 
 /** webServer 服务的结构子集（避免引入 dsh-host-webserver 依赖）。 */
 interface WebServerLike {
@@ -87,6 +89,35 @@ export function registerHostApi(ctx: Context, config: PluginConfig, store: Sessi
       return
     }
 
+    // 工作台"新建审查"：创建 session 并预算阻塞项（表单先行，agent 后续 intake 复用消费）
+    if (method === 'POST' && suffix === '/sessions/start') {
+      readBody(req).then((raw) => {
+        try {
+          const body = JSON.parse(raw) as { contractPath?: string }
+          const contractPath = path.resolve(expandHome(String(body.contractPath ?? '')))
+          if (!existsSync(contractPath)) { json(res, 400, { error: `合同不存在: ${contractPath}` }); return }
+          if (!contractPath.toLowerCase().endsWith('.docx')) { json(res, 400, { error: '仅支持 DOCX' }); return }
+          const contractName = path.basename(contractPath, path.extname(contractPath))
+          const memory = findContractMemory(readReviewMemory(config.skillRoot), normalizeContractKey(contractName))
+          const profile = readReviewerProfile(config.skillRoot)
+          const { missing } = resolveIntakeFields({}, {}, memory, profile)
+          const session = store.create(contractPath, contractName)
+          if (missing.length > 0) store.save({ ...session, intakeMissing: missing })
+          json(res, 200, {
+            sessionId: session.id,
+            contractName,
+            missing,
+            nextStep: missing.length > 0
+              ? `右侧表单补齐后，对 agent 说：审查 ${contractPath}（工作台表单已填）`
+              : `直接对 agent 说：审查 ${contractPath}`,
+          })
+        } catch (error) {
+          json(res, 400, { error: String(error) })
+        }
+      }).catch((error: unknown) => json(res, 400, { error: String(error) }))
+      return
+    }
+
     const sessionMatch = /^\/sessions\/([\w.-]+)(\/(detail|document|answers|recheck|download\/(reviewed|report)))?$/.exec(suffix)
     if (sessionMatch === null) {
       json(res, 404, { error: 'not found' })
@@ -121,10 +152,12 @@ export function registerHostApi(ctx: Context, config: PluginConfig, store: Sessi
       try {
         const docxPath = session.outputs.reviewedDocx ?? session.contractPath
         const { documentXml, commentsXml } = extractDocxParts(docxPath, config.pythonExecutable)
-        const html = renderDocumentHtml(documentXml, parseCommentsXml(commentsXml))
+        const comments = parseCommentsXml(commentsXml)
+        const html = renderDocumentHtml(documentXml, comments)
         json(res, 200, {
           label: session.outputs.reviewedDocx !== undefined ? '审核修订版 DOCX' : '原合同',
           html,
+          comments: [...comments.entries()].map(([id, c]) => ({ id, ...c })),
           reviewedDocx: session.outputs.reviewedDocx,
           reportDocx: session.outputs.reportDocx,
         })

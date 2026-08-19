@@ -12,15 +12,11 @@ import type { Context } from '@deepseek-ai/cordis'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { PluginConfig } from '../config.ts'
 import { compactUndefinedDeep } from '../json.ts'
+import { hasBlockers, resolveIntakeFields } from '../intake-fields.ts'
+import type { MissingItem } from '../intake-fields.ts'
 import { findContractMemory, readReviewerProfile, readReviewMemory } from '../skill-config.ts'
 import type { IntakeData, SessionStore } from '../session.ts'
 import { expandHome, normalizeContractKey } from '../paths.ts'
-
-type MissingItem = {
-  field: string
-  question: string
-  options?: string[]
-}
 
 type IntakeValue = {
   status: 'blocked' | 'ok'
@@ -90,61 +86,32 @@ export function registerIntakeTool(ctx: Context, config: PluginConfig, store: Se
         && Object.keys(reusable.pendingAnswers).length > 0
         ? (store.setCurrent(reusable.id), reusable)
         : store.create(contractPath, contractName)
-      // 合并顺序：显式入参 > 工作台页面提交的 pendingAnswers > 审查记忆 > > 审查人 profile
-      // pendingAnswers 来自工作台表单：调用方不传时，让工作台表单成为输入源
-      const pending = session.pendingAnswers ?? {}
-      const pickString = (...sources: Array<unknown>): string | undefined => {
-        for (const source of sources) {
-          const v = typeof source === 'string' ? source.trim() : ''
-          if (v !== '') return v
-        }
-        return undefined
-      }
-      const partyRole = pickString(args.partyRole, pending['partyRole'], memory?.party_role) ?? ''
-      const reviewIntensity = pickString(args.reviewIntensity, pending['reviewIntensity'], memory?.review_intensity) ?? ''
-      const clientName = pickString(args.clientName, pending['clientName'], memory?.client_name) ?? ''
-      const author = pickString(args.reviewerAuthor, pending['reviewerAuthor'], profile.author) ?? ''
-      const organization = pickString(args.reviewerOrganization, pending['reviewerOrganization'], profile.organization) ?? ''
-      const department = pickString(args.reviewerDepartment, pending['reviewerDepartment'], profile.department) ?? ''
-      const reviewPurpose = pickString(args.reviewPurpose, pending['reviewPurpose']) ?? ''
-      const editPolicy = pickString(args.editPolicy, pending['editPolicy']) ?? 'revise-first'
-      // 重新计算 missing（可能 pendingAnswers 已填上了）
-      const remaining: MissingItem[] = []
-      if (partyRole === '') remaining.push({ field: 'partyRole', question: '本轮代表哪一方审查？', options: ['甲方', '乙方', '中立', '其他'] })
-      if (reviewPurpose === '') remaining.push({ field: 'reviewPurpose', question: '本轮审查目的是什么？', options: ['签约前把关', '谈判修订', '其他'] })
-      if (reviewIntensity === '') remaining.push({ field: 'reviewIntensity', question: '审查口径？', options: ['克制', '常规', '强势'] })
-      if (author === '') remaining.push({ field: 'reviewerAuthor', question: '审查人姓名？' })
-      if (organization === '') remaining.push({ field: 'reviewerOrganization', question: '律所/公司名称？' })
-      if (clientName === '') remaining.push({ field: 'clientName', question: '客户名称？' })
+      // 合并与缺失计算抽到 intake-fields.ts（工作台"新建审查"共用同一套语义）
+      const { fields, missing: remaining } = resolveIntakeFields(args, session.pendingAnswers ?? {}, memory, profile)
 
-      if (remaining.length > 0) {
-        // clientName 不阻塞（对齐 §3.2.1），其它全阻塞
-        const blockers = remaining.filter((item) => item.field !== 'clientName')
-        if (blockers.length > 0) {
-          // 把 missing 与 pendingAnswers 写回 session（工作台表单消费 missing）
-          store.save({ ...session, intakeMissing: remaining })
-          return compactUndefinedDeep({
-            status: 'blocked' as const,
-            sessionId: session.id,
-            contractName,
-            memoryHit: memory === undefined ? undefined : {
-              clientName: memory.client_name,
-              partyRole: memory.party_role,
-              reviewIntensity: memory.review_intensity,
-            },
-            missing: remaining,
-          })
-        }
+      if (hasBlockers(remaining)) {
+        // 把 missing 写回 session（工作台表单消费 missing）
+        store.save({ ...session, intakeMissing: remaining })
+        return compactUndefinedDeep({
+          status: 'blocked' as const,
+          sessionId: session.id,
+          contractName,
+          memoryHit: memory === undefined ? undefined : {
+            clientName: memory.client_name,
+            partyRole: memory.party_role,
+            reviewIntensity: memory.review_intensity,
+          },
+          missing: remaining,
+        })
       }
 
-      const resolvedClientName = clientName === '' ? '未提及/待补充' : clientName
       const intake: IntakeData = {
-        clientName: resolvedClientName,
-        partyRole,
-        reviewPurpose: args.reviewPurpose ?? '',
-        reviewIntensity,
-        editPolicy: args.editPolicy ?? 'revise-first',
-        reviewer: { author, organization, department: department === '' ? undefined : department },
+        clientName: fields.clientName === '' ? '未提及/待补充' : fields.clientName,
+        partyRole: fields.partyRole,
+        reviewPurpose: fields.reviewPurpose,
+        reviewIntensity: fields.reviewIntensity,
+        editPolicy: fields.editPolicy,
+        reviewer: { author: fields.author, organization: fields.organization, department: fields.department === '' ? undefined : fields.department },
         ...(args.deadline !== undefined ? { deadline: args.deadline } : {}),
         ...(args.priority !== undefined ? { priority: args.priority } : {}),
         ...(args.allowRestructure !== undefined ? { allowRestructure: args.allowRestructure } : {}),
@@ -157,7 +124,7 @@ export function registerIntakeTool(ctx: Context, config: PluginConfig, store: Se
         delete target.intakeMissing
         delete target.pendingAnswers
       })
-      const note = clientName === ''
+      const note = fields.clientName === ''
         ? '客户名称未提供，暂记为"未提及/待补充"（可在 apply 前重新 intake 修正）'
         : undefined
       return compactUndefinedDeep({
