@@ -7,6 +7,9 @@
  */
 
 import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
+// Type-only：拉 ui-conversation 的 SlotMap 声明合并（conversation.session.header.utilities
+// 的 slot 类型与运行时声明都来自它；同时它在本包 dsh.client.inject 里保证加载顺序）。
+import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
 import { ContractWorkbenchButton } from './Workbench.tsx'
 
 export const inject = ['slots']

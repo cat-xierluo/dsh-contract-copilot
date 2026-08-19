@@ -92,19 +92,39 @@ function Workbench(props: { onClose: () => void }): React.JSX.Element {
   const [doc, setDoc] = useState<{ label: string; html: string } | undefined>(undefined)
   const [answers, setAnswers] = useState<Record<string, string>>({})
   const [toast, setToast] = useState<string | undefined>(undefined)
+  const [recheckPath, setRecheckPath] = useState('')
 
+  // A2：SSE 实时列表（连接即收 snapshot；此后 store 变更即时推送）。断线降级轮询。
   useEffect(() => {
     let alive = true
-    const load = async (): Promise<void> => {
+    const loadList = async (): Promise<void> => {
       try {
         const r = await fetch('/contract-copilot/state')
         const data = await r.json() as { sessions: SessionBrief[] }
         if (alive) setSessions(data.sessions ?? [])
-      } catch { /* 轮询失败静默 */ }
+      } catch { /* 兜底轮询失败静默 */ }
     }
-    void load()
-    const timer = setInterval(load, 3000)
-    return () => { alive = false; clearInterval(timer) }
+    void loadList()
+    let es: EventSource | undefined
+    try {
+      es = new EventSource('/contract-copilot/events')
+      es.addEventListener('snapshot', (ev) => {
+        const data = JSON.parse((ev as MessageEvent<string>).data) as { sessions: SessionBrief[] }
+        if (alive) setSessions(data.sessions ?? [])
+      })
+      es.addEventListener('session', (ev) => {
+        const s = JSON.parse((ev as MessageEvent<string>).data) as SessionBrief
+        if (!alive) return
+        setSessions((prev) => {
+          const idx = prev.findIndex((x) => x.id === s.id)
+          if (idx >= 0) { const next = [...prev]; next[idx] = s; return next }
+          return [s, ...prev]
+        })
+      })
+    } catch { es = undefined }
+    // SSE 不可用（或静默死亡）时的兜底轮询：低频 10s
+    const timer = setInterval(loadList, 10000)
+    return () => { alive = false; clearInterval(timer); es?.close() }
   }, [])
 
   useEffect(() => {
@@ -134,6 +154,22 @@ function Workbench(props: { onClose: () => void }): React.JSX.Element {
         body: JSON.stringify({ fields: answers }),
       })
       setToast(r.ok ? '已提交。请让 agent 重调 contract_copilot_intake 消费这些答案。' : '提交失败')
+    } catch (error) {
+      setToast(`提交失败: ${String(error)}`)
+    }
+  }
+
+  // A3：对方改稿再审——把 session 指向新版合同，然后让 agent resume + analyze
+  const submitRecheck = async (): Promise<void> => {
+    if (selected === undefined || recheckPath.trim() === '') return
+    try {
+      const r = await fetch(`/contract-copilot/sessions/${encodeURIComponent(selected)}/recheck`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ newContractPath: recheckPath.trim() }),
+      })
+      const data = await r.json() as { hint?: string; error?: string }
+      setToast(r.ok ? (data.hint ?? '已更新') : `失败: ${data.error ?? r.status}`)
     } catch (error) {
       setToast(`提交失败: ${String(error)}`)
     }
@@ -174,9 +210,23 @@ function Workbench(props: { onClose: () => void }): React.JSX.Element {
               ) : null}
             </div>
             {detail?.session.outputs?.reviewedDocx !== undefined ? (
-              <div style={S.card}><div style={S.muted}>产物</div>
-                <div style={{ fontSize: 12, marginTop: 4, wordBreak: 'break-all' }}>{detail.session.outputs.reviewedDocx}</div>
-                {detail.session.outputs.reportDocx !== undefined ? <div style={{ fontSize: 12, marginTop: 4, wordBreak: 'break-all' }}>{detail.session.outputs.reportDocx}</div> : null}
+              <div style={S.card}>
+                <div style={S.muted}>产物</div>
+                <div style={{ marginTop: 6, display: 'flex', flexDirection: 'column', gap: 6 }}>
+                  <a style={{ ...S.btn, textAlign: 'center', textDecoration: 'none', display: 'block' }}
+                    href={`/contract-copilot/sessions/${encodeURIComponent(detail.session.id)}/download/reviewed`}>⬇ 审核修订版 DOCX</a>
+                  {detail.session.outputs.reportDocx !== undefined ? (
+                    <a style={{ ...S.btn, textAlign: 'center', textDecoration: 'none', display: 'block', background: '#47639c' }}
+                      href={`/contract-copilot/sessions/${encodeURIComponent(detail.session.id)}/download/report`}>⬇ 审查意见书 DOCX</a>
+                  ) : null}
+                </div>
+              </div>
+            ) : null}
+            {detail?.session.state === 'delivered' ? (
+              <div style={S.card}>
+                <div style={{ ...S.muted, marginBottom: 6 }}>对方改稿后再审（§9.5）</div>
+                <input style={S.input} placeholder="新版合同 DOCX 的本地绝对路径" value={recheckPath} onChange={(e) => setRecheckPath(e.target.value)} />
+                <button type="button" style={{ ...S.btn, marginTop: 6 }} onClick={submitRecheck} disabled={recheckPath.trim() === ''}>指向新版合同</button>
               </div>
             ) : null}
             {missing.length > 0 ? (
