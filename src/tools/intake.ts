@@ -79,27 +79,40 @@ export function registerIntakeTool(ctx: Context, config: PluginConfig, store: Se
       const memory = findContractMemory(readReviewMemory(config.skillRoot), normalizeContractKey(contractName))
       const profile = readReviewerProfile(config.skillRoot)
 
-      // 合并顺序：显式入参 > 审查记忆命中 > 空
-      const clientName = args.clientName ?? memory?.client_name ?? ''
-      const partyRole = args.partyRole ?? memory?.party_role ?? ''
-      const reviewIntensity = args.reviewIntensity ?? memory?.review_intensity ?? ''
-      const author = args.reviewerAuthor ?? profile.author ?? ''
-      const organization = args.reviewerOrganization ?? profile.organization ?? ''
-      const department = args.reviewerDepartment ?? profile.department ?? ''
-
-      const missing: MissingItem[] = []
-      if (partyRole === '') missing.push({ field: 'partyRole', question: '本轮代表哪一方审查？', options: ['甲方', '乙方', '中立', '其他'] })
-      if (args.reviewPurpose === undefined || args.reviewPurpose === '') missing.push({ field: 'reviewPurpose', question: '本轮审查目的是什么？', options: ['签约前把关', '谈判修订', '其他'] })
-      if (reviewIntensity === '') missing.push({ field: 'reviewIntensity', question: '审查口径（风险识别与表达强度）？', options: ['克制', '常规', '强势'] })
-      if (author === '') missing.push({ field: 'reviewerAuthor', question: '审查人姓名是？（将写入 Word 批注与报告署名，只保存在本地）' })
-      if (organization === '') missing.push({ field: 'reviewerOrganization', question: '律所/公司名称是？' })
-      if (clientName === '') missing.push({ field: 'clientName', question: '客户名称（通常为我方主体名称）？' })
-
       const session = store.create(contractPath, contractName)
-      if (missing.length > 0) {
-        // clientName 不阻塞（对齐 §3.2.1 阻塞清单），但仍在缺失清单里供 agent 一并询问
-        const blockers = missing.filter((item) => item.field !== 'clientName')
+      // 合并顺序：显式入参 > 工作台页面提交的 pendingAnswers > 审查记忆 > > 审查人 profile
+      // pendingAnswers 来自工作台表单：调用方不传时，让工作台表单成为输入源
+      const pending = session.pendingAnswers ?? {}
+      const pickString = (...sources: Array<unknown>): string | undefined => {
+        for (const source of sources) {
+          const v = typeof source === 'string' ? source.trim() : ''
+          if (v !== '') return v
+        }
+        return undefined
+      }
+      const partyRole = pickString(args.partyRole, pending['partyRole'], memory?.party_role) ?? ''
+      const reviewIntensity = pickString(args.reviewIntensity, pending['reviewIntensity'], memory?.review_intensity) ?? ''
+      const clientName = pickString(args.clientName, pending['clientName'], memory?.client_name) ?? ''
+      const author = pickString(args.reviewerAuthor, pending['reviewerAuthor'], profile.author) ?? ''
+      const organization = pickString(args.reviewerOrganization, pending['reviewerOrganization'], profile.organization) ?? ''
+      const department = pickString(args.reviewerDepartment, pending['reviewerDepartment'], profile.department) ?? ''
+      const reviewPurpose = pickString(args.reviewPurpose, pending['reviewPurpose']) ?? ''
+      const editPolicy = pickString(args.editPolicy, pending['editPolicy']) ?? 'revise-first'
+      // 重新计算 missing（可能 pendingAnswers 已填上了）
+      const remaining: MissingItem[] = []
+      if (partyRole === '') remaining.push({ field: 'partyRole', question: '本轮代表哪一方审查？', options: ['甲方', '乙方', '中立', '其他'] })
+      if (reviewPurpose === '') remaining.push({ field: 'reviewPurpose', question: '本轮审查目的是什么？', options: ['签约前把关', '谈判修订', '其他'] })
+      if (reviewIntensity === '') remaining.push({ field: 'reviewIntensity', question: '审查口径？', options: ['克制', '常规', '强势'] })
+      if (author === '') remaining.push({ field: 'reviewerAuthor', question: '审查人姓名？' })
+      if (organization === '') remaining.push({ field: 'reviewerOrganization', question: '律所/公司名称？' })
+      if (clientName === '') remaining.push({ field: 'clientName', question: '客户名称？' })
+
+      if (remaining.length > 0) {
+        // clientName 不阻塞（对齐 §3.2.1），其它全阻塞
+        const blockers = remaining.filter((item) => item.field !== 'clientName')
         if (blockers.length > 0) {
+          // 把 missing 与 pendingAnswers 写回 session（工作台表单消费 missing）
+          store.save({ ...session, intakeMissing: remaining })
           return compactUndefinedDeep({
             status: 'blocked' as const,
             sessionId: session.id,
@@ -109,7 +122,7 @@ export function registerIntakeTool(ctx: Context, config: PluginConfig, store: Se
               partyRole: memory.party_role,
               reviewIntensity: memory.review_intensity,
             },
-            missing,
+            missing: remaining,
           })
         }
       }
@@ -129,6 +142,8 @@ export function registerIntakeTool(ctx: Context, config: PluginConfig, store: Se
       }
       store.transition(session.id, 'contract_copilot_intake', 'intake_done', (target) => {
         target.intake = intake
+        delete target.intakeMissing
+        delete target.pendingAnswers
       })
       const note = clientName === ''
         ? '客户名称未提供，暂记为"未提及/待补充"（可在 apply 前重新 intake 修正）'

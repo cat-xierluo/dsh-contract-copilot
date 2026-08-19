@@ -66,6 +66,9 @@ export type HistoryEntry = {
   to: SessionState
 }
 
+export type DecisionOption = { field: string; question: string; options?: string[] }
+export type DecisionAnswers = Record<string, string>
+
 export type ContractSession = {
   version: 1
   id: string
@@ -75,6 +78,10 @@ export type ContractSession = {
   state: SessionState
   intake?: IntakeData
   planPath?: string
+  /** 阻塞项清单（intake blocked 时写入，供工作台页面渲染表单） */
+  intakeMissing?: DecisionOption[]
+  /** 工作台页面提交的答案（按字段名 → 用户回答）。intake 执行时与显式入参合并 */
+  pendingAnswers?: DecisionAnswers
   outputs: ApplyOutputs
   /** 单调递增；pre-step 注入用它做幂等判断 */
   progressCounter: number
@@ -88,10 +95,23 @@ export type ContractSession = {
 /** session 状态跃迁 + 落盘。所有 tool handler 通过它改状态。 */
 export class SessionStore {
   private readonly sessions = new Map<string, ContractSession>()
+  private readonly listeners = new Set<(session: ContractSession) => void>()
   private currentId: string | undefined
 
   constructor(private readonly dir: string) {
     mkdirSync(dir, { recursive: true })
+  }
+
+  /** 订阅状态变更（transition/save/create）。返回 disposer。 */
+  subscribe(listener: (session: ContractSession) => void): () => void {
+    this.listeners.add(listener)
+    return () => this.listeners.delete(listener)
+  }
+
+  private emit(session: ContractSession): void {
+    for (const listener of this.listeners) {
+      try { listener(session) } catch (error) { /* listener 异常不冒泡；不阻塞他人 */ }
+    }
   }
 
   /** 新建 session（state=created）并设为当前。 */
@@ -143,6 +163,7 @@ export class SessionStore {
     mutate?.(session)
     this.sessions.set(id, session)
     this.persist(session)
+    this.emit(session)
     return session
   }
 
@@ -151,6 +172,7 @@ export class SessionStore {
     session.updatedAt = new Date().toISOString()
     this.sessions.set(session.id, session)
     this.persist(session)
+    this.emit(session)
   }
 
   /** 产物目录：<sessionsDir>/<id>/（plan、输出 DOCX、报告 DOCX 都在这里）。 */

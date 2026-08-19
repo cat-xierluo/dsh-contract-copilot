@@ -11,7 +11,6 @@ import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import { Config, resolveConfig } from './config.ts'
 import type { PluginConfig } from './config.ts'
 import { formatProgressMsg, progressChangedSinceLastInjection } from './progress.ts'
-import { SessionStore } from './session.ts'
 import { registerAnalyzeTool } from './tools/analyze.ts'
 import { registerApplyTool } from './tools/apply.ts'
 import { registerFinalizeTool } from './tools/finalize.ts'
@@ -19,6 +18,7 @@ import { registerInspectSessionTool } from './tools/inspect-session.ts'
 import { registerIntakeTool } from './tools/intake.ts'
 import { registerListFindingsTool } from './tools/list-findings.ts'
 import { registerResumeTool } from './tools/resume.ts'
+import { SessionStore } from './session.ts'
 
 export const name = 'contract-copilot'
 export const inject = ['tools', 'agents']
@@ -35,6 +35,9 @@ export function apply(ctx: Context, raw: PluginConfig): void {
   registerFinalizeTool(ctx, store)
   registerInspectSessionTool(ctx, store)
   registerResumeTool(ctx, store)
+
+  // v2 工作台（DSH 原生 client-modules + ui-slots）见 docs/DECISIONS.md Q31；
+  // 本入口不启动任何 HTTP 服务器。
 
   // DSH 的 lossless JSON 校验（packages/core/session/src/json.ts）拒绝任何值为
   // undefined 的属性（递归）。本插件返回的对象里有大量可选字段（reviewer.department
