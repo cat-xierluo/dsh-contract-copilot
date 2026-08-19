@@ -71,7 +71,7 @@ ctx.tools.register(defineTool({
 
 ### client bundle 构建契约（out-of-tree 必须复刻）
 
-harness 的共享预设 `packages/client/tsdown.client.ts` 不对外发布，自行用 tsdown 复刻：
+harness 的共享预设 `packages/client/tsdown.client.ts` 不对外发布，自行用 tsdown 复刻。**两处实测坑**：(a) banner 必须构造 `var module = { exports: {} }; var exports = module.exports;`（否则浏览器端 `exports is not defined`）；(b) `"type":"module"` 包内 cjs 产物默认 `.cjs` 后缀，需 `outExtensions: () => ({ js: '.js' })` 强制（registry 只认 `exports["./client"]` 指向的路径）。**HMR 限制**：out-of-tree 插件重建 bundle 后 `__DSH_BOOT__` rev 不变（`rebuilt()` 只被 harness 仓库 `dev:web` watcher 触发）——插件更新需重启 dsh web。
 
 - `format: 'cjs'`，`platform: 'browser'`，entry `src/client/index.ts` → 产物 `lib/client.js`
 - **banner**：`window.__ModuleLoader__.load({ id: <JSON包名>, factory: (require) => {`

@@ -22,7 +22,7 @@
 | Q22 | §9.5 复核环节 | **resume+analyze 组合覆盖** | 对方改稿再 = resume + analyze 指向新 DOCX |
 | Q23 | 起草流程 | **v1 排除** | 先把审查回路做穿；起草无 Python CLI 可包 |
 | Q24 | 归档位置 | **沿用 skill 默认** | 不改变用户"去 skill archive/ 看留痕"的既有习惯 |
-| Q25 | ask 交互实现 | **首选 tool 内直调 ctx.userQuestions，失败回退返回清单** | 直调是原子的；`userQuestions` seam 工具内可用性为实现期验证点 V2 |
+| Q25 | ask 交互实现 | **工作台确认表单为主路径**（2026-08-19 由 Q31/Q33 取代原"tool 内 userQuestions"首选） | 表单在插件 UI 内完成交互（用户原始诉求）；agent 无参重调 intake 消费 pendingAnswers |
 
 ## Q26 – Q28：e2e 全链路实测后的真实缺口（commit `f92aaf8`，2026-08-19）
 
@@ -32,7 +32,21 @@
 | Q27 | 被拒后的 re-analyze | **扩展到 rejected/partial/failed** | integrity 拒绝后的修复回路就是"改 summary/findings 再 analyze" |
 | Q28 | 实质性改写的修订收束 | **沿用收束 + schema 文档化 force_edit** | action_executor.resolve_delivery_action 对 substantive rewrite 默认降级批注；schema description 告知 agent 显式授权 |
 
-## Q29：lossless JSON 校验适配（commit `395af88`，2026-08-19）
+## Q33：intake 复用 blocked session（2026-08-19）
+
+| 字段 | 内容 |
+|---|---|
+| **结论** | intake 对同合同最近一个 `state=created` 且带非空 `pendingAnswers` 的 session **复用而非新建**（前提 contractPath 相同） |
+| **理由** | 表单答案存在 session A、agent 重调 intake 若新建 session B 则答案丢失——工作台表单回路断在两半。复用后"blocked → 表单 → 无参重调"闭合成环 |
+| **验证** | e2e 实测：blocked session `…0259953` → 表单答案写入 → 无参重调 intake → **同一 sessionId** 返回 ok（客户名来自表单而非 memory）→ analyze(force_edit) → apply 4/0/0/0 → finalize 全通 |
+
+## Q34：实现期验证点 V2/V3/V4 结论（2026-08-19）
+
+| # | 结论 | 证据 |
+|---|---|---|
+| V2 | **关闭（被表单方案取代）** | Q25 原首选"tool 内调 ctx.userQuestions"未实施；工作台确认表单（Q31）成为 intake 交互的主路径且 e2e 验证通过。Q25 的回退路径升级为正式路径 |
+| V3 | **✅ 已接线** | `Agent.id` 即 `SessionId`（`packages/core/agent/src/runtime-types.ts:66`"The single identity shared with session"）；intake 通过 `exec.agent.id` 写入 `session.dshSessionId` |
+| V4 | **❌ 不支持（记录为已知限制）** | 实测：out-of-tree 插件重建 lib/client.js（内容变化）后 `__DSH_BOOT__` rev 不变——client-modules 的 `rebuilt()` 只被 harness 仓库 `dev:web` watcher 触发，不 watch link: 插件。**out-of-tree 插件更新需重启 dsh web**（已记入 DSH-PLUGIN-REFERENCE.md §4） |
 
 | 字段 | 内容 |
 |---|---|

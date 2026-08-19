@@ -72,6 +72,8 @@ export type DecisionAnswers = Record<string, string>
 export type ContractSession = {
   version: 1
   id: string
+  /** 发起 intake 的 DSH agent/session id（Agent.id 即 SessionId，runtime-types.ts:66）；跨 DSH 会话 resume 的索引备选 */
+  dshSessionId?: string
   contractPath: string
   contractKey: string
   contractName: string

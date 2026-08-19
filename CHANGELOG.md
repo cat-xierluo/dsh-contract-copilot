@@ -5,6 +5,12 @@
 ## [Unreleased] — 推进中
 
 ### Added
+- **工作台表单→agent 消费回路 e2e 闭环**（2026-08-19）：intake blocked → 表单答案（pendingAnswers）→ agent 无参重调 intake 消费（Q33 复用 blocked session，sessionId 不变）→ analyze(force_edit) → apply 4/0/0/0 → finalize
+- **V3 接线**：intake 写入 `dshSessionId`（`exec.agent.id` 即 DSH session id）
+- `tests/python-bridge.integration.spec.ts`：runApplyCli 真实 python3 spawn 的 success 路径集成测试（无 defusedxml 环境自动跳过）
+
+### 已知限制
+- **V4（HMR）不支持**：out-of-tree 插件重建 client bundle 后需重启 dsh web（见 DECISIONS Q34 / DSH-PLUGIN-REFERENCE）
 - **v2 插件 UI（DSH 原生路径）落地并实测**（2026-08-19）：
   - `package.json` 声明 `dsh.client`（platform web, inject runtime）+ `exports["./client"]`
   - `src/client/`（浏览器 half）：会话头部"📋 审查工作台"按钮 + 三栏工作台对话框（session 列表实时轮询 / Word 文档视图含修订高亮与批注气泡 / 状态·统计·产物·审查发现·确认表单），挂载 `conversation.session.header.utilities`

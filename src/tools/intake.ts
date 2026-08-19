@@ -67,7 +67,7 @@ export function registerIntakeTool(ctx: Context, config: PluginConfig, store: Se
             + `口径=${value.intake?.reviewIntensity}，策略=${value.intake?.editPolicy}`,
       }],
     },
-    async execute(args): Promise<IntakeValue> {
+    async execute(args, exec): Promise<IntakeValue> {
       const contractPath = path.resolve(expandHome(args.contractPath))
       if (!existsSync(contractPath)) {
         throw new Error(`contract-copilot: 合同文件不存在: ${contractPath}`)
@@ -79,7 +79,17 @@ export function registerIntakeTool(ctx: Context, config: PluginConfig, store: Se
       const memory = findContractMemory(readReviewMemory(config.skillRoot), normalizeContractKey(contractName))
       const profile = readReviewerProfile(config.skillRoot)
 
-      const session = store.create(contractPath, contractName)
+      // 工作台表单回路：同合同最近一个 blocked(带待消费 pendingAnswers)的 session
+      // 直接复用，而不是新建——否则"表单答案存在 session A、重调 intake 建 session B"
+      // 会把答案丢掉，回路断在两半。
+      const reusable = store.latestByContractKey(normalizeContractKey(contractName))
+      const session = reusable !== undefined
+        && reusable.state === 'created'
+        && reusable.contractPath === contractPath
+        && reusable.pendingAnswers !== undefined
+        && Object.keys(reusable.pendingAnswers).length > 0
+        ? (store.setCurrent(reusable.id), reusable)
+        : store.create(contractPath, contractName)
       // 合并顺序：显式入参 > 工作台页面提交的 pendingAnswers > 审查记忆 > > 审查人 profile
       // pendingAnswers 来自工作台表单：调用方不传时，让工作台表单成为输入源
       const pending = session.pendingAnswers ?? {}
@@ -142,6 +152,8 @@ export function registerIntakeTool(ctx: Context, config: PluginConfig, store: Se
       }
       store.transition(session.id, 'contract_copilot_intake', 'intake_done', (target) => {
         target.intake = intake
+        // V3：DSH agent id 即 session id（Agent.id "shared with session"）
+        if (exec.agent !== undefined) target.dshSessionId = String(exec.agent.id)
         delete target.intakeMissing
         delete target.pendingAnswers
       })
