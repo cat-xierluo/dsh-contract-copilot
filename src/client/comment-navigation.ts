@@ -14,7 +14,10 @@
  *     是引用注释节点的相邻后续兄弟（h("#fragment") 展开进段落）。
  *   - 范围高亮走 CSS Custom Highlight API（Range 存于 renderer 私有 commentMap，
  *     不对外暴露），Highlight 不可用时仅失去范围底色，导航不受影响。
- *   - className 必须显式传给 renderAsync，否则 class 会变成 `undefined-*`。
+ *   - ref/popover/wrapper class 全部是 `${options.className}-…` 插值；0.4.0 的
+ *     defaultOptions 自带 className: "docx" 且 renderDocument 会合并用户选项，
+ *     所以省略该键时类名仍是 docx-*。工作台仍显式传 'docx'（见 Workbench 的
+ *     wordRenderOptions）把这条契约钉死，不随上游默认值漂移。
  * 因此 id 精确策略以注释节点文本为锚，而不是 CSS 选择器；属性/序数/文本策略
  * 作为其他渲染器（含 docx-view.ts 旧渲染）的降级路径。
  */
@@ -33,6 +36,8 @@ export interface NavNode {
 /** 导航端口里的最小元素结构。 */
 export interface NavElement extends NavNode {
   readonly tagName: string
+  /** 读取数据属性（生产实现：Element.getAttribute；缺失返回 null）。 */
+  getAttribute(name: string): string | null
 }
 
 // ---------------------------------------------------------------------------
@@ -382,6 +387,52 @@ export function simpleCommentNavigationInput(comment: DocComment): CommentNaviga
     anchor: { commentId: comment.anchorId, refSelector: SIMPLE_VIEW_REF_SELECTOR },
     options: { attributeName: SIMPLE_VIEW_ATTRIBUTE_NAME, defaultRefSelector: SIMPLE_VIEW_REF_SELECTOR },
   }
+}
+
+// ---------------------------------------------------------------------------
+// 反向导航（CC-V4-003）：正文点击目标 → 所属批注 id
+// ---------------------------------------------------------------------------
+
+/** 文档视图种类；每种视图绑定一个 id 空间与一套气泡选择器。 */
+export type CommentViewKind = 'word' | 'simple'
+
+/** 在 root 子树内沿祖先链找最近的选择器命中；越过 root 或无命中返回 null。 */
+function closestWithinRoot(
+  env: NavigationEnvironment,
+  root: NavElement,
+  target: NavNode | null,
+  selector: string,
+): NavElement | null {
+  const chain: NavElement[] = []
+  for (let current = target; current !== null && current !== root; current = current.parentElement) {
+    if (current.nodeType === 1) chain.push(current as NavElement)
+  }
+  if (chain.length === 0) return null
+  const matches = env.querySelectorAll(root, selector)
+  return chain.find((candidate) => matches.includes(candidate)) ?? null
+}
+
+/**
+ * 从正文点击目标解析所属批注 id，供工作台选中对应侧栏条目：
+ * - word：root 内最近的 `.docx-comment-ref`，经相邻引用注释节点解析
+ *   OOXML w:id（匹配 DocComment.id）。
+ * - simple：root 内最近的 `.cc-comment`，读取打点属性 data-cc-anchor
+ *   （匹配 DocComment.anchorId）。
+ * 两套 id 空间互不相通——视图决定选择器与解析方式；目标在 root 外、无匹配
+ * 祖先或属性缺失时返回 null，调用方据此忽略本次点击。
+ */
+export function commentIdFromActivatedElement(
+  env: NavigationEnvironment,
+  root: NavElement,
+  target: NavNode | null,
+  view: CommentViewKind,
+): string | null {
+  const selector = view === 'word' ? WORD_VIEW_REF_SELECTOR : SIMPLE_VIEW_REF_SELECTOR
+  const ref = closestWithinRoot(env, root, target, selector)
+  if (ref === null) return null
+  if (view === 'word') return commentIdFromRefElement(ref)
+  const anchorId = ref.getAttribute(SIMPLE_VIEW_ATTRIBUTE_NAME)
+  return anchorId === null || anchorId === '' ? null : anchorId
 }
 
 // ---------------------------------------------------------------------------

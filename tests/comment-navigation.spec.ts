@@ -3,6 +3,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   commentAttributeSelector,
+  commentIdFromActivatedElement,
   commentIdFromRefElement,
   createCommentNavigator,
   createDomNavigationEnvironment,
@@ -62,6 +63,10 @@ class FakeElement implements NavElement {
 
   get classList(): string[] {
     return this.className === '' ? [] : this.className.split(' ')
+  }
+
+  getAttribute(name: string): string | null {
+    return Object.hasOwn(this.attrs, name) ? this.attrs[name] ?? null : null
   }
 
   get textContent(): string {
@@ -639,6 +644,70 @@ describe('commentIdFromRefElement', () => {
 
     expect(commentIdFromRefElement(spans[0]!)).toBeNull()
     expect(root.textContent).toContain('第 1 条约定')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// 反向导航：正文点击目标 → 所属批注 id（视图绑定 id 空间，供 CC-V4-003 接线）
+// ---------------------------------------------------------------------------
+
+/** docx-view.ts 打点渲染形态：sup.cc-comment 携带 data-cc-anchor。 */
+function buildSimpleDoc(anchorId: string): { root: FakeElement; bubble: FakeElement } {
+  const root = el('div', 'docx-body')
+  const p = append(root, el('p'))
+  append(p, new FakeTextNode('甲方应当按期支付。'))
+  const bubble = append(p, el('sup', 'cc-comment', { 'data-cc-anchor': anchorId }))
+  return { root, bubble }
+}
+
+describe('commentIdFromActivatedElement', () => {
+  it('word：点击引用气泡解析 OOXML id，且经由最近祖先命中（气泡内深层目标也命中）', () => {
+    const fake = createFakeEnvironment({ root: null })
+    const root = buildPreviewDoc(fake, { commentId: '7' })
+    const span = refSpanOf(root)
+    const inner = append(span, el('b'))
+
+    expect(commentIdFromActivatedElement(fake.env, root, span, 'word')).toBe('7')
+    expect(commentIdFromActivatedElement(fake.env, root, inner, 'word')).toBe('7')
+  })
+
+  it('word：点击非气泡元素、根本身与根外目标都返回 null', () => {
+    const fake = createFakeEnvironment({ root: null })
+    const root = buildPreviewDoc(fake, { commentId: '7' })
+    const paragraph = findFirst(root, (node) => node instanceof FakeElement && node.tagName === 'p')
+    expect(paragraph).not.toBeNull()
+
+    expect(commentIdFromActivatedElement(fake.env, root, paragraph, 'word')).toBeNull()
+    expect(commentIdFromActivatedElement(fake.env, root, root, 'word')).toBeNull()
+
+    const outside = el('div', 'outside')
+    const strayBubble = append(outside, el('span', 'docx-comment-ref'))
+    expect(commentIdFromActivatedElement(fake.env, root, strayBubble, 'word')).toBeNull()
+  })
+
+  it('simple：点击 .cc-comment 读取 data-cc-anchor 为 anchorId', () => {
+    const fake = createFakeEnvironment({ root: null })
+    const { root, bubble } = buildSimpleDoc('ccm-1a2b3c')
+
+    expect(commentIdFromActivatedElement(fake.env, root, bubble, 'simple')).toBe('ccm-1a2b3c')
+  })
+
+  it('simple：气泡缺 data-cc-anchor 时返回 null，不臆测 id', () => {
+    const fake = createFakeEnvironment({ root: null })
+    const { root, spans } = buildLegacyDoc(1)
+
+    expect(commentIdFromActivatedElement(fake.env, root, spans[0]!, 'simple')).toBeNull()
+  })
+
+  it('两套 id 空间互不相通：视图与渲染形态不匹配时返回 null', () => {
+    const fake = createFakeEnvironment({ root: null })
+    const simple = buildSimpleDoc('ccm-1a2b3c')
+    const wordRoot = buildPreviewDoc(fake, { commentId: '7' })
+
+    expect(commentIdFromActivatedElement(fake.env, simple.root, simple.bubble, 'word')).toBeNull()
+    expect(
+      commentIdFromActivatedElement(fake.env, wordRoot, refSpanOf(wordRoot), 'simple'),
+    ).toBeNull()
   })
 })
 

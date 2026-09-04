@@ -1,7 +1,7 @@
 /** Embedded contract-review queue, document view, decisions, and delivery history. */
 
 import { renderAsync } from 'docx-preview'
-import React, { useEffect, useRef, useState } from 'react'
+import React, { useCallback, useEffect, useRef, useState } from 'react'
 import type { SidebarFooterActionOwnerProps } from '@deepseek-ai/dsh-client-ui-sidebar/client'
 import type { AutomationStatus, FindingDisposition, SessionState } from '../session-types.ts'
 import type {
@@ -20,6 +20,7 @@ import {
   type FindingDecisionDraft,
 } from './decision-model.ts'
 import {
+  commentIdFromActivatedElement,
   createCommentNavigator,
   createDomNavigationEnvironment,
   simpleCommentNavigationInput,
@@ -28,6 +29,7 @@ import {
   type CommentNavigationInput,
   type CommentMissReason,
   type NavElement,
+  type NavNode,
   type NavigationEnvironment,
 } from './comment-navigation.ts'
 import { browserLocale, COMMENT_MISS_REASON_KEYS, createTranslator, type MessageKey } from './locale.ts'
@@ -258,11 +260,15 @@ export const insDelCss = `
 
 /**
  * renderAsync options for the Word view. `renderComments: true` makes
- * docx-preview emit the comment markers the navigator anchors on; `className`
- * is deliberately NOT set so docx-preview keeps its default `docx` class and
- * reference bubbles match `.docx-comment-ref`.
+ * docx-preview emit the comment markers the navigator anchors on. `className:
+ * 'docx'` is passed explicitly: docx-preview interpolates every document-side
+ * class as `${options.className}-…` (`.docx-comment-ref` bubbles, popovers,
+ * `.docx-wrapper`), so pinning it here — rather than relying on the library's
+ * `defaultOptions` merge — is what keeps `.docx-comment-ref` and the anchors
+ * built on it stable across docx-preview upgrades (0.4.0 dist verified).
  */
 export function wordRenderOptions(): {
+  className: string
   renderComments: boolean
   renderChanges: boolean
   ignoreLastRenderedPageBreak: boolean
@@ -270,6 +276,7 @@ export function wordRenderOptions(): {
   useBase64URL: boolean
 } {
   return {
+    className: 'docx',
     renderComments: true,
     renderChanges: true,
     ignoreLastRenderedPageBreak: false,
@@ -303,6 +310,84 @@ export const NAVIGATOR_RESET_INPUTS = ['session', 'view', 'render'] as const
 /** Reset key bundling every navigator-resetting input; a change forces cleanup. */
 export function navigatorResetKey(sessionId: string, view: 'word' | 'simple', renderVersion: number): string {
   return `${sessionId}::${view}::${String(renderVersion)}`
+}
+
+// ---------------------------------------------------------------------------
+// Reverse navigation (CC-V4-003): document marker clicks land back on the
+// sidebar comment entry — select it, surface it, scroll to it, focus it.
+// ---------------------------------------------------------------------------
+
+/**
+ * Stable data attribute identifying a sidebar comment entry button (keyed by
+ * DocComment.id). Together with the button registry below it gives the
+ * document→sidebar direction a testable DOM mapping.
+ */
+export const COMMENT_ENTRY_DATA_ATTRIBUTE = 'data-cc-comment-entry'
+
+export interface CommentEntryAttributes {
+  readonly 'data-cc-comment-entry': string
+}
+
+/** Attributes to spread on one sidebar comment entry button. */
+export function commentEntryAttributes(id: string): CommentEntryAttributes {
+  return { [COMMENT_ENTRY_DATA_ATTRIBUTE]: id }
+}
+
+/** Button-node registry for sidebar comment entries, keyed by DocComment.id. */
+export type CommentButtonRegistry = Map<string, HTMLButtonElement | null>
+
+/** ref-callback body: register the mounted node, drop the entry once unmounted. */
+export function upsertCommentButtonRef(registry: CommentButtonRegistry, id: string, node: HTMLButtonElement | null): void {
+  if (node === null) registry.delete(id)
+  else registry.set(id, node)
+}
+
+/** Sidebar comment entry; the selected row uses the themed active surface. */
+export function commentRowStyle(selected: boolean): React.CSSProperties {
+  return {
+    ...S.commentBlock, display: 'block', width: '100%', border: 0, textAlign: 'left', color: 'inherit',
+    cursor: 'pointer',
+    background: selected ? token('--dsw-alias-interactive-bg-active', '#eef2fb') : 'transparent',
+  }
+}
+
+/**
+ * Reverse-hit match. The two id spaces never mix: a Word-view hit carries the
+ * OOXML w:id and matches DocComment.id, a simple-view hit carries the
+ * content-derived anchorId and matches DocComment.anchorId.
+ */
+export function findDocCommentByRefId(
+  comments: readonly DocComment[],
+  view: 'word' | 'simple',
+  refId: string,
+): DocComment | undefined {
+  return view === 'word'
+    ? comments.find(comment => comment.id === refId)
+    : comments.find(comment => comment.anchorId === refId)
+}
+
+/** Decision of the render-ready gate for one pending navigation request. */
+export type NavigationGateDecision = 'skip' | 'hold' | 'execute'
+
+/**
+ * Gate for sidebar-driven navigation (CC-V4-003). A request runs at most once
+ * per WordPane mount (its `seq` vs. the last handled seq — repeated clicks on
+ * the same comment get a fresh seq and still run), and in the word view only
+ * after renderAsync has committed the document DOM: `hold` keeps the request
+ * pending and the owning effect re-runs when rendering completes. That is what
+ * stops a narrow-layout click from operations (which mounts a fresh WordPane
+ * mid-render) from missing against an empty document. The simple view commits
+ * its DOM synchronously with the mode switch, so it never holds.
+ */
+export function navigationGateFor(
+  request: { readonly seq: number } | undefined,
+  view: 'word' | 'simple',
+  wordReady: boolean,
+  lastHandledSeq: number,
+): NavigationGateDecision {
+  if (request === undefined || request.seq === lastHandledSeq) return 'skip'
+  if (view === 'word' && !wordReady) return 'hold'
+  return 'execute'
 }
 
 // ---------------------------------------------------------------------------
@@ -464,24 +549,35 @@ function WordPane(props: {
   navigationRequest?: { readonly comment: DocComment; readonly seq: number }
   /** Called with a localized message when a navigation request misses. */
   onNavigationMiss?: (message: string) => void
+  /** Called with (view, ref id) when a rendered comment marker is clicked in the document. */
+  onCommentRefActivated?: (view: 'word' | 'simple', refId: string) => void
 }): React.JSX.Element {
   const wordHolder = useRef<HTMLDivElement | null>(null)
   const simpleHolder = useRef<HTMLDivElement | null>(null)
   const envRef = useRef<NavigationEnvironment | null>(null)
   const navigatorRef = useRef<CommentNavigator | null>(null)
+  const handledSeqRef = useRef(0)
   const [mode, setMode] = useState<'word' | 'simple'>('word')
   const [error, setError] = useState<string | undefined>(undefined)
   const [renderVersion, setRenderVersion] = useState(0)
+  const [wordReady, setWordReady] = useState(false)
+
+  const getEnvironment = (): NavigationEnvironment => {
+    if (envRef.current === null) envRef.current = createDomNavigationEnvironment(document)
+    return envRef.current
+  }
 
   const getNavigator = (): CommentNavigator => {
-    if (envRef.current === null) envRef.current = createDomNavigationEnvironment(document)
-    if (navigatorRef.current === null) navigatorRef.current = createCommentNavigator(envRef.current)
+    if (navigatorRef.current === null) navigatorRef.current = createCommentNavigator(getEnvironment())
     return navigatorRef.current
   }
 
   useEffect(() => {
     const controller = new AbortController()
     let alive = true
+    // Every (re)render invalidates the word DOM; navigation stays held until
+    // renderAsync commits the new one (see navigationGateFor).
+    setWordReady(false)
     const run = async (): Promise<void> => {
       try {
         setError(undefined)
@@ -493,6 +589,7 @@ function WordPane(props: {
         if (!alive || container === null) return
         container.innerHTML = ''
         await renderAsync(blob, container, undefined, wordRenderOptions())
+        if (alive) setWordReady(true)
       } catch (caught) {
         if (!alive || controller.signal.aborted) return
         setError(caught instanceof Error ? caught.message : String(caught))
@@ -509,16 +606,43 @@ function WordPane(props: {
     return () => { navigatorRef.current?.cleanup() }
   }, [props.sessionId, mode, renderVersion])
 
-  // Sidebar-driven navigation against the currently displayed view.
+  // Sidebar-driven navigation against the currently displayed view, executed
+  // only after that view's DOM is actually present (see navigationGateFor).
   useEffect(() => {
+    const gate = navigationGateFor(props.navigationRequest, mode, wordReady, handledSeqRef.current)
+    if (gate !== 'execute') return
     const request = props.navigationRequest
     if (request === undefined) return
     const root = mode === 'word' ? wordHolder.current : simpleHolder.current
     if (root === null) return
+    handledSeqRef.current = request.seq
     const input = commentNavigationInputFor(request.comment, mode)
     const result = getNavigator().navigate(root as unknown as NavElement, input.anchor)
     if (!result.ok) props.onNavigationMiss?.(commentMissStatusText(result.reason))
-  }, [props.navigationRequest, mode, props.onNavigationMiss])
+  }, [props.navigationRequest, mode, wordReady, props.onNavigationMiss])
+
+  // Reverse navigation (document → sidebar): one delegated click listener on
+  // the *current* view root only — never document-wide — so the two id spaces
+  // cannot cross-fire. Detached on session switch, view switch, re-render, and
+  // unmount.
+  useEffect(() => {
+    if (props.onCommentRefActivated === undefined) return
+    const root = mode === 'word' ? wordHolder.current : simpleHolder.current
+    if (root === null) return
+    const handler = (event: MouseEvent): void => {
+      const target = event.target
+      if (target === null) return
+      const refId = commentIdFromActivatedElement(
+        getEnvironment(),
+        root as unknown as NavElement,
+        target as unknown as NavNode,
+        mode,
+      )
+      if (refId !== null) props.onCommentRefActivated?.(mode, refId)
+    }
+    root.addEventListener('click', handler)
+    return () => { root.removeEventListener('click', handler) }
+  }, [mode, props.sessionId, renderVersion, props.onCommentRefActivated])
 
   return (
     <>
@@ -669,6 +793,11 @@ function Workbench({ client, onClose }: { readonly client: ContractCopilotClient
   const [narrow, setNarrow] = useState(() => typeof window !== 'undefined' && typeof window.matchMedia === 'function' && window.matchMedia(narrowMediaQuery()).matches)
   const [narrowPane, setNarrowPane] = useState<WorkbenchPane>('tasks')
   const [navigationRequest, setNavigationRequest] = useState<{ comment: DocComment; seq: number } | undefined>(undefined)
+  // Reverse navigation state (document → sidebar): which entry is selected and
+  // how many times a marker hit demanded focus (re-clicks must re-focus).
+  const [selectedCommentId, setSelectedCommentId] = useState<string | undefined>(undefined)
+  const [commentFocusSeq, setCommentFocusSeq] = useState(0)
+  const commentButtonRefs = useRef<CommentButtonRegistry>(new Map())
   const panelRef = useRef<HTMLDivElement | null>(null)
   const decisionPlanHash = useRef<string | undefined>(undefined)
 
@@ -770,6 +899,19 @@ function Workbench({ client, onClose }: { readonly client: ContractCopilotClient
     if (automationNoticeSettled(detail?.session.automation?.status)) setNotice(undefined)
   }, [detail?.session.automation?.status])
 
+  // A reverse hit must land on the sidebar entry button. In the narrow layout
+  // the selection first switches to the operations pane, so the button only
+  // exists after that commit — the effect re-runs on the pane change and then
+  // scrolls to and focuses the registered node. Re-clicking the same marker
+  // bumps commentFocusSeq, so the focus still re-fires.
+  useEffect(() => {
+    if (selectedCommentId === undefined || commentFocusSeq === 0) return
+    const button = commentButtonRefs.current.get(selectedCommentId)
+    if (button === null || button === undefined) return
+    button.scrollIntoView({ block: 'nearest' })
+    button.focus({ preventScroll: true })
+  }, [selectedCommentId, commentFocusSeq, narrowPane, narrow])
+
   const runAnalysis = async (): Promise<void> => {
     if (selected === undefined) return
     if (missing.some(item => (answers[item.field] ?? '').trim() === '')) {
@@ -866,6 +1008,7 @@ function Workbench({ client, onClose }: { readonly client: ContractCopilotClient
     setDecisionDrafts({})
     decisionPlanHash.current = undefined
     setNavigationRequest(undefined)
+    setSelectedCommentId(undefined)
   }
 
   /** Sidebar comment click: show the document pane, then locate the comment in it. */
@@ -873,6 +1016,15 @@ function Workbench({ client, onClose }: { readonly client: ContractCopilotClient
     setNarrowPane('document')
     setNavigationRequest(previous => ({ comment, seq: (previous?.seq ?? 0) + 1 }))
   }
+
+  /** Document marker click: select the matching sidebar entry, surface it on narrow, then focus it. */
+  const handleCommentRefActivated = useCallback((view: 'word' | 'simple', refId: string): void => {
+    const comment = findDocCommentByRefId(doc?.comments ?? [], view, refId)
+    if (comment === undefined) return
+    setSelectedCommentId(comment.id)
+    setCommentFocusSeq(value => value + 1)
+    if (narrow) setNarrowPane('operations')
+  }, [doc?.comments, narrow])
 
   /** Render one workbench section by manifest id; shared by wide columns and narrow tabs. */
   const renderSection = (id: WorkbenchSectionId): React.JSX.Element | null => {
@@ -904,7 +1056,7 @@ function Workbench({ client, onClose }: { readonly client: ContractCopilotClient
         return (
           <div key={id}>
             {doc !== undefined && selected !== undefined ? (
-              <WordPane client={client} sessionId={selected} reviewedDocx={doc.reviewedDocx} fallbackHtml={doc.html} label={doc.label} navigationRequest={navigationRequest} onNavigationMiss={setNotice} />
+              <WordPane client={client} sessionId={selected} reviewedDocx={doc.reviewedDocx} fallbackHtml={doc.html} label={doc.label} navigationRequest={navigationRequest} onNavigationMiss={setNotice} onCommentRefActivated={handleCommentRefActivated} />
             ) : <div style={S.muted}>{label('doc.selectPrompt')}</div>}
           </div>
         )
@@ -979,7 +1131,9 @@ function Workbench({ client, onClose }: { readonly client: ContractCopilotClient
               <button
                 key={comment.id}
                 type="button"
-                style={{ ...S.commentBlock, display: 'block', width: '100%', border: 0, textAlign: 'left', color: 'inherit', background: 'transparent', cursor: 'pointer' }}
+                ref={node => upsertCommentButtonRef(commentButtonRefs.current, comment.id, node)}
+                {...commentEntryAttributes(comment.id)}
+                style={commentRowStyle(comment.id === selectedCommentId)}
                 aria-label={comment.text.slice(0, 120)}
                 onClick={() => openComment(comment)}
               >

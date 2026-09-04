@@ -34,6 +34,12 @@ import {
   commentMissStatusText,
   commentNavigationInputFor,
   wordRenderOptions,
+  navigationGateFor,
+  findDocCommentByRefId,
+  commentRowStyle,
+  COMMENT_ENTRY_DATA_ATTRIBUTE,
+  commentEntryAttributes,
+  upsertCommentButtonRef,
 } from '../src/client/Workbench.tsx'
 import type { CommentMissReason } from '../src/client/comment-navigation.ts'
 import { WORKBENCH_RPC_CHANNEL, type DocComment } from '../src/workbench-protocol.ts'
@@ -112,6 +118,7 @@ const ALL_STYLES: Array<Record<string, unknown>> = [
   progressBarStyle(true, false, false), progressBarStyle(false, true, true), progressBarStyle(false, false, false),
   historyDotStyle(true), historyDotStyle(false),
   downloadLinkStyle('reviewed'), downloadLinkStyle('report'),
+  commentRowStyle(true), commentRowStyle(false),
 ]
 
 function referencedTokens(): Set<string> {
@@ -263,10 +270,10 @@ const fallbackComment: DocComment = {
 }
 
 describe('workbench comment navigation', () => {
-  it('开启批注渲染且不覆盖 docx-preview 默认 class', () => {
+  it('开启批注渲染并显式固定 docx class（引用气泡 .docx-comment-ref 依赖该插值）', () => {
     const options = wordRenderOptions()
     expect(options.renderComments).toBe(true)
-    expect(Object.hasOwn(options, 'className')).toBe(false)
+    expect(options.className).toBe('docx')
   })
 
   it('两种视图的挂载点带可导航的 holder class', () => {
@@ -306,5 +313,54 @@ describe('workbench comment navigation', () => {
     expect(navigatorResetKey('s2', 'word', 0)).not.toBe(base)
     expect(navigatorResetKey('s1', 'simple', 0)).not.toBe(base)
     expect(navigatorResetKey('s1', 'word', 1)).not.toBe(base)
+  })
+})
+
+describe('navigationGateFor 渲染就绪门控', () => {
+  it('word 视图未就绪时 hold，就绪后 execute；simple 视图无需等待渲染', () => {
+    expect(navigationGateFor(undefined, 'word', false, 0)).toBe('skip')
+    expect(navigationGateFor({ seq: 1 }, 'word', false, 0)).toBe('hold')
+    expect(navigationGateFor({ seq: 1 }, 'word', true, 0)).toBe('execute')
+    expect(navigationGateFor({ seq: 1 }, 'simple', false, 0)).toBe('execute')
+  })
+
+  it('同一 seq 至多执行一次；重复点击产生新 seq 仍然执行', () => {
+    expect(navigationGateFor({ seq: 3 }, 'word', true, 3)).toBe('skip')
+    expect(navigationGateFor({ seq: 4 }, 'word', true, 3)).toBe('execute')
+  })
+})
+
+describe('正文反向命中后的侧栏批注匹配', () => {
+  it('word 视图按 OOXML id 匹配 DocComment.id，不认 anchorId', () => {
+    expect(findDocCommentByRefId([exactComment], 'word', '7')).toBe(exactComment)
+    expect(findDocCommentByRefId([exactComment], 'word', 'ccm-ab12cd34')).toBeUndefined()
+  })
+
+  it('simple 视图按 anchorId 匹配 DocComment.anchorId，不认 OOXML id', () => {
+    expect(findDocCommentByRefId([fallbackComment], 'simple', 'ccm-ef56ab78')).toBe(fallbackComment)
+    expect(findDocCommentByRefId([fallbackComment], 'simple', '9')).toBeUndefined()
+  })
+
+  it('无命中返回 undefined', () => {
+    expect(findDocCommentByRefId([exactComment, fallbackComment], 'word', '404')).toBeUndefined()
+  })
+})
+
+describe('侧栏批注按钮：选中态与 ref/data 注册', () => {
+  it('选中态使用 DSH active surface token，未选中保持透明', () => {
+    expect(commentRowStyle(true).background).toContain('var(--dsw-alias-interactive-bg-active')
+    expect(commentRowStyle(false).background).toBe('transparent')
+  })
+
+  it('按钮携带稳定的 data 映射；registry 按 ref 回调语义 upsert', () => {
+    expect(COMMENT_ENTRY_DATA_ATTRIBUTE).toBe('data-cc-comment-entry')
+    expect(commentEntryAttributes('7')).toEqual({ 'data-cc-comment-entry': '7' })
+
+    const registry = new Map<string, HTMLButtonElement | null>()
+    const node = { focus() {}, scrollIntoView() {} } as unknown as HTMLButtonElement
+    upsertCommentButtonRef(registry, '7', node)
+    expect(registry.get('7')).toBe(node)
+    upsertCommentButtonRef(registry, '7', null)
+    expect(registry.has('7')).toBe(false)
   })
 })
