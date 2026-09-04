@@ -576,7 +576,7 @@ function Workbench({ client, onClose }: { readonly client: ContractCopilotClient
                       <label key={option} style={{ ...S.opt, background: answers[item.field] === option ? '#eef2fb' : '#fff' }}>
                         <input type="radio" name={item.field} checked={answers[item.field] === option} onChange={() => setAnswers({ ...answers, [item.field]: option })} /> {option}
                       </label>
-                    )) : <input style={S.input} value={answers[item.field] ?? ''} onChange={event => setAnswers({ ...answers, [item.field]: event.target.value })} />}
+                    )) : <input aria-label={item.question} style={S.input} value={answers[item.field] ?? ''} onChange={event => setAnswers({ ...answers, [item.field]: event.target.value })} />}
                   </div>
                 ))}
                 <button type="button" style={{ ...S.btn, width: '100%' }} disabled={commandBusy || missing.some(item => (answers[item.field] ?? '').trim() === '')} onClick={() => { void runAnalysis() }}>提交并开始分析</button>

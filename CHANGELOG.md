@@ -30,6 +30,9 @@
 ### Security（2026-09-04，律师计划批准门）
 - `contract_copilot_apply` 在 Python 启动前强制检查律师批准和文件 hash；未批准或批准后被改写的计划无法执行
 
+### Fixed（2026-09-04，浏览器验收）
+- 前置信息自由文本输入框使用问题正文作为辅助标签，键盘和辅助技术可直接识别输入目的
+
 ### Changed（2026-09-04，DSH 0.1.2 迁移）
 - 依赖从 DSH `0.1.0-rc.7` 升级到 `0.1.2-rc.1`，客户端由已移除的 `dsh-client-runtime` 迁到 connection、ui-renderer、ui-sidebar
 - 工作台入口由手动追加 sidebar DOM 改为官方 `sidebar.footer.action`；折叠和展开侧栏均有对应显示
