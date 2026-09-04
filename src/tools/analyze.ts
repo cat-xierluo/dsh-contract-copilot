@@ -12,6 +12,7 @@ import type { Context } from '@deepseek-ai/cordis'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { PluginConfig } from '../config.ts'
 import { asObjectArray, asString, compactUndefinedDeep } from '../json.ts'
+import { beginPlanReview } from '../plan-review.ts'
 import type { SessionStore } from '../session.ts'
 
 type AnalyzeValue = {
@@ -118,6 +119,14 @@ export function registerAnalyzeTool(ctx: Context, config: PluginConfig, store: S
         )
       }
       const findings = asObjectArray(args.findings, 'findings')
+      const normalizedFindings = findings.map((finding, index) => ({
+        ...finding,
+        id: asString(finding.id) ?? `R${String(index + 1).padStart(3, '0')}`,
+      }))
+      const findingIds = normalizedFindings.map(finding => String(finding.id))
+      if (new Set(findingIds).size !== findingIds.length) {
+        throw new Error('contract-copilot: findings 的 id 必须唯一')
+      }
       const intake = session.intake
       if (intake === undefined) throw new Error('contract-copilot: session 缺少 intake 数据，请重新 intake')
 
@@ -157,14 +166,14 @@ export function registerAnalyzeTool(ctx: Context, config: PluginConfig, store: S
             ? { key_milestones: stringList(rawSummary.keyMilestones) }
             : {}),
         },
-        findings: args.findings,
+        findings: normalizedFindings,
       }
       const dir = store.artifactsDir(session.id)
       const planPath = path.join(dir, 'review-plan.json')
       writeFileSync(planPath, `${JSON.stringify(plan, null, 2)}\n`, 'utf8')
 
       // 软校验：法律依据缺失会导致 CLI 的完整性门禁整体拒绝（scripts/report/integrity.py）
-      const missingLegalBasis = findings
+      const missingLegalBasis = normalizedFindings
         .map((finding, index) => ({ finding, fallback: `R${String(index + 1).padStart(3, '0')}` }))
         .filter(({ finding }) => {
           const normalized = legalBasisText(finding).replace(/\s/g, '')
@@ -174,15 +183,16 @@ export function registerAnalyzeTool(ctx: Context, config: PluginConfig, store: S
 
       store.transition(session.id, 'contract_copilot_analyze', 'plan_ready', (target) => {
         target.planPath = planPath
+        target.planReview = beginPlanReview(planPath, target.planReview)
       })
       return compactUndefinedDeep({
         sessionId: session.id,
         planPath,
-        findingsCount: findings.length,
+        findingsCount: normalizedFindings.length,
         missingLegalBasis,
         nextStep: missingLegalBasis.length > 0
           ? '补齐缺失的法律依据后重新提交 analyze'
-          : 'contract_copilot_list_findings 供用户检视，或直接 contract_copilot_apply',
+          : '等待律师在 Contract Copilot 工作台逐项批准；批准前不能 apply',
       })
     },
   }))

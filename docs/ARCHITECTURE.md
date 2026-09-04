@@ -13,6 +13,8 @@
 ```
 用户消息 → agent loop → tool handler → SessionStore (原子写 JSON)
                               ↓
+                    planReview 律师批准门
+                              ↓
                        Python CLI 异步 spawn
                               ↓
                   DOCX 产物 → session.outputs
@@ -36,6 +38,7 @@ src/
 ├── session-types.ts         # Host/Client 共用的纯 session 数据类型（零 Node 依赖）
 ├── session.ts               # SessionStore：9 态状态机 + 原子写 + 损坏恢复 + 事件订阅
 ├── workbench-protocol.ts    # 鉴权 RPC、事件和下载协议常量及 DTO
+├── plan-review.ts           # 计划 hash、逐 finding 决定、获批计划投影与 apply 门禁
 ├── host-api.ts              # Connection RPC + 认证 SSE/下载精确路由
 ├── python-bridge.ts         # 异步 spawn + 退码四分类（success/partial/rejected/error）
 ├── docx-view.ts             # OOXML → HTML（React 简版视图输入）
@@ -79,6 +82,8 @@ tests/                       # Vitest 单元与真实 Python spawn 集成测试
 - **tool 返回值必须 lossless JSON 合规**：每个 tool 在 return 前包 `compactUndefinedDeep`
 - **pre-step 进度注入幂等**：仅在 `progressCounter > lastInjectedCounter` 时注入
 - **apply 全量显式传参**：不依赖 Python 非交互默认值（review_intensity 缺失静默"强势"）
+- **律师批准不可绕过**：analyze 生成 `awaiting-decisions` 计划；apply 仅接受逐项决定、已批准且文件 hash 未变化的计划
+- **决策与执行分离**：律师备注只进入追加式审计历史；四种决定确定性投影到 Python plan，不把内部备注混入对外文书
 
 ## 6. 边界与外部依赖
 
@@ -113,3 +118,11 @@ ContractCopilotClient
 - 生命周期：Host 用 `ctx.inject(['connection'], …)` 延迟注册；没有 Connection 的 headless profile 不产生 Web 数据面
 - 安全：RPC、SSE、GET/HEAD 下载在处理前经过 Connection 的 Host/Origin fence 与签名 Cookie 认证
 - 渲染安全：文档 HTML 由 host 侧 `renderDocumentHtml` 生成（文本已 escape），client 直接注入
+
+## 9. 律师计划批准门（DECISIONS.md Q36–Q39）
+
+`analyze` 为缺省 finding 分配稳定的 `R001` 序号并拒绝重复 id，写盘后以原始文件字节计算 `sourcePlanHash`。每次重新分析或修改计划都会开始新的 `awaiting-decisions` 周期，清空当前决定但保留历史审计条目。
+
+工作台批准请求携带当前 hash 和每项决定。Host 要求 finding 与决定一一对应，再按决定生成获批计划：`accept` 保留动作，`comment-only` 去除直接改文载荷并设为 comment，`report-only` 不在正文落痕，`omit` 从执行计划移除。获批计划原子写盘后记录 `approvedPlanHash`。
+
+`contract_copilot_apply` 在启动 Python 前重新计算计划 hash。缺少批准或 hash 不一致时 fail closed，因此 Agent 提示词、工作台按钮和直接 tool 调用共享同一门禁。

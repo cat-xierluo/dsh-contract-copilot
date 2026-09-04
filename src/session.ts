@@ -14,11 +14,17 @@ import type { ContractSession, SessionState } from './session-types.ts'
 export type {
   ApplyOutputs,
   ApplyStats,
+  AutomationState,
+  AutomationStatus,
   ContractSession,
   DecisionAnswers,
   DecisionOption,
   HistoryEntry,
   IntakeData,
+  FindingDecision,
+  FindingDisposition,
+  PlanReview,
+  PlanReviewHistoryEntry,
   ReviewerIdentity,
   SessionState,
 } from './session-types.ts'

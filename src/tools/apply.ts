@@ -11,6 +11,7 @@ import type { Context } from '@deepseek-ai/cordis'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { PluginConfig } from '../config.ts'
 import { compactUndefinedDeep } from '../json.ts'
+import { assertApprovedPlan } from '../plan-review.ts'
 import { runApplyCli } from '../python-bridge.ts'
 import type { BridgeKind } from '../python-bridge.ts'
 import type { SessionState, SessionStore } from '../session.ts'
@@ -46,6 +47,7 @@ export function registerApplyTool(ctx: Context, config: PluginConfig, store: Ses
   ctx.tools.register(defineTool({
     name: 'contract_copilot_apply',
     description: '执行审查计划：调用 contract-copilot 的 Python CLI 生成"修订批注一体版 DOCX + Word 审查意见书 DOCX"。'
+      + '仅接受已在工作台逐项决定、由律师批准且批准后未变化的计划。'
       + '执行可能需要数分钟。结果分四类：success / partial（有交付物但有失败项）/ rejected（完整性门禁拒绝，无交付物）/ error。'
       + '审查人身份与口径会用 intake 收集的值显式传入。',
     parameters: {
@@ -71,6 +73,7 @@ export function registerApplyTool(ctx: Context, config: PluginConfig, store: Ses
       if (intake === undefined || session.planPath === undefined) {
         throw new Error('contract-copilot: session 数据不完整（intake/plan 缺失），请重新走 intake → analyze')
       }
+      assertApprovedPlan(session)
 
       const dir = store.artifactsDir(session.id)
       const outputDocx = path.join(dir, `${session.contractName}_reviewed.docx`)

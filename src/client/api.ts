@@ -6,6 +6,8 @@ import {
   WORKBENCH_EVENTS_PATH,
   WORKBENCH_RPC_CHANNEL,
   type DocumentView,
+  type ApprovePlanResult,
+  type FindingDecisionRequest,
   type RecheckResult,
   type SessionDetail,
   type StartReviewResult,
@@ -53,6 +55,15 @@ export class ContractCopilotClient {
 
   submitAnswers(sessionId: string, fields: Record<string, string>, signal?: AbortSignal): Promise<{ readonly ok: true }> {
     return this.call('answers', { sessionId, fields }, signal)
+  }
+
+  approvePlan(
+    sessionId: string,
+    sourcePlanHash: string,
+    decisions: FindingDecisionRequest[],
+    signal?: AbortSignal,
+  ): Promise<ApprovePlanResult> {
+    return this.call('approve', { sessionId, sourcePlanHash, decisions }, signal)
   }
 
   startReview(contractPath: string, signal?: AbortSignal): Promise<StartReviewResult> {

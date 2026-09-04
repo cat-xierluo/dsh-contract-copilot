@@ -59,6 +59,55 @@ export type HistoryEntry = {
 export type DecisionOption = { field: string; question: string; options?: string[] }
 export type DecisionAnswers = Record<string, string>
 
+/** How the lawyer wants one analyzed finding handled in the delivery plan. */
+export type FindingDisposition = 'accept' | 'comment-only' | 'report-only' | 'omit'
+
+/** Current explicit decision for one finding. */
+export type FindingDecision = {
+  readonly findingId: string
+  readonly disposition: FindingDisposition
+  readonly severity?: string
+  readonly note?: string
+  readonly decidedAt: string
+  readonly decidedBy: 'workbench-user'
+}
+
+/** Append-only record of plan generation and lawyer approval actions. */
+export type PlanReviewHistoryEntry =
+  | { readonly at: string; readonly kind: 'plan-generated'; readonly planHash: string }
+  | {
+    readonly at: string
+    readonly kind: 'plan-approved'
+    readonly sourcePlanHash: string
+    readonly approvedPlanHash: string
+    readonly decisions: FindingDecision[]
+  }
+
+/** Lawyer-review state for the current generated plan. */
+export type PlanReview = {
+  readonly sourcePlanHash: string
+  readonly status: 'awaiting-decisions' | 'approved'
+  readonly decisions: Record<string, FindingDecision>
+  readonly approvedPlanHash?: string
+  readonly history: PlanReviewHistoryEntry[]
+}
+
+/** Product-level projection of the dedicated DSH Agent lifecycle. */
+export type AutomationStatus =
+  | 'idle'
+  | 'running-analysis'
+  | 'waiting-decisions'
+  | 'running-delivery'
+  | 'failed'
+  | 'delivered'
+
+export type AutomationState = {
+  readonly dshSessionId: string
+  readonly status: AutomationStatus
+  readonly error?: string
+  readonly updatedAt: string
+}
+
 export type ContractSession = {
   version: 1
   id: string
@@ -70,6 +119,8 @@ export type ContractSession = {
   state: SessionState
   intake?: IntakeData
   planPath?: string
+  planReview?: PlanReview
+  automation?: AutomationState
   intakeMissing?: DecisionOption[]
   pendingAnswers?: DecisionAnswers
   outputs: ApplyOutputs

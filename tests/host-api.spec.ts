@@ -6,6 +6,7 @@ import path from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { PluginConfig } from '../src/config.ts'
+import { beginPlanReview } from '../src/plan-review.ts'
 import {
   handleWorkbenchRpc,
   registerHostApi,
@@ -67,6 +68,32 @@ describe('handleWorkbenchRpc', () => {
       fields: { partyRole: '甲方' },
     })).resolves.toEqual({ ok: true, value: { ok: true } })
     expect(store.get(session.id)?.pendingAnswers).toEqual({ partyRole: '甲方' })
+  })
+
+  it('逐项批准计划并返回稳定的领域错误码', async () => {
+    const session = store.create(path.join(root, 'contract.docx'), 'contract')
+    const planPath = path.join(root, 'review-plan.json')
+    writeFileSync(planPath, `${JSON.stringify({ findings: [{ id: 'R001', risk: '付款风险', action: 'auto' }] })}\n`)
+    session.planPath = planPath
+    session.planReview = beginPlanReview(planPath, undefined)
+    store.save(session)
+
+    await expect(handleWorkbenchRpc(config, store, 'approve', {
+      sessionId: session.id,
+      sourcePlanHash: session.planReview.sourcePlanHash,
+      decisions: [],
+    })).resolves.toMatchObject({
+      ok: false,
+      error: { code: 'contract-copilot/incomplete-decisions' },
+    })
+
+    const approved = await handleWorkbenchRpc(config, store, 'approve', {
+      sessionId: session.id,
+      sourcePlanHash: session.planReview.sourcePlanHash,
+      decisions: [{ findingId: 'R001', disposition: 'accept' }],
+    })
+    expect(approved).toMatchObject({ ok: true, value: { ok: true, approvedFindings: 1, omittedFindings: 0 } })
+    expect(store.get(session.id)?.planReview?.status).toBe('approved')
   })
 })
 

@@ -35,4 +35,17 @@ describe('ContractCopilotClient', () => {
     expect(url.searchParams.get('sessionId')).toBe('合同-20260904')
     expect(url.searchParams.get('kind')).toBe('reviewed')
   })
+
+  it('提交与 plan hash 绑定的律师决定', async () => {
+    const call = vi.fn().mockResolvedValue({ ok: true, value: { ok: true, approvedPlanHash: 'approved', approvedFindings: 1, omittedFindings: 0 } })
+    const client = new ContractCopilotClient({ rpc: { call } } as WorkbenchConnection)
+
+    await client.approvePlan('case-1', 'source', [{ findingId: 'R001', disposition: 'accept' }])
+
+    expect(call).toHaveBeenCalledWith(WORKBENCH_RPC_CHANNEL, 'approve', {
+      sessionId: 'case-1',
+      sourcePlanHash: 'source',
+      decisions: [{ findingId: 'R001', disposition: 'accept' }],
+    }, undefined)
+  })
 })

@@ -13,6 +13,7 @@ import type { PluginConfig } from './config.ts'
 import { extractDocxParts, parseCommentsXml, renderDocumentHtml } from './docx-view.ts'
 import { resolveIntakeFields } from './intake-fields.ts'
 import { expandHome, normalizeContractKey } from './paths.ts'
+import { approvePlan, PlanReviewError, type FindingDecisionInput } from './plan-review.ts'
 import type { ContractSession, DecisionAnswers, SessionStore } from './session.ts'
 import { findContractMemory, readReviewerProfile, readReviewMemory } from './skill-config.ts'
 import {
@@ -20,6 +21,7 @@ import {
   WORKBENCH_EVENTS_PATH,
   WORKBENCH_RPC_CHANNEL,
   type DocumentView,
+  type ApprovePlanResult,
   type RecheckResult,
   type SessionDetail,
   type StartReviewResult,
@@ -85,6 +87,21 @@ export async function handleWorkbenchRpc(
         store.save({ ...session, pendingAnswers: answersFrom(input.fields) })
         return success({ ok: true as const })
       }
+      case 'approve': {
+        const session = requireSession(store, sessionIdFrom(input))
+        const approved = approvePlan(
+          session,
+          stringField(input, 'sourcePlanHash'),
+          decisionsFrom(input.decisions),
+        )
+        store.save({ ...session, planReview: approved.planReview })
+        return success<ApprovePlanResult>({
+          ok: true,
+          approvedPlanHash: approved.planReview.approvedPlanHash!,
+          approvedFindings: approved.approvedFindings,
+          omittedFindings: approved.omittedFindings,
+        })
+      }
       case 'start':
         return success(startReview(config, store, stringField(input, 'contractPath')))
       case 'recheck':
@@ -102,11 +119,41 @@ function success<T>(value: T): ConnectionRpcResult<T> {
 }
 
 function failure(error: unknown): ConnectionRpcResult<never> {
+  if (error instanceof PlanReviewError) {
+    return { ok: false, error: rpcFailure(error.code, error.message) }
+  }
   if (error instanceof WorkbenchRequestError) {
     return { ok: false, error: rpcFailure(error.code, error.message) }
   }
   const message = error instanceof Error ? error.message : String(error)
   return { ok: false, error: rpcFailure('contract-copilot/internal', message) }
+}
+
+function decisionsFrom(value: unknown): FindingDecisionInput[] {
+  if (!Array.isArray(value) || value.length > 500) {
+    throw new WorkbenchRequestError('contract-copilot/bad-request', 'decisions 必须是不超过 500 项的数组。')
+  }
+  return value.map((raw) => {
+    if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) {
+      throw new WorkbenchRequestError('contract-copilot/bad-request', 'decision 必须是 JSON 对象。')
+    }
+    const decision = raw as Record<string, unknown>
+    const findingId = stringField(decision, 'findingId')
+    const disposition = stringField(decision, 'disposition') as FindingDecisionInput['disposition']
+    const severity = optionalString(decision, 'severity', 40)
+    const note = optionalString(decision, 'note', MAX_ANSWER_TEXT_LENGTH)
+    return { findingId, disposition, ...(severity === undefined ? {} : { severity }), ...(note === undefined ? {} : { note }) }
+  })
+}
+
+function optionalString(payload: Record<string, unknown>, field: string, max: number): string | undefined {
+  const value = payload[field]
+  if (value === undefined) return undefined
+  if (typeof value !== 'string' || value.length > max) {
+    throw new WorkbenchRequestError('contract-copilot/bad-request', `${field} 必须是长度不超过 ${max} 的字符串。`)
+  }
+  const trimmed = value.trim()
+  return trimmed === '' ? undefined : trimmed
 }
 
 function rpcFailure(code: string, message: string): ConnectionRpcFailure {
@@ -220,6 +267,8 @@ function sessionDetail(store: SessionStore, sessionId: string): SessionDetail {
       state: session.state,
       intake: session.intake,
       intakeMissing: session.intakeMissing,
+      planReview: session.planReview,
+      automation: session.automation,
       outputs: session.outputs,
       updatedAt: session.updatedAt,
       historyTail: session.history.slice(-8),

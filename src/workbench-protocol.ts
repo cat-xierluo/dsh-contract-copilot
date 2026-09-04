@@ -2,9 +2,12 @@
 
 import type {
   ApplyOutputs,
+  AutomationState,
   ContractSession,
   DecisionOption,
+  FindingDisposition,
   HistoryEntry,
+  PlanReview,
   SessionState,
 } from './session-types.ts'
 
@@ -23,6 +26,7 @@ export type WorkbenchRpcEndpoint =
   | 'detail'
   | 'document'
   | 'answers'
+  | 'approve'
   | 'start'
   | 'recheck'
 
@@ -47,6 +51,8 @@ export interface SessionView {
   readonly state: SessionState
   readonly intake?: ContractSession['intake']
   readonly intakeMissing?: DecisionOption[]
+  readonly planReview?: PlanReview
+  readonly automation?: AutomationState
   readonly outputs: ApplyOutputs
   readonly updatedAt: string
   readonly historyTail: HistoryEntry[]
@@ -89,6 +95,22 @@ export interface RecheckResult {
   readonly hint: string
 }
 
+/** Browser input for one lawyer finding decision. */
+export interface FindingDecisionRequest {
+  readonly findingId: string
+  readonly disposition: FindingDisposition
+  readonly severity?: string
+  readonly note?: string
+}
+
+/** Result of projecting an approved plan to disk. */
+export interface ApprovePlanResult {
+  readonly ok: true
+  readonly approvedPlanHash: string
+  readonly approvedFindings: number
+  readonly omittedFindings: number
+}
+
 /** Endpoint payload and result pairs used by both Host and Client adapters. */
 export interface WorkbenchRpcMap {
   readonly state: { readonly input: Record<string, never>; readonly output: WorkbenchState }
@@ -97,6 +119,14 @@ export interface WorkbenchRpcMap {
   readonly answers: {
     readonly input: { readonly sessionId: string; readonly fields: Record<string, string> }
     readonly output: { readonly ok: true }
+  }
+  readonly approve: {
+    readonly input: {
+      readonly sessionId: string
+      readonly sourcePlanHash: string
+      readonly decisions: FindingDecisionRequest[]
+    }
+    readonly output: ApprovePlanResult
   }
   readonly start: { readonly input: { readonly contractPath: string }; readonly output: StartReviewResult }
   readonly recheck: {
