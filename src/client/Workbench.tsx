@@ -19,15 +19,11 @@ import {
   phaseIndex,
   type FindingDecisionDraft,
 } from './decision-model.ts'
-import { bindTranslate, browserLocale, type LocaleParams, type WorkbenchLocaleKey } from './locale.ts'
+import { browserLocale, createTranslator, type MessageKey } from './locale.ts'
 
-const t = bindTranslate(browserLocale())
+const label = createTranslator(browserLocale())
 
-function label(key: WorkbenchLocaleKey, params?: LocaleParams): string {
-  return t(key, params)
-}
-
-const STATE_KEYS: Record<SessionState, WorkbenchLocaleKey> = {
+const STATE_KEYS: Record<SessionState, MessageKey> = {
   created: 'state.created',
   intake_done: 'state.intake_done',
   plan_ready: 'state.plan_ready',
@@ -39,7 +35,7 @@ const STATE_KEYS: Record<SessionState, WorkbenchLocaleKey> = {
   delivered: 'state.delivered',
 }
 
-const TOOL_KEYS: Record<string, WorkbenchLocaleKey> = {
+const TOOL_KEYS: Record<string, MessageKey> = {
   contract_copilot_intake: 'tool.contract_copilot_intake',
   contract_copilot_analyze: 'tool.contract_copilot_analyze',
   contract_copilot_apply: 'tool.contract_copilot_apply',
@@ -48,7 +44,7 @@ const TOOL_KEYS: Record<string, WorkbenchLocaleKey> = {
   contract_copilot_recheck: 'tool.contract_copilot_recheck',
 }
 
-const AUTOMATION_KEYS: Record<AutomationStatus, WorkbenchLocaleKey> = {
+const AUTOMATION_KEYS: Record<AutomationStatus, MessageKey> = {
   idle: 'automation.idle',
   'running-analysis': 'automation.running-analysis',
   'waiting-decisions': 'automation.waiting-decisions',
@@ -57,7 +53,7 @@ const AUTOMATION_KEYS: Record<AutomationStatus, WorkbenchLocaleKey> = {
   delivered: 'automation.delivered',
 }
 
-const DISPOSITION_KEYS: Array<[FindingDisposition, WorkbenchLocaleKey]> = [
+const DISPOSITION_KEYS: Array<[FindingDisposition, MessageKey]> = [
   ['accept', 'disposition.accept'],
   ['comment-only', 'disposition.comment-only'],
   ['report-only', 'disposition.report-only'],
@@ -366,13 +362,16 @@ export function RailEntryButton({ client, wide }: RailEntryButtonProps): React.J
   }, [open])
   const active = latest !== undefined && latest.state !== 'delivered'
   const title = latest === undefined
-    ? label('entry.titleFallback')
-    : `${latest.contractName} · ${label(STATE_KEYS[latest.state])}`
+    ? label('workbench.railTitle')
+    : label('workbench.railTitleWithState', {
+        contractName: latest.contractName,
+        state: label(STATE_KEYS[latest.state]),
+      })
   return (
     <>
       <button
         ref={buttonRef}
-        aria-label={label('entry.open')}
+        aria-label={label('workbench.openAria')}
         aria-haspopup="dialog"
         aria-expanded={open}
         type="button"
@@ -381,7 +380,7 @@ export function RailEntryButton({ client, wide }: RailEntryButtonProps): React.J
         style={railButtonStyle(active, wide)}
       >
         <span aria-hidden="true" style={{ fontSize: 16 }}>📋</span>
-        {wide ? <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{label('entry.label')}</span> : null}
+        {wide ? <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{label('workbench.railLabel')}</span> : null}
         {latest !== undefined ? <span aria-hidden="true" style={statusDotStyle(active, wide)} /> : null}
       </button>
       {open ? <Workbench client={client} onClose={() => setOpen(false)} /> : null}
@@ -433,9 +432,9 @@ function WordPane(props: {
     <>
       <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 8, flexWrap: 'wrap' }}>
         <span style={S.muted}>{props.label}</span>
-        <button type="button" className="ccp-btn" style={viewButton(mode === 'word')} onClick={() => { setMode('word'); setRenderVersion(value => value + 1) }}>{label('word.view')}</button>
-        <button type="button" className="ccp-btn" style={viewButton(mode === 'simple')} onClick={() => setMode('simple')}>{label('word.simpleView')}</button>
-        {error !== undefined ? <span title={error} style={{ ...S.muted, color: token('--dsw-alias-state-error-primary', '#b03a2e') }}>{label('word.renderFailed')}</span> : null}
+        <button type="button" className="ccp-btn" style={viewButton(mode === 'word')} onClick={() => { setMode('word'); setRenderVersion(value => value + 1) }}>{label('doc.wordView')}</button>
+        <button type="button" className="ccp-btn" style={viewButton(mode === 'simple')} onClick={() => setMode('simple')}>{label('doc.simpleView')}</button>
+        {error !== undefined ? <span title={error} style={{ ...S.muted, color: token('--dsw-alias-state-error-primary', '#b03a2e') }}>{label('doc.renderFailed')}</span> : null}
       </div>
       <div ref={holder} style={{ ...S.docFrame, padding: 0, border: 0, minHeight: 400, display: mode === 'word' ? 'block' : 'none' }} />
       {mode === 'simple' ? <div className="ccp-doc" style={S.docFrame} dangerouslySetInnerHTML={{ __html: props.fallbackHtml }} /> : null}
@@ -447,10 +446,10 @@ function ReviewProgress({ session }: { readonly session: SessionDetail['session'
   const current = phaseIndex(session)
   const failed = session.state === 'failed' || session.state === 'rejected' || session.automation?.status === 'failed'
   const phases: readonly string[] = [
-    label('phase.0'), label('phase.1'), label('phase.2'), label('phase.3'), label('phase.4'),
+    label('phase.intake'), label('phase.analysis'), label('phase.decisions'), label('phase.delivery'), label('phase.done'),
   ]
   return (
-    <div aria-label={label('progress.label')} style={{ display: 'grid', gridTemplateColumns: `repeat(${String(phases.length)}, 1fr)`, gap: 5, marginTop: 10 }}>
+    <div aria-label={label('progress.aria')} style={{ display: 'grid', gridTemplateColumns: `repeat(${String(phases.length)}, 1fr)`, gap: 5, marginTop: 10 }}>
       {phases.map((phase, index) => {
         const done = current > index
         const active = current === index
@@ -486,10 +485,10 @@ function DecisionPanel(props: {
     <div style={decisionCardStyle(approved)}>
       <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, alignItems: 'center', marginBottom: 8 }}>
         <div>
-          <div style={{ fontWeight: 650 }}>{label('decisions.title')}</div>
-          <div style={S.muted}>{approved ? label('decisions.approved') : label('decisions.progress', { decided, total: props.detail.findings.length })}</div>
+          <div style={{ fontWeight: 650 }}>{label('decision.panelTitle')}</div>
+          <div style={S.muted}>{approved ? label('decision.planApproved') : label('decision.progress', { decided, total: props.detail.findings.length })}</div>
         </div>
-        {!approved ? <button type="button" className="ccp-btn" style={S.secondaryBtn} onClick={setAll}>{label('decisions.acceptAll')}</button> : null}
+        {!approved ? <button type="button" className="ccp-btn" style={S.secondaryBtn} onClick={setAll}>{label('decision.acceptAll')}</button> : null}
       </div>
       {props.detail.findings.map((finding, index) => {
         const id = findingId(finding, index)
@@ -501,18 +500,18 @@ function DecisionPanel(props: {
         return (
           <div key={id} style={{ borderTop: `1px solid ${token('--dsw-alias-border-l2', '#e5dcc3')}`, padding: '10px 0' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
-              <b>{id} · {findingText(finding, 'risk') ?? label('decisions.unnamedRisk')}</b>
+              <b>{id} · {findingText(finding, 'risk') ?? label('decision.unnamedRisk')}</b>
               <span style={S.pill}>{findingText(finding, 'severity') ?? '?'}</span>
             </div>
-            {targetText !== undefined ? <div style={{ ...S.muted, marginTop: 5 }}>{label('decisions.originalText', { text: targetText })}</div> : null}
+            {targetText !== undefined ? <div style={{ ...S.muted, marginTop: 5 }}>{label('decision.originalText', { text: targetText })}</div> : null}
             {suggestionText !== undefined ? (
-              <div style={{ ...S.muted, marginTop: 4 }}>{label('decisions.suggestion', { text: suggestionText })}</div>
+              <div style={{ ...S.muted, marginTop: 4 }}>{label('decision.suggestion', { text: suggestionText })}</div>
             ) : null}
-            {legalBasis !== undefined ? <div style={{ ...S.muted, marginTop: 4 }}>{label('decisions.legalBasis', { text: legalBasis })}</div> : null}
+            {legalBasis !== undefined ? <div style={{ ...S.muted, marginTop: 4 }}>{label('decision.legalBasis', { text: legalBasis })}</div> : null}
             <label style={{ display: 'block', marginTop: 8, fontSize: 12 }}>
-              {label('decisions.disposition')}
+              {label('decision.dispositionLabel')}
               <select
-                aria-label={label('decisions.dispositionAria', { id })}
+                aria-label={label('decision.dispositionAria', { findingId: id })}
                 style={{ ...S.input, marginTop: 3 }}
                 value={draft.disposition ?? ''}
                 disabled={approved}
@@ -521,26 +520,26 @@ function DecisionPanel(props: {
                   props.setDrafts(previous => ({ ...previous, [id]: { ...previous[id], disposition } }))
                 }}
               >
-                <option value="">{label('decisions.dispositionPlaceholder')}</option>
+                <option value="">{label('decision.dispositionPlaceholder')}</option>
                 {DISPOSITION_KEYS.map(([value, key]) => <option key={value} value={value}>{label(key)}</option>)}
               </select>
             </label>
             <div style={{ display: 'grid', gridTemplateColumns: '90px 1fr', gap: 6, marginTop: 6 }}>
               <select
-                aria-label={label('decisions.severityAria', { id })}
+                aria-label={label('decision.severityAria', { findingId: id })}
                 style={S.input}
                 value={draft.severity ?? findingText(finding, 'severity') ?? ''}
                 disabled={approved}
                 onChange={event => props.setDrafts(previous => ({ ...previous, [id]: { ...previous[id], severity: event.target.value } }))}
               >
-                <option value="">{label('decisions.severityOriginal')}</option>
+                <option value="">{label('decision.keepSeverity')}</option>
                 <option value="P0">P0</option><option value="P1">P1</option><option value="P2">P2</option>
               </select>
               <input
-                aria-label={label('decisions.noteAria', { id })}
+                aria-label={label('decision.noteAria', { findingId: id })}
                 className="ccp-field"
                 style={S.input}
-                placeholder={label('decisions.notePlaceholder')}
+                placeholder={label('decision.notePlaceholder')}
                 value={draft.note ?? ''}
                 disabled={approved}
                 onChange={event => props.setDrafts(previous => ({ ...previous, [id]: { ...previous[id], note: event.target.value } }))}
@@ -551,9 +550,9 @@ function DecisionPanel(props: {
       })}
       {!approved ? (
         <button type="button" className="ccp-btn" style={{ ...S.btn, width: '100%', marginTop: 8 }} disabled={requests === undefined || props.busy} onClick={props.onApprove}>
-          {requests === undefined ? label('decisions.approveLocked') : label('decisions.approve')}
+          {requests === undefined ? label('decision.approveLockedHint') : label('decision.approveAndGenerate')}
         </button>
-      ) : <div style={S.successNote}>{label('decisions.approvedNote')}</div>}
+      ) : <div style={S.successNote}>{label('decision.approvedBadge')}</div>}
     </div>
   )
 }
@@ -625,7 +624,7 @@ function Workbench({ client, onClose }: { readonly client: ContractCopilotClient
         setSelected(current => current ?? data.sessions[0]?.id)
         setLoadError(undefined)
       } catch (caught) {
-        if (alive) setLoadError(label('error.connection', { message: errorMessage(caught) }))
+        if (alive) setLoadError(label('notice.connectionFailed',{ message: errorMessage(caught) }))
       }
     }
     void loadList()
@@ -666,7 +665,7 @@ function Workbench({ client, onClose }: { readonly client: ContractCopilotClient
         })
         setLoadError(undefined)
       } catch (caught) {
-        if (alive && !controller.signal.aborted) setLoadError(label('error.detail', { message: errorMessage(caught) }))
+        if (alive && !controller.signal.aborted) setLoadError(label('notice.detailFailed',{ message: errorMessage(caught) }))
       }
     }
     void load()
@@ -681,7 +680,7 @@ function Workbench({ client, onClose }: { readonly client: ContractCopilotClient
   const runAnalysis = async (): Promise<void> => {
     if (selected === undefined) return
     if (missing.some(item => (answers[item.field] ?? '').trim() === '')) {
-      setNotice(label('notice.missingIntake'))
+      setNotice(label('notice.intakeMissing'))
       return
     }
     setCommandBusy(true)
@@ -690,7 +689,7 @@ function Workbench({ client, onClose }: { readonly client: ContractCopilotClient
       await client.runAnalysis(selected)
       setNotice(label('notice.analysisStarted'))
     } catch (caught) {
-      setNotice(label('notice.analysisFailed', { message: errorMessage(caught) }))
+      setNotice(label('notice.analysisStartFailed', { message: errorMessage(caught) }))
     } finally {
       setCommandBusy(false)
     }
@@ -699,12 +698,12 @@ function Workbench({ client, onClose }: { readonly client: ContractCopilotClient
   const approveAndDeliver = async (): Promise<void> => {
     if (selected === undefined || detail?.session.planReview === undefined) return
     const requests = decisionRequests(detail.findings, decisionDrafts)
-    if (requests === undefined) { setNotice(label('notice.undecidedFindings')); return }
+    if (requests === undefined) { setNotice(label('notice.decisionsMissing')); return }
     setCommandBusy(true)
     try {
       const result = await client.approvePlan(selected, detail.session.planReview.sourcePlanHash, requests)
       await client.runDelivery(selected)
-      setNotice(label('notice.planApproved', { approved: result.approvedFindings, omitted: result.omittedFindings }))
+      setNotice(label('notice.planLocked', { approved: result.approvedFindings, omitted: result.omittedFindings }))
     } catch (caught) {
       setNotice(label('notice.approveFailed', { message: errorMessage(caught) }))
     } finally {
@@ -717,9 +716,9 @@ function Workbench({ client, onClose }: { readonly client: ContractCopilotClient
     setCommandBusy(true)
     try {
       await client.cancel(selected)
-      setNotice(label('notice.agentCancelled'))
+      setNotice(label('notice.agentStopped'))
     } catch (caught) {
-      setNotice(label('notice.cancelFailed', { message: errorMessage(caught) }))
+      setNotice(label('notice.stopFailed', { message: errorMessage(caught) }))
     } finally {
       setCommandBusy(false)
     }
@@ -730,7 +729,7 @@ function Workbench({ client, onClose }: { readonly client: ContractCopilotClient
     setCommandBusy(true)
     try {
       await client.runDelivery(selected)
-      setNotice(label('notice.deliveryRetried'))
+      setNotice(label('notice.retryStarted'))
     } catch (caught) {
       setNotice(label('notice.retryFailed', { message: errorMessage(caught) }))
     } finally {
@@ -782,12 +781,12 @@ function Workbench({ client, onClose }: { readonly client: ContractCopilotClient
         return (
           <div key={id}>
             <div style={{ ...S.card, marginBottom: 10 }}>
-              <div style={{ ...S.muted, marginBottom: 6 }}>{label('tasks.newReview')}</div>
-              <input aria-label={label('tasks.pathLabel')} className="ccp-field" style={S.input} placeholder={label('tasks.pathLabel')} value={newContractPath} onChange={event => setNewContractPath(event.target.value)} />
-              <button type="button" className="ccp-btn" style={{ ...S.btn, marginTop: 6, width: '100%' }} onClick={() => { void startReview() }} disabled={newContractPath.trim() === ''}>{label('tasks.create')}</button>
+              <div style={{ ...S.muted, marginBottom: 6 }}>{label('newReview.title')}</div>
+              <input aria-label={label('newReview.pathAria')} className="ccp-field" style={S.input} placeholder={label('newReview.placeholder')} value={newContractPath} onChange={event => setNewContractPath(event.target.value)} />
+              <button type="button" className="ccp-btn" style={{ ...S.btn, marginTop: 6, width: '100%' }} onClick={() => { void startReview() }} disabled={newContractPath.trim() === ''}>{label('newReview.submit')}</button>
             </div>
             {sessions.length === 0 ? (
-              <div style={S.muted}>{label('tasks.empty')}</div>
+              <div style={S.muted}>{label('list.empty')}</div>
             ) : sessions.map(session => (
               <button
                 type="button"
@@ -806,13 +805,13 @@ function Workbench({ client, onClose }: { readonly client: ContractCopilotClient
           <div key={id}>
             {doc !== undefined && selected !== undefined ? (
               <WordPane client={client} sessionId={selected} reviewedDocx={doc.reviewedDocx} fallbackHtml={doc.html} label={doc.label} />
-            ) : <div style={S.muted}>{label('doc.empty')}</div>}
+            ) : <div style={S.muted}>{label('doc.selectPrompt')}</div>}
           </div>
         )
       case 'status':
         return (
           <div key={id} style={S.card}>
-            <div style={S.muted}>{label('status.currentState')}</div>
+            <div style={S.muted}>{label('status.currentLabel')}</div>
             <div style={{ marginTop: 6 }}><span style={S.pill}>{detail === undefined ? '—' : label(STATE_KEYS[detail.session.state])}</span></div>
             {detail?.session.automation !== undefined ? <div style={{ marginTop: 7, fontSize: 12 }}>{label(AUTOMATION_KEYS[detail.session.automation.status])}</div> : null}
             {detail?.session.automation?.error !== undefined ? <div role="alert" style={{ ...S.muted, color: token('--dsw-alias-state-error-primary', '#b03a2e'), marginTop: 5 }}>{detail.session.automation.error}</div> : null}
@@ -827,7 +826,7 @@ function Workbench({ client, onClose }: { readonly client: ContractCopilotClient
             ) : null}
             {detail?.session.state === 'plan_ready' && detail.session.planReview?.status === 'approved'
               && detail.session.automation?.status !== 'running-delivery' ? (
-                <button type="button" className="ccp-btn" style={{ ...S.btn, marginTop: 9, width: '100%' }} disabled={commandBusy} onClick={() => { void retryDelivery() }}>{label('status.retryDelivery')}</button>
+                <button type="button" className="ccp-btn" style={{ ...S.btn, marginTop: 9, width: '100%' }} disabled={commandBusy} onClick={() => { void retryDelivery() }}>{label('status.regenerate')}</button>
               ) : null}
           </div>
         )
@@ -835,11 +834,11 @@ function Workbench({ client, onClose }: { readonly client: ContractCopilotClient
         if (detail?.session.outputs.reviewedDocx === undefined) return null
         return (
           <div key={id} style={S.card}>
-            <div style={S.muted}>{label('deliverables.title')}</div>
+            <div style={S.muted}>{label('output.deliverables')}</div>
             <div style={{ marginTop: 7, display: 'flex', flexDirection: 'column', gap: 6 }}>
-              <a style={downloadLinkStyle('reviewed')} href={client.downloadUrl(detail.session.id, 'reviewed')}>{label('deliverables.reviewedDocx')}</a>
+              <a style={downloadLinkStyle('reviewed')} href={client.downloadUrl(detail.session.id, 'reviewed')}>{label('output.reviewedDocx')}</a>
               {detail.session.outputs.reportDocx !== undefined ? (
-                <a style={downloadLinkStyle('report')} href={client.downloadUrl(detail.session.id, 'report')}>{label('deliverables.reportDocx')}</a>
+                <a style={downloadLinkStyle('report')} href={client.downloadUrl(detail.session.id, 'report')}>{label('output.reportDocx')}</a>
               ) : null}
             </div>
           </div>
@@ -849,7 +848,7 @@ function Workbench({ client, onClose }: { readonly client: ContractCopilotClient
         return (
           <div key={id} style={S.card}>
             <div style={{ ...S.muted, marginBottom: 6 }}>{label('recheck.title')}</div>
-            <input aria-label={label('recheck.pathLabel')} className="ccp-field" style={S.input} placeholder={label('recheck.pathPlaceholder')} value={recheckPath} onChange={event => setRecheckPath(event.target.value)} />
+            <input aria-label={label('recheck.pathAria')} className="ccp-field" style={S.input} placeholder={label('recheck.placeholder')} value={recheckPath} onChange={event => setRecheckPath(event.target.value)} />
             <button type="button" className="ccp-btn" style={{ ...S.btn, marginTop: 6 }} onClick={() => { void submitRecheck() }} disabled={recheckPath.trim() === ''}>{label('recheck.submit')}</button>
           </div>
         )
@@ -857,7 +856,7 @@ function Workbench({ client, onClose }: { readonly client: ContractCopilotClient
         if (missing.length === 0) return null
         return (
           <div key={id} style={S.intakeCard}>
-            <div style={{ fontSize: 12, fontWeight: 650, marginBottom: 8, color: token('--dsw-alias-label-primary', '#1d1d1b') }}>{label('intake.title', { count: missing.length })}</div>
+            <div style={{ fontSize: 12, fontWeight: 650, marginBottom: 8, color: token('--dsw-alias-label-primary', '#1d1d1b') }}>{label('intake.requiredTitle', { count: missing.length })}</div>
             {missing.map(item => (
               <div key={item.field} style={S.field}>
                 <div style={{ ...S.muted, marginBottom: 4 }}>{item.question}</div>
@@ -868,7 +867,7 @@ function Workbench({ client, onClose }: { readonly client: ContractCopilotClient
                 )) : <input aria-label={item.question} className="ccp-field" style={S.input} value={answers[item.field] ?? ''} onChange={event => setAnswers({ ...answers, [item.field]: event.target.value })} />}
               </div>
             ))}
-            <button type="button" className="ccp-btn" style={{ ...S.btn, width: '100%' }} disabled={commandBusy || missing.some(item => (answers[item.field] ?? '').trim() === '')} onClick={() => { void runAnalysis() }}>{label('intake.submit')}</button>
+            <button type="button" className="ccp-btn" style={{ ...S.btn, width: '100%' }} disabled={commandBusy || missing.some(item => (answers[item.field] ?? '').trim() === '')} onClick={() => { void runAnalysis() }}>{label('intake.submitAndAnalyze')}</button>
           </div>
         )
       case 'comments':
@@ -895,7 +894,7 @@ function Workbench({ client, onClose }: { readonly client: ContractCopilotClient
         if (detail === undefined || detail.session.historyTail.length === 0) return null
         return (
           <div key={id} style={S.card}>
-            <div style={{ ...S.muted, marginBottom: 7 }}>{label('history.title')}</div>
+            <div style={{ ...S.muted, marginBottom: 7 }}>{label('history.recentTitle')}</div>
             {[...detail.session.historyTail].reverse().map((entry, index) => (
               <div key={`${entry.at}-${String(index)}`} style={{ display: 'grid', gridTemplateColumns: '8px 1fr', columnGap: 7, marginBottom: 7 }}>
                 <span aria-hidden="true" style={historyDotStyle(index === 0)} />
@@ -919,14 +918,14 @@ function Workbench({ client, onClose }: { readonly client: ContractCopilotClient
         ref={panelRef}
         role="dialog"
         aria-modal="true"
-        aria-label={label('dialog.label')}
+        aria-label={label('workbench.dialogAria')}
         tabIndex={-1}
         style={S.panel}
         onClick={event => event.stopPropagation()}
       >
         <div style={S.head}>
-          <span style={S.title}>{label('dialog.title')}</span>
-          <button aria-label={label('dialog.close')} type="button" style={S.close} onClick={onClose}>✕</button>
+          <span style={S.title}>{label('workbench.title')}</span>
+          <button aria-label={label('workbench.closeAria')} type="button" style={S.close} onClick={onClose}>✕</button>
         </div>
         {loadError !== undefined ? <div role="alert" style={S.errorStrip}>{loadError}</div> : null}
         {narrow ? (

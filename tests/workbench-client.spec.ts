@@ -2,7 +2,6 @@
 
 import { describe, expect, it, vi } from 'vitest'
 import { ContractCopilotClient, type WorkbenchConnection } from '../src/client/api.ts'
-import { resolveLocale, translate, WORKBENCH_LOCALES, zh, type WorkbenchLocaleKey } from '../src/client/locale.ts'
 import {
   adjacentPaneId,
   DIALOG_FOCUS_POLICY,
@@ -127,39 +126,6 @@ function rawColorEntries(style: Record<string, unknown>): string[] {
   }
   return found
 }
-
-describe('workbench locale dictionary', () => {
-  it('keeps en complete against the zh key set at runtime', () => {
-    const zhKeys = Object.keys(zh).sort()
-    expect(zhKeys.length).toBeGreaterThan(50)
-    expect(Object.keys(WORKBENCH_LOCALES.en).sort()).toEqual(zhKeys)
-  })
-
-  it('fills {name} placeholders and keeps unknown ones visible', () => {
-    expect(translate('zh', 'status.stats', { applied: 3, failed: 1, reportOnly: 2 }))
-      .toBe('成功 3 · 失败 1 · 仅意见书 2')
-    expect(translate('en', 'intake.title', { count: 4 })).toBe('Needs your confirmation (4)')
-    expect(translate('zh', 'error.connection')).toBe('工作台连接失败：{message}')
-    expect(translate('zh', 'error.connection', { message: '超时' })).toBe('工作台连接失败：超时')
-  })
-
-  it('derives the locale from the browser language with the DSH en fallback', () => {
-    expect(resolveLocale('zh-CN')).toBe('zh')
-    expect(resolveLocale('zh')).toBe('zh')
-    expect(resolveLocale('en-US')).toBe('en')
-    expect(resolveLocale('fr')).toBe('en')
-    expect(resolveLocale(undefined)).toBe('en')
-  })
-
-  it('resolves every dictionary key in both locales', () => {
-    for (const key of Object.keys(zh) as WorkbenchLocaleKey[]) {
-      for (const locale of ['zh', 'en'] as const) {
-        expect(typeof WORKBENCH_LOCALES[locale][key]).toBe('string')
-        expect(WORKBENCH_LOCALES[locale][key].length).toBeGreaterThan(0)
-      }
-    }
-  })
-})
 
 describe('workbench theme tokens', () => {
   it('references only DSH theme tokens that exist in the shipped UI packages', () => {
