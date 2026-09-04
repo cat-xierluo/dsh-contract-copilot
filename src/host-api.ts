@@ -11,7 +11,7 @@ import type {
 } from '@deepseek-ai/dsh-client-connection'
 import type { PluginConfig } from './config.ts'
 import { AgentCoordinatorError, ContractAgentCoordinator } from './agent-coordinator.ts'
-import { extractDocxParts, parseCommentsXml, renderDocumentHtml } from './docx-view.ts'
+import { extractDocxParts, parseCommentsXml, renderDocumentWithAnchors } from './docx-view.ts'
 import { hasBlockers, resolveIntakeFields } from './intake-fields.ts'
 import { expandHome, normalizeContractKey } from './paths.ts'
 import { approvePlan, PlanReviewError, type FindingDecisionInput } from './plan-review.ts'
@@ -326,10 +326,11 @@ function documentView(config: PluginConfig, session: ContractSession): DocumentV
   const docxPath = session.outputs.reviewedDocx ?? session.contractPath
   const { documentXml, commentsXml } = extractDocxParts(docxPath, config.pythonExecutable)
   const comments = parseCommentsXml(commentsXml)
+  const rendered = renderDocumentWithAnchors(documentXml, comments)
   return {
     label: session.outputs.reviewedDocx !== undefined ? '审核修订版 DOCX' : '原合同',
-    html: renderDocumentHtml(documentXml, comments),
-    comments: [...comments.entries()].map(([id, comment]) => ({ id, ...comment })),
+    html: rendered.html,
+    comments: rendered.comments,
     reviewedDocx: session.outputs.reviewedDocx,
     reportDocx: session.outputs.reportDocx,
   }

@@ -12,11 +12,18 @@
  * w:del 修订删除（用 delText）、w:commentRangeStart/End/Reference 批注、
  * comments.xml 批注正文。表格、嵌入对象、图片、域代码、复杂样式按
  * 不支持处理（线性化为段落）。
+ *
+ * 批注锚点模型：每条批注获得内容派生的稳定 anchorId（OOXML w:id 在 Word
+ * 重存时会被重新编号，不可依赖）。范围标记（commentRangeStart..End）能在
+ * 同一段落内重建时，正文输出 <span data-cc-anchor> 精确包裹；否则走确定性
+ * 降级（原因 + 可见的引用点段落），绝不发明错误目标。HTML 标记与 anchor
+ * 元数据由同一趟渲染产出：exact 状态 ⟺ 正文真的存在对应范围标记。
  */
 
 import { spawnSync } from 'node:child_process'
 import type { SpawnSyncReturns } from 'node:child_process'
 import { unlinkSync, writeFileSync } from 'node:fs'
+import type { CommentAnchor, CommentAnchorFallbackReason, DocComment } from './workbench-protocol.ts'
 
 export type DocxComment = {
   author: string
@@ -112,121 +119,378 @@ function escapeHtml(s: string): string {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
 }
 
+const textEncoder = new TextEncoder()
+
+/** FNV-1a 32 位；两个不同 basis 各跑一遍拼成 16 位 hex，降低碰撞面。 */
+function fnv1a32(bytes: Uint8Array, basis: number): string {
+  let hash = basis >>> 0
+  for (const byte of bytes) {
+    hash ^= byte
+    hash = Math.imul(hash, 0x01000193) >>> 0
+  }
+  return hash.toString(16).padStart(8, '0')
+}
+
 /**
- * 把 word/document.xml 渲染成 HTML。
+ * 批注稳定锚点 id：由 author/date/text 内容派生（跨 Word 重存稳定），
+ * 格式 `ccm-<16 hex>`；内容完全相同的重复批注按出现顺序追加 -2/-3 后缀。
+ */
+export function assignCommentAnchorIds(comments: Map<string, DocxComment>): Map<string, string> {
+  const anchorIds = new Map<string, string>()
+  const seen = new Map<string, number>()
+  for (const [id, comment] of comments) {
+    const bytes = textEncoder.encode(`${comment.author}\u0000${comment.date}\u0000${comment.text}`)
+    const base = `ccm-${fnv1a32(bytes, 0x811c9dc5)}${fnv1a32(bytes, 0x811c9dc5 ^ 0x9e3779b9)}`
+    const count = (seen.get(base) ?? 0) + 1
+    seen.set(base, count)
+    anchorIds.set(id, count === 1 ? base : `${base}-${count}`)
+  }
+  return anchorIds
+}
+
+/** 与渲染器完全一致的切段：返回参与渲染的段落 inner，数组下标即 paragraphIndex。 */
+function splitParagraphInners(documentXml: string): string[] {
+  const paraBlocks = documentXml
+    .split(/(?=<w:p(?:\s|>|\/>))/)
+    .filter((block) => block.includes('<w:p') && block.includes('</w:p>') || block.includes('<w:p/>'))
+  const inners: string[] = []
+  for (const block of paraBlocks) {
+    if (block.trim() === '' || block === '<w:p/>') continue
+    const closingIdx = block.indexOf('</w:p>')
+    if (closingIdx < 0) continue
+    inners.push(block.slice(0, closingIdx))
+  }
+  return inners
+}
+
+/** 可见批注标记出现位置（inner 坐标；start/end 为标签起止）。 */
+type RangeMarker = { id: string; paragraphIndex: number; start: number; end: number }
+
+type ParagraphScan = {
+  starts: RangeMarker[]
+  ends: RangeMarker[]
+  refs: Array<{ id: string; paragraphIndex: number }>
+  /** 落在 ins/del 块内的范围标记 id（渲染器不会为其产出任何标记）。 */
+  hiddenStartIds: Set<string>
+  hiddenEndIds: Set<string>
+}
+
+/**
+ * 单段扫描批注标记，并按渲染器的可见性规则分类：渲染器把 <w:ins>/<w:del>
+ * 整块消费（只抽取文本），块内的批注标记不会产出任何输出 → 视为隐藏。
+ */
+function scanParagraphMarkers(inner: string, paragraphIndex: number): ParagraphScan {
+  const scan: ParagraphScan = {
+    starts: [], ends: [], refs: [], hiddenStartIds: new Set(), hiddenEndIds: new Set(),
+  }
+  const hidden: Array<[number, number]> = []
+  const trackedRe = /<\/?w:(ins|del)\b[^>]*>/g
+  let t: RegExpExecArray | null
+  while ((t = trackedRe.exec(inner)) !== null) {
+    if (t[0].startsWith('</')) continue
+    const closeTag = `</w:${t[1]}>`
+    const closeIdx = inner.indexOf(closeTag, t.index + t[0].length)
+    // 渲染器遇到未闭合 ins/del 会放弃本段剩余部分 → 一律按隐藏处理
+    const spanEnd = closeIdx < 0 ? inner.length : closeIdx + closeTag.length
+    hidden.push([t.index, spanEnd])
+    trackedRe.lastIndex = spanEnd
+  }
+  const inHidden = (offset: number): boolean => hidden.some(([from, to]) => offset >= from && offset < to)
+  const markerRe = /<w:(commentRangeStart|commentRangeEnd|commentReference)\b[^>]*>/g
+  let m: RegExpExecArray | null
+  while ((m = markerRe.exec(inner)) !== null) {
+    const id = /\bw:id="([^"]+)"/.exec(m[0])?.[1]
+    if (id === undefined) continue
+    if (m[1] === 'commentRangeStart') {
+      if (inHidden(m.index)) scan.hiddenStartIds.add(id)
+      else scan.starts.push({ id, paragraphIndex, start: m.index, end: m.index + m[0].length })
+    } else if (m[1] === 'commentRangeEnd') {
+      if (inHidden(m.index)) scan.hiddenEndIds.add(id)
+      else scan.ends.push({ id, paragraphIndex, start: m.index, end: m.index + m[0].length })
+    } else if (!inHidden(m.index)) {
+      scan.refs.push({ id, paragraphIndex })
+    }
+  }
+  return scan
+}
+
+/** 单条批注的渲染计划：要么精确包裹，要么确定性降级。 */
+type CommentRangePlan =
+  | { kind: 'exact'; anchorId: string; paragraphIndex: number; startOffset: number; endOffset: number; quote: string }
+  | { kind: 'fallback'; anchorId: string; anchor: CommentAnchor }
+
+/**
+ * 全文扫描 + 逐批注决策。精确条件：某一段落内存在 start 之后最近的可见 end。
+ * 降级原因判定只依赖可见/隐藏标记的存在性，与渲染器能力一致，因此对同一
+ * 输入永远给出同一结果。
+ */
+function planCommentAnchors(
+  inners: string[],
+  comments: Map<string, DocxComment>,
+  anchorIds: Map<string, string>,
+): Map<string, CommentRangePlan> {
+  const plans = new Map<string, CommentRangePlan>()
+  const acc = new Map<string, {
+    starts: RangeMarker[]
+    ends: RangeMarker[]
+    refs: Array<{ id: string; paragraphIndex: number }>
+  }>()
+  const entryFor = (id: string) => {
+    let entry = acc.get(id)
+    if (entry === undefined) {
+      entry = { starts: [], ends: [], refs: [] }
+      acc.set(id, entry)
+    }
+    return entry
+  }
+  const hiddenStartIds = new Set<string>()
+  const hiddenEndIds = new Set<string>()
+  inners.forEach((inner, paragraphIndex) => {
+    const scan = scanParagraphMarkers(inner, paragraphIndex)
+    for (const marker of scan.starts) entryFor(marker.id).starts.push(marker)
+    for (const marker of scan.ends) entryFor(marker.id).ends.push(marker)
+    for (const ref of scan.refs) entryFor(ref.id).refs.push(ref)
+    for (const id of scan.hiddenStartIds) hiddenStartIds.add(id)
+    for (const id of scan.hiddenEndIds) hiddenEndIds.add(id)
+  })
+
+  function withParagraph(reason: CommentAnchorFallbackReason, paragraphIndex: number | undefined): CommentAnchor {
+    return paragraphIndex === undefined
+      ? { status: 'fallback', reason }
+      : { status: 'fallback', reason, paragraphIndex }
+  }
+
+  for (const [id] of comments) {
+    const anchorId = anchorIds.get(id)
+    if (anchorId === undefined) continue
+    const entry = acc.get(id)
+    const refs = entry?.refs ?? []
+    const starts = entry?.starts ?? []
+    const ends = entry?.ends ?? []
+    const hiddenStart = hiddenStartIds.has(id)
+    const hiddenEnd = hiddenEndIds.has(id)
+    const refParagraph = refs[0]?.paragraphIndex
+    const firstStartParagraph = starts[0]?.paragraphIndex
+
+    // 精确锚定：按段落顺序找第一对“start 之后最近的 end”
+    let exact: { paragraphIndex: number; startOffset: number; endOffset: number; quote: string } | undefined
+    outer:
+    for (let paragraphIndex = 0; paragraphIndex < inners.length; paragraphIndex++) {
+      const startsInPara = starts.filter((marker) => marker.paragraphIndex === paragraphIndex)
+      const endsInPara = ends.filter((marker) => marker.paragraphIndex === paragraphIndex)
+      for (const startMarker of startsInPara) {
+        const endMarker = endsInPara.find((marker) => marker.start >= startMarker.end)
+        if (endMarker === undefined) continue
+        const quote = decodeEntities(extractAllText(inners[paragraphIndex].slice(startMarker.end, endMarker.start)))
+        exact = { paragraphIndex, startOffset: startMarker.start, endOffset: endMarker.start, quote }
+        break outer
+      }
+    }
+    if (exact !== undefined) {
+      plans.set(id, { kind: 'exact', anchorId, ...exact })
+      continue
+    }
+
+    if (starts.length === 0 && !hiddenStart) {
+      const nothingInBody = starts.length === 0 && ends.length === 0 && !hiddenEnd && refs.length === 0
+      if (nothingInBody) {
+        plans.set(id, {
+          kind: 'fallback',
+          anchorId,
+          anchor: { status: 'fallback', reason: 'orphan-comment' },
+        })
+      } else {
+        plans.set(id, {
+          kind: 'fallback',
+          anchorId,
+          anchor: withParagraph('range-missing', refParagraph),
+        })
+      }
+      continue
+    }
+    if (starts.length > 0 && ends.length > 0) {
+      plans.set(id, {
+        kind: 'fallback',
+        anchorId,
+        anchor: withParagraph('range-crosses-paragraph', refParagraph ?? firstStartParagraph),
+      })
+      continue
+    }
+    if (hiddenStart || hiddenEnd) {
+      plans.set(id, {
+        kind: 'fallback',
+        anchorId,
+        anchor: withParagraph('range-in-tracked-change', refParagraph ?? firstStartParagraph),
+      })
+      continue
+    }
+    plans.set(id, {
+      kind: 'fallback',
+      anchorId,
+      anchor: withParagraph('range-unclosed', refParagraph ?? firstStartParagraph),
+    })
+  }
+  return plans
+}
+
+/**
+ * 把 word/document.xml 渲染成 HTML（连同每条批注的锚点元数据）。
  *
  * 状态机走一遍：按 <w:p> 切段，每段内：
  *   - 提取 pStyle（标题级别 1-2 单独呈现）
  *   - 收集 run 文本：w:r 内的 w:t 是普通文本、w:delText 是已删除文本
  *     （保留可视化，但用 <del> 包裹）；w:ins 内嵌 run 同理（<ins> 包裹）
- *   - commentRangeStart/End 维护当前未结束的批注范围，commentReference 输出气泡
+ *   - commentRangeStart/End 按计划包裹 <span data-cc-anchor> 范围标记，
+ *     commentReference 输出带 data-cc-anchor 的气泡
  *
- * 异常段落（缺少闭合）→ 落回纯文本提取，不抛错。
+ * 异常段落（缺少闭合）→ 落回纯文本提取，不抛错；计划中未被实际渲染的
+ * 精确包裹会在结果里降级为 fallback，保证 exact ⟺ 正文存在范围标记。
+ */
+export function renderDocumentWithAnchors(documentXml: string, comments: Map<string, DocxComment>): { html: string; comments: DocComment[] } {
+  const anchorIds = assignCommentAnchorIds(comments)
+  const inners = splitParagraphInners(documentXml)
+  const plans = planCommentAnchors(inners, comments, anchorIds)
+  const wrapped = new Set<string>()
+  const html = inners
+    .map((inner, paragraphIndex) => renderParagraph(inner, paragraphIndex, comments, anchorIds, plans, wrapped))
+    .join('')
+  const projected: DocComment[] = []
+  for (const [id, comment] of comments) {
+    const anchorId = anchorIds.get(id)
+      ?? `ccm-${fnv1a32(textEncoder.encode(id), 0x811c9dc5)}`
+    const plan = plans.get(id)
+    let anchor: CommentAnchor
+    if (plan === undefined) {
+      anchor = { status: 'fallback', reason: 'orphan-comment' }
+    } else if (plan.kind === 'exact' && wrapped.has(plan.anchorId)) {
+      anchor = { status: 'exact', paragraphIndex: plan.paragraphIndex, quote: plan.quote }
+    } else if (plan.kind === 'exact') {
+      // 计划可行但渲染器实际没产出标记（异常 XML 提前放弃区间）→ 不谎报 exact
+      anchor = { status: 'fallback', reason: 'range-unclosed', paragraphIndex: plan.paragraphIndex }
+    } else {
+      anchor = plan.anchor
+    }
+    projected.push({ id, author: comment.author, date: comment.date, text: comment.text, anchorId, anchor })
+  }
+  return { html, comments: projected }
+}
+
+/**
+ * 兼容入口：只要 HTML 字符串的旧调用方。
  */
 export function renderDocumentHtml(documentXml: string, comments: Map<string, DocxComment>): string {
-  const paragraphs: string[] = []
-  // 按 </w:p> 切（非贪婪到下一个 <w:p 起始或文档结束）。简单起见用 split
-  const paraBlocks = documentXml.split(/(?=<w:p(?:\s|>|\/>))/).filter((block) => block.includes('<w:p') && block.includes('</w:p>') || block.includes('<w:p/>'))
+  return renderDocumentWithAnchors(documentXml, comments).html
+}
 
-  for (const block of paraBlocks) {
-    if (block.trim() === '' || block === '<w:p/>') continue
-    const closingIdx = block.indexOf('</w:p>')
-    if (closingIdx < 0) {
-      // 自闭合或异常段落，跳过
+type RenderContext = {
+  commentsMap: Map<string, DocxComment>
+  anchorIds: Map<string, string>
+  plans: Map<string, CommentRangePlan>
+  chunks: string[]
+  openWrap: (anchorId: string) => void
+  closeWrap: (anchorId: string) => void
+}
+
+function renderParagraph(
+  inner: string,
+  paragraphIndex: number,
+  commentsMap: Map<string, DocxComment>,
+  anchorIds: Map<string, string>,
+  plans: Map<string, CommentRangePlan>,
+  wrapped: Set<string>,
+): string {
+  const pStyleMatch = /<w:pStyle\s+w:val="(Heading\d|Title)"\s*\/>/.exec(inner)
+  const isHeading2 = pStyleMatch?.[1] === 'Heading2'
+  const isHeading1 = pStyleMatch?.[1] === 'Heading1'
+  const isTitle = pStyleMatch?.[1] === 'Title'
+
+  const chunks: string[] = []
+  const wrapStack: Array<{ anchorId: string; mark: number }> = []
+  const openWrap = (anchorId: string): void => {
+    wrapStack.push({ anchorId, mark: chunks.length })
+    wrapped.add(anchorId)
+  }
+  const closeWrap = (anchorId: string): void => {
+    let idx = -1
+    for (let i = wrapStack.length - 1; i >= 0; i--) {
+      if (wrapStack[i].anchorId === anchorId) { idx = i; break }
+    }
+    if (idx < 0) return
+    for (let i = wrapStack.length - 1; i >= idx; i--) chunks.push('</span>')
+    // 逆序按 mark 插入开标签：高 mark 先插，避免低 mark 插入导致偏移
+    const popped = wrapStack.splice(idx)
+    for (let i = popped.length - 1; i >= 0; i--) {
+      chunks.splice(popped[i].mark, 0, `<span class="cc-comment-anchor" data-cc-anchor="${popped[i].anchorId}">`)
+    }
+  }
+  const ctx: RenderContext = { commentsMap, anchorIds, plans, chunks, openWrap, closeWrap }
+
+  let pos = 0
+  while (pos < inner.length) {
+    // 找下一个重要标签（含属性，便于解析 w:id）
+    const rest = inner.slice(pos)
+    const next = /<\/?w:(ins|del|commentRangeStart|commentRangeEnd|commentReference|r)\b[^>]*>/.exec(rest)
+    if (next === null) {
+      // 文本尾部（含 w:t 等）
+      const trailingText = extractAllText(rest)
+      if (trailingText !== '') chunks.push(escapeHtml(decodeEntities(trailingText)))
+      break
+    }
+    const beforeText = rest.slice(0, next.index)
+    if (beforeText !== '') {
+      chunks.push(escapeHtml(decodeEntities(extractAllText(beforeText))))
+    }
+    const tagName = next[1] // ins/del/commentRangeStart/.../r
+    const isClose = next[0].startsWith('</')
+    const absOffset = pos + next.index
+    if (tagName === 'commentRangeStart') {
+      openPlannedWrap(ctx, /\bw:id="([^"]+)"/.exec(next[0])?.[1], absOffset)
+      pos += next.index + next[0].length
       continue
     }
-    const inner = block.slice(0, closingIdx)
-    paragraphs.push(renderParagraph(inner, comments))
-  }
-  return paragraphs.join('')
-
-  function renderParagraph(inner: string, commentsMap: Map<string, DocxComment>): string {
-    const pStyleMatch = /<w:pStyle\s+w:val="(Heading\d|Title)"\s*\/>/.exec(inner)
-    const isHeading2 = pStyleMatch?.[1] === 'Heading2'
-    const isHeading1 = pStyleMatch?.[1] === 'Heading1'
-    const isTitle = pStyleMatch?.[1] === 'Title'
-
-    let html = ''
-    const openComments: string[] = []
-    // 按重要标签位置顺序遍历（不嵌套，w:ins/w:del 内嵌 w:r）
-    // 用统一的 token 流：每段在 inner 内按出现顺序扫一遍
-    let pos = 0
-    while (pos < inner.length) {
-      // 找下一个重要标签
-      const rest = inner.slice(pos)
-      const next = /<\/?w:(ins|del|commentRangeStart|commentRangeEnd|commentReference|r)\b/.exec(rest)
-      if (next === null) {
-        // 文本尾部（含 w:t 等）
-        const trailingText = extractAllText(rest)
-        if (trailingText !== '') html += escapeHtml(decodeEntities(trailingText))
-        break
-      }
-      const beforeText = rest.slice(0, next.index)
-      if (beforeText !== '') {
-        html += escapeHtml(decodeEntities(extractAllText(beforeText)))
-      }
-      const tagName = next[1] // ins/del/commentRangeStart/.../r
-      const isClose = next[0].startsWith('</')
-      // 自闭合结束位置
-      if (tagName === 'commentRangeStart') {
-        const id = /w:id="([^"]+)"/.exec(next[0])?.[1]
-        if (id !== undefined) openComments.push(id)
-        pos += next.index + next[0].length
-        continue
-      }
-      if (tagName === 'commentRangeEnd') {
-        const id = /w:id="([^"]+)"/.exec(next[0])?.[1]
-        if (id !== undefined) {
-          const idx = openComments.lastIndexOf(id)
-          if (idx >= 0) openComments.splice(idx, 1)
-        }
-        pos += next.index + next[0].length
-        continue
-      }
-      if (tagName === 'commentReference') {
-        const id = /w:id="([^"]+)"/.exec(next[0])?.[1]
-        if (id !== undefined) {
-          const c = commentsMap.get(id)
-          if (c !== undefined) {
-            const label = escapeHtml(`${c.author.split('｜')[0] ?? c.author}：${c.text}`)
-            html += `<sup class="cc-comment" title="${label}">💬</sup>`
-          }
-        }
-        pos += next.index + next[0].length
-        continue
-      }
-      if (tagName === 'ins' || tagName === 'del') {
-        // 包裹一段 run 块：找匹配的闭合标签
-        const closeTag = `</w:${tagName}>`
-        const closeIdx = inner.indexOf(closeTag, pos + next.index + next[0].length)
-        if (closeIdx < 0) break
-        const runText = extractAllText(inner.slice(pos + next.index + next[0].length, closeIdx))
-        const cls = tagName === 'ins' ? 'cc-ins' : 'cc-del'
-        const tag = tagName === 'ins' ? 'ins' : 'del'
-        html += `<${tag} class="${cls}">${escapeHtml(decodeEntities(runText))}</${tag}>`
-        pos = closeIdx + closeTag.length
-        continue
-      }
-      if (tagName === 'r' && !isClose) {
-        // 单个 <w:r> ... </w:r>：里面可能有 <w:t>（输出文本）、
-        // <w:commentReference>（输出气泡）等子标签
-        const closeTag = '</w:r>'
-        const closeIdx = inner.indexOf(closeTag, pos + next.index + next[0].length)
-        if (closeIdx < 0) break
-        const runBody = inner.slice(pos + next.index + next[0].length, closeIdx)
-        html += renderRunBody(runBody, commentsMap)
-        pos = closeIdx + closeTag.length
-        continue
-      }
-      // 跳过其他开始/结束标签
+    if (tagName === 'commentRangeEnd') {
+      closePlannedWrap(ctx, /\bw:id="([^"]+)"/.exec(next[0])?.[1], absOffset)
       pos += next.index + next[0].length
+      continue
     }
-    void openComments
-    if (html === '') return ''
-    if (isHeading1 || isTitle) return `<h1>${html}</h1>`
-    if (isHeading2) return `<h2>${html}</h2>`
-    return `<p>${html}</p>`
+    if (tagName === 'commentReference') {
+      emitCommentBubble(chunks, /\bw:id="([^"]+)"/.exec(next[0])?.[1], commentsMap, anchorIds)
+      pos += next.index + next[0].length
+      continue
+    }
+    if (tagName === 'ins' || tagName === 'del') {
+      // 包裹一段 run 块：找匹配的闭合标签
+      const closeTag = `</w:${tagName}>`
+      const closeIdx = inner.indexOf(closeTag, absOffset + next[0].length)
+      if (closeIdx < 0) break
+      const runText = extractAllText(inner.slice(absOffset + next[0].length, closeIdx))
+      const cls = tagName === 'ins' ? 'cc-ins' : 'cc-del'
+      const tag = tagName === 'ins' ? 'ins' : 'del'
+      chunks.push(`<${tag} class="${cls}">${escapeHtml(decodeEntities(runText))}</${tag}>`)
+      pos = closeIdx + closeTag.length
+      continue
+    }
+    if (tagName === 'r' && !isClose) {
+      // 单个 <w:r> ... </w:r>：里面可能有 <w:t>（输出文本）、
+      // <w:commentReference>（输出气泡）、批注范围标记等子标签
+      const closeTag = '</w:r>'
+      const closeIdx = inner.indexOf(closeTag, absOffset + next[0].length)
+      if (closeIdx < 0) break
+      const runBody = inner.slice(absOffset + next[0].length, closeIdx)
+      renderRunBody(runBody, absOffset + next[0].length, ctx)
+      pos = closeIdx + closeTag.length
+      continue
+    }
+    // 跳过其他开始/结束标签
+    pos += next.index + next[0].length
   }
+  // 段落收尾：把未闭合的精确包裹闭合在本段末尾（保持 HTML 合法）
+  while (wrapStack.length > 0) closeWrap(wrapStack[wrapStack.length - 1].anchorId)
+  const html = chunks.join('')
+  if (html === '') return ''
+  if (isHeading1 || isTitle) return `<h1>${html}</h1>`
+  if (isHeading2) return `<h2>${html}</h2>`
+  return `<p>${html}</p>`
 }
 
 /** 从 inner 提取所有 <w:t>/<w:delText> 文本（拼接；处理自闭合）。 */
@@ -240,17 +504,49 @@ function extractAllText(inner: string): string {
   return text
 }
 
-/** 渲染 <w:r> 内的内容：w:t → 文本、w:commentReference → 气泡、w:tab → 缩进。 */
-function renderRunBody(body: string, comments: Map<string, DocxComment>): string {
-  let out = ''
+/** 输出批注引用气泡；anchorId 已知时附带 data-cc-anchor 供正文寻址。 */
+function emitCommentBubble(
+  chunks: string[],
+  id: string | undefined,
+  commentsMap: Map<string, DocxComment>,
+  anchorIds: Map<string, string>,
+): void {
+  if (id === undefined) return
+  const c = commentsMap.get(id)
+  if (c === undefined) return
+  const anchorId = anchorIds.get(id)
+  const attr = anchorId === undefined ? '' : ` data-cc-anchor="${anchorId}"`
+  const label = escapeHtml(`${c.author.split('｜')[0] ?? c.author}：${c.text}`)
+  chunks.push(`<sup class="cc-comment"${attr} title="${label}">💬</sup>`)
+}
+
+/** 命中计划中的精确起点时打开范围包裹。 */
+function openPlannedWrap(ctx: RenderContext, id: string | undefined, absOffset: number): void {
+  if (id === undefined) return
+  const plan = ctx.plans.get(id)
+  if (plan === undefined || plan.kind !== 'exact' || plan.startOffset !== absOffset) return
+  ctx.openWrap(plan.anchorId)
+}
+
+/** 命中计划中的精确终点时闭合范围包裹。 */
+function closePlannedWrap(ctx: RenderContext, id: string | undefined, absOffset: number): void {
+  if (id === undefined) return
+  const plan = ctx.plans.get(id)
+  if (plan === undefined || plan.kind !== 'exact' || plan.endOffset !== absOffset) return
+  ctx.closeWrap(plan.anchorId)
+}
+
+/** 渲染 <w:r> 内的内容：w:t → 文本、w:commentReference → 气泡、批注范围标记、w:tab → 缩进。 */
+function renderRunBody(body: string, bodyBase: number, ctx: RenderContext): void {
+  const { chunks } = ctx
   let pos = 0
   while (pos < body.length) {
     const rest = body.slice(pos)
-    const m = /<w:(t|tab|commentReference|br)(?:\s[^>]*)?(\/?)>?/.exec(rest)
+    const m = /<w:(t|tab|commentReference|commentRangeStart|commentRangeEnd|br)(?:\s[^>]*)?(\/?)>?/.exec(rest)
     if (m === null) {
       // 剩余里可能是 w:t 文本（未带属性）
       const tail = extractAllText(rest)
-      if (tail !== '') out += escapeHtml(decodeEntities(tail))
+      if (tail !== '') chunks.push(escapeHtml(decodeEntities(tail)))
       break
     }
     const tag = m[1]
@@ -258,33 +554,35 @@ function renderRunBody(body: string, comments: Map<string, DocxComment>): string
     if (tag === 't') {
       const close = body.indexOf('</w:t>', tagEnd)
       if (close < 0) break
-      out += escapeHtml(decodeEntities(body.slice(tagEnd, close)))
+      chunks.push(escapeHtml(decodeEntities(body.slice(tagEnd, close))))
       pos = close + '</w:t>'.length
       continue
     }
     if (tag === 'commentReference') {
-      const id = /\bw:id="([^"]+)"/.exec(m[0])?.[1]
-      if (id !== undefined) {
-        const c = comments.get(id)
-        if (c !== undefined) {
-          const label = escapeHtml(`${c.author.split('｜')[0] ?? c.author}：${c.text}`)
-          out += `<sup class="cc-comment" title="${label}">💬</sup>`
-        }
-      }
+      emitCommentBubble(chunks, /\bw:id="([^"]+)"/.exec(m[0])?.[1], ctx.commentsMap, ctx.anchorIds)
+      pos = tagEnd
+      continue
+    }
+    if (tag === 'commentRangeStart') {
+      openPlannedWrap(ctx, /\bw:id="([^"]+)"/.exec(m[0])?.[1], bodyBase + pos + m.index)
+      pos = tagEnd
+      continue
+    }
+    if (tag === 'commentRangeEnd') {
+      closePlannedWrap(ctx, /\bw:id="([^"]+)"/.exec(m[0])?.[1], bodyBase + pos + m.index)
       pos = tagEnd
       continue
     }
     if (tag === 'tab') {
-      out += '&nbsp;&nbsp;&nbsp;&nbsp;'
+      chunks.push('&nbsp;&nbsp;&nbsp;&nbsp;')
       pos = tagEnd
       continue
     }
     if (tag === 'br') {
-      out += '<br/>'
+      chunks.push('<br/>')
       pos = tagEnd
       continue
     }
     pos = tagEnd
   }
-  return out
 }
