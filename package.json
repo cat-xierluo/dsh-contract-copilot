@@ -21,8 +21,9 @@
     "README.md"
   ],
   "scripts": {
-    "build": "tsc -p tsconfig.json && tsc -p tsconfig.client.json && tsdown -c tsdown.client.config.ts",
-    "build:node": "tsc -p tsconfig.json",
+    "clean": "node scripts/clean-build.mjs",
+    "build": "pnpm run clean && tsc -p tsconfig.json && tsc -p tsconfig.client.json && tsdown -c tsdown.client.config.ts",
+    "build:node": "pnpm run clean && tsc -p tsconfig.json",
     "build:client": "tsdown -c tsdown.client.config.ts",
     "typecheck:client": "tsc -p tsconfig.client.json",
     "test": "vitest run",

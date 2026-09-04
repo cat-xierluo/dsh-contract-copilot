@@ -23,6 +23,7 @@
 ### Build（2026-09-04）
 - 客户端 tsdown 配置改用 DSH 0.1.2 的 `deps.neverBundle/alwaysBundle` 与 `outputOptions`，并把 React 类型对齐到 React 18
 - 新增受版本控制的 pnpm 锁文件，并仅允许 `esbuild` 执行安装脚本
+- 完整构建先清理本包 `lib/`，防止已删除源码的旧 JavaScript 混入发布 tarball
 
 ### Added（2026-08-19 第二轮）
 - **A1 产物下载**：工作台右栏一键下载审核修订版/审查意见书 DOCX（流式 + `filename*=UTF-8''` 中文文件名）
