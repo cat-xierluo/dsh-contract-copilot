@@ -143,7 +143,7 @@ ContractCopilotClient
 - 渲染安全：文档 HTML 由 host 侧 `renderDocumentHtml` 生成（文本已 escape），client 直接注入
 - 主题与响应式：工作台消费 DSH 官方主题变量；窄屏使用任务、文档、操作三栏切换，不隐藏业务区域
 - 文案：`client/locale.ts` 是工作台产品文案的唯一来源，中文和英文键在类型层保持一致
-- 批注定位：Host 生成稳定锚点和确定性降级原因；`client/comment-navigation.ts` 已提供纯导航能力，接入 Workbench 的双向选择仍由 CC-V4-003 完成
+- 批注定位：Host 生成稳定锚点和确定性降级原因；Workbench 在 Word 视图按 OOXML 批注 id、在简版视图按内容派生的 anchor id 调用 `client/comment-navigation.ts`，完成侧栏与正文的双向选择、滚动、聚焦和瞬时高亮；会话切换会清理旧导航状态
 
 ## 9. 律师计划批准门（DECISIONS.md Q36–Q39）
 

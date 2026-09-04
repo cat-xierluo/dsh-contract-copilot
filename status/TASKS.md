@@ -16,49 +16,50 @@
 
 ## CC-V4-001：工作台视觉与窄屏交互统一
 
-- 状态：实现完成并进入集成候选 `acea9f7`；待 CC-V4-004 真实浏览器验收
+- 状态：实现完成并进入集成分支；待 CC-V4-004 真实浏览器验收
 - 基线：`6c52c76`（律师决策工作台已验收）
 - 目标：让工作台在 DSH 明暗主题与桌面/窄屏布局中保持一致、可读、可操作，并补齐对话框键盘焦点管理。
 - 文件边界：`src/client/Workbench.tsx`、`src/client/index.tsx` 与现有 client 测试；typed locale 模块由 CC-V4-006 单独交付；不修改 Host、协议、DOCX 解析或 Python。
 - 验收：夜间模式不再出现浅色孤岛或低对比文本；窄屏不隐藏案件操作入口；对话框具备初始焦点、Tab 环与关闭后焦点归还；UI 文案由 typed locale 字典拥有；client typecheck、聚焦测试与 build 通过。
-- 证据：`420c73a` 与 `acea9f7`；工作台 client 测试 16/16、client typecheck、完整测试 175/175 和 build 通过。
+- 证据：`420c73a` 实现壳层，`acea9f7` 修复 typed locale 集成后通过；最终集成分支的 client typecheck、完整测试 209/209 和 build 通过。
 
 ## CC-V4-002：批注定位锚点模型
 
-- 状态：实现完成并进入集成候选 `acea9f7`；待 CC-V4-003 消费
+- 状态：已由 CC-V4-003 消费并进入集成分支；待 CC-V4-004 真实浏览器验收
 - 基线：`6c52c76`（律师决策工作台已验收）
 - 目标：Host/协议层为 DOCX 批注和简版文档渲染提供稳定、可持久传输的定位信息，供工作台执行双向跳转与高亮。
 - 文件边界：`src/docx-view.ts`、`src/workbench-protocol.ts`、`src/host-api.ts` 及其对应测试；不修改 `src/client/Workbench.tsx`、共享文档或 Python。
 - 验收：每条批注具有稳定 id 和可解析锚点；正文输出存在可选择的对应标记；无法精确定位时保留可解释降级信息；协议/RPC 兼容简单视图与 Word 预览；聚焦测试与 build 通过。
-- 证据：`35a342e`；docx-view 32/32、host-api 10/10、完整测试 175/175 和 build 通过。
+- 证据：`35a342e`、`b48ba5d`、`1d2868a`、`d1c909d`；最终集成分支 docx-view 32/32、host-api 10/10、完整测试 209/209 和 build 通过。
 
 ## CC-V4-005：客户端批注导航控制器
 
-- 状态：实现完成并进入集成候选 `acea9f7`；待 CC-V4-003 接线
+- 状态：已由 CC-V4-003 接线并进入集成分支；待 CC-V4-004 真实浏览器验收
 - 基线：`6434e82`
 - 目标：在独立纯客户端模块中实现稳定选择器、正文定位、滚动/聚焦、短暂高亮清理和未命中结果，供 CC-V4-003 接入工作台。
 - 文件边界：只新增 `src/client/comment-navigation.ts` 与 `tests/comment-navigation.spec.ts`；不修改 Workbench、Host、协议、依赖或共享文档。
 - 验收：无需真实浏览器即可确定性验证找到/未找到锚点、特殊 id 转义、滚动与高亮生命周期；client typecheck、聚焦测试与 build 通过。
-- 证据：`e30efb8`；导航控制器测试 31/31、client typecheck、完整测试 175/175 和 build 通过。
+- 证据：`e30efb8` 与 `d1c909d`；最终集成分支导航控制器测试 42/42、client typecheck、完整测试 209/209 和 build 通过。
 
 ## CC-V4-006：typed locale 工作台词典
 
-- 状态：实现完成并进入集成候选 `acea9f7`；待 CC-V4-004 双语言浏览器验收
+- 状态：实现完成并进入集成分支；待 CC-V4-004 双语言浏览器验收
 - 基线：`6434e82`
 - 目标：把当前工作台产品文案整理为类型完整的中英文 locale 字典与取值 API，为 CC-V4-001/003 的最终接线提供单一来源。
 - 文件边界：只新增 `src/client/locale.ts` 与 `tests/workbench-locale.spec.ts`；不修改 Workbench、Host、协议、依赖或共享文档。
 - 验收：两种 locale 的键集合编译期/运行时一致，无空翻译，未知 locale 确定性回退；client typecheck、聚焦测试与 build 通过。
-- 证据：`574b56d` 与 `acea9f7`；locale 测试 10/10、client typecheck、完整测试 175/175 和 build 通过。
+- 证据：`574b56d`、`acea9f7` 与 `b48ba5d`；最终集成分支 locale 测试 12/12、client typecheck、完整测试 209/209 和 build 通过。
 
 ## CC-V4-003：批注双向导航与 Word 原生观感
 
-- 状态：待执行（Wave 2，依赖 CC-V4-001/002）
+- 状态：实现完成并进入集成分支；待 CC-V4-004 真实浏览器验收
 - 目标：工作台启用 `docx-preview` 批注渲染，将侧栏批注与正文锚点连接；点击批注滚动到正文并短暂高亮，正文批注标记反向选中侧栏条目，同时兼顾键盘与降级路径。
 - 验收：真实含批注 DOCX 在简单视图和 Word 预览中均可完成可见的定位反馈；未找到锚点时不误跳且给出状态；浏览器实操与截图/GIF 绑定候选提交。
+- 证据：`b48ba5d`、`1d2868a`、`d1c909d`、`a6ba439`；Word 与简版采用独立 id 空间，侧栏与正文双向选择、滚动、聚焦、高亮和未命中状态均已接线；最终集成分支完整测试 209/209、client typecheck 和 build 通过。
 
 ## CC-V4-004：独立验收与项目收口
 
-- 状态：待执行（依赖 CC-V4-003）
+- 状态：进行中；静态门禁已通过，待最终候选的真实 DSH Web、GUI GIF 与独立 reviewer 结论
 - 目标：由未参与实现的 reviewer 对暗色、窄屏、焦点、批注跳转、回归测试和文档一致性做独立验收；PM 只在通过后写回 CHANGELOG、ARCHITECTURE、ROADMAP 与本任务源。
 - 验收：typecheck、完整测试、build、更新后的 dsh-plugin-lint、真实 DSH Web 浏览器流程和 GUI GIF 均绑定最终候选；未通过项退回原 worker 修复。
 
