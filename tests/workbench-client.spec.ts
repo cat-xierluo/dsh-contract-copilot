@@ -46,6 +46,7 @@ import {
   upsertCommentButtonRef,
   sessionNavigationReset,
   SESSION_NAVIGATION_RESET_KEYS,
+  shouldActivateSession,
   sidebarCommentEntries,
   authorShortName,
   commentBodyExcerpt,
@@ -420,6 +421,16 @@ describe('session 激活的导航状态清理', () => {
       'navigationRequest', 'selectedCommentId', 'commentFocusSeq', 'commentButtonRegistry',
     ])
     expect(sessionNavigationReset()).toEqual({ navigationRequest: undefined, selectedCommentId: undefined, commentFocusSeq: 0 })
+  })
+
+  it('重复激活同一会话是幂等 no-op：首次选择与跨会话切换仍完整 reset', () => {
+    // 首次选择：无当前会话 → 激活
+    expect(shouldActivateSession(undefined, 'A')).toBe(true)
+    // 同 id 重复激活（重复点击已选中行）：no-op —— 激活 reset 会把 seq 清回 1，
+    // 而复用的 WordPane 保留 A::1 水位，下一次同一批注的首击会被误判为已处理
+    expect(shouldActivateSession('A', 'A')).toBe(false)
+    // A→B / B→A 跨会话切换：仍激活并完整 reset
+    expect(shouldActivateSession('A', 'B')).toBe(true)
   })
 })
 

@@ -458,6 +458,19 @@ export function sessionNavigationReset(): { navigationRequest: undefined; select
   return { navigationRequest: undefined, selectedCommentId: undefined, commentFocusSeq: 0 }
 }
 
+/**
+ * Activation guard: activating the already-selected session is an idempotent
+ * no-op (`false`). The activation reset restarts the request seq at 1, but a
+ * repeated activation leaves WordPane's `sessionId` — and with it the
+ * session-keyed handled watermark — untouched, so resetting here would mint
+ * `A::1` again and the next first click on the same comment would be swallowed
+ * as already handled. First selection (no current session) and any switch to
+ * another session still activate.
+ */
+export function shouldActivateSession(currentId: string | undefined, nextId: string): boolean {
+  return currentId !== nextId
+}
+
 /** Decision of the render-ready gate for one pending navigation request. */
 export type NavigationGateDecision = 'skip' | 'hold' | 'execute'
 
@@ -1029,8 +1042,11 @@ function Workbench({ client, onClose }: { readonly client: ContractCopilotClient
    * click, startReview, first-load/event adoption — so request, selection,
    * focus and button-registry state from one session never leaks into the
    * next (see sessionNavigationReset / SESSION_NAVIGATION_RESET_KEYS).
+   * Re-activating the already-selected session is an idempotent no-op
+   * (see shouldActivateSession).
    */
   const activateSession = (id: string): void => {
+    if (!shouldActivateSession(selectedRef.current, id)) return
     setSelected(id)
     const reset = sessionNavigationReset()
     setNavigationRequest(reset.navigationRequest)
