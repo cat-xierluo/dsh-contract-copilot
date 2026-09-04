@@ -18,8 +18,12 @@
 - 同时兼容 `docx-preview` 的原生引用元素和 run-style `.docx_commentreference` 占位元素；后者从相邻范围结束标记恢复批注 id，并增强为可见、可聚焦且支持 Enter/Space 的入口
 - 工作台专属 Agent 的分析回合由 Host 注入有界合同正文与最小审查指导，不再要求 DSH Web profile 开放通用文件或 skill 工具；伪造边界标记会被隔离，提取失败或正文为空时在创建 Agent 前显式失败
 
+### Fixed（2026-09-05，验收修复）
+- 简单视图点击侧栏批注恢复正文定位：导航控制器支持逐次视图绑定选项后，`data-cc-anchor` 打点属性随跳转传递；此前 Workbench 把它丢在共享 navigator 之外，简单视图每次跳转都按默认属性寻址而未命中（Word 视图经注释标记命中，不受影响）
+- 批注跳转的短暂高亮在 Word 与简单两套视图真实可见：导航控制器一直输出 `cc-comment-flash`，但从未有对应 CSS；现以纸面静态琥珀底色加描边限定在两个文档容器内，明暗主题下均可读
+
 ### Testing（2026-09-05，工作台体验基础）
-- client typecheck、16 个测试文件 256 项测试和 Node/Client build 通过；真实 DSH Web 与 GUI GIF 仍由 CC-V4-004 绑定最终候选验收
+- client typecheck、16 个测试文件 262 项测试和 Node/Client build 通过；真实 DSH Web 与 GUI GIF 仍由 CC-V4-004 绑定最终候选验收
 
 ### Planning（2026-09-04，工作台体验收口）
 - 将暗色主题、窄屏操作区和对话框焦点统一划为工作台壳层任务，将 DOCX 批注稳定定位划为独立 Host/协议任务

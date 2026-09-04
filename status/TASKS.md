@@ -1,5 +1,14 @@
 # 当前任务
 
+## CC-V4-008：简单视图批注前向导航修复（CC-V4-004 验收退回）
+
+- 状态：实现完成，待 CC-V4-004 复验
+- 基线：`4a31b5c`
+- 目标：修复简单视图点击侧栏批注必未命中的缺陷——Workbench 的导航效果把 `CommentNavigationInput.options`（简单视图 `data-cc-anchor` 打点属性）丢在共享 navigator 之外，属性策略按默认 `data-cc-comment-id` 寻址必然落空，每次跳转都报 `id-not-found`；同时补齐 `.cc-comment-flash` 高亮 CSS（控制器一直输出该 class，但从未有规则渲染，两套视图的高亮均不可见）。
+- 文件边界：`src/client/comment-navigation.ts`、`src/client/Workbench.tsx`、`tests/comment-navigation.spec.ts`、`tests/workbench-client.spec.ts`；不修改 Host、协议、DOCX 解析或 Python。
+- 验收：`CommentNavigator.navigate` 支持逐次视图绑定选项（逐键覆盖创建时选项）并由 Workbench 经 `executeNavigationRequest` 接缝传递；高亮规则覆盖 simple 与 word 两个文档容器且限定在文档画布内；client typecheck、全量测试与 build 通过；dsh-plugin-lint 机械层 0 FAIL。
+- 证据：`2172280`；新增 6 项测试（navigator 逐次选项契约含旧缺陷回归对照、executeNavigationRequest 接线契约、flash CSS 覆盖与可见性），262/262 通过，typecheck/build 通过，dsh-plugin-lint 0 FAIL / 0 WARN；真实浏览器复验归 CC-V4-004。
+
 ## CC-V4-R01：`docx-preview` 批注 DOM 与导航策略验证
 
 - 状态：已并入 CC-V4-005（派发前收敛）
