@@ -496,6 +496,29 @@ export function navigationGateFor(
   return 'execute'
 }
 
+/** The handled watermark plus the session that minted it — one WordPane lifetime. */
+export interface HandledNavigationWatermark {
+  readonly session: string
+  readonly handledKey: string | null
+}
+
+/**
+ * Lifecycle sync run before the navigation gate on every effect pass: a
+ * handled watermark belongs to exactly one session, so whenever the pane's
+ * session changes it is dropped. `navigationRequestKey` alone cannot see the
+ * A→B→A round trip — returning to A produces the same `A::1` string — but the
+ * parent restarts seq at 1 on every activation reset while a reused WordPane
+ * keeps its state, so a watermark carried across the switch would swallow A's
+ * own next first click.
+ */
+export function navigationWatermarkTransition(
+  sessionId: string,
+  previous: HandledNavigationWatermark | undefined,
+): HandledNavigationWatermark {
+  if (previous !== undefined && previous.session === sessionId) return previous
+  return { session: sessionId, handledKey: null }
+}
+
 // ---------------------------------------------------------------------------
 // Word-view placeholder entry points: docx-preview's run-style placeholder
 // (`.docx_commentreference`, an empty span) is upgraded after renderAsync into
@@ -734,7 +757,7 @@ function WordPane(props: {
   const simpleHolder = useRef<HTMLDivElement | null>(null)
   const envRef = useRef<NavigationEnvironment | null>(null)
   const navigatorRef = useRef<CommentNavigator | null>(null)
-  const handledKeyRef = useRef<string | null>(null)
+  const watermarkRef = useRef<HandledNavigationWatermark | undefined>(undefined)
   const [mode, setMode] = useState<'word' | 'simple'>('word')
   const [error, setError] = useState<string | undefined>(undefined)
   const [renderVersion, setRenderVersion] = useState(0)
@@ -790,15 +813,20 @@ function WordPane(props: {
 
   // Sidebar-driven navigation against the currently displayed view, executed
   // only after that view's DOM is actually present (see navigationGateFor).
-  // The handled watermark is session-keyed, so this effect also re-runs on
-  // session switch without the previous session's watermark lingering.
+  // Every pass first syncs the watermark lifecycle (navigationWatermarkTransition):
+  // a watermark minted under a previous session is dropped before the gate can
+  // read it, and a fresh one is recorded only after an actual execution — so a
+  // hold (or a missing view root) never marks the request handled.
   useEffect(() => {
+    const synced = navigationWatermarkTransition(props.sessionId, watermarkRef.current)
+    watermarkRef.current = synced
     const request = props.navigationRequest
-    const gate = navigationGateFor(request, mode, wordReady, handledKeyRef.current, props.sessionId)
-    if (gate !== 'execute' || request === undefined) return
+    if (request === undefined) return
+    const gate = navigationGateFor(request, mode, wordReady, synced.handledKey, props.sessionId)
+    if (gate !== 'execute') return
     const root = mode === 'word' ? wordHolder.current : simpleHolder.current
     if (root === null) return
-    handledKeyRef.current = navigationRequestKey(props.sessionId, request.seq)
+    watermarkRef.current = { session: props.sessionId, handledKey: navigationRequestKey(props.sessionId, request.seq) }
     const result = executeNavigationRequest(getNavigator(), root as unknown as NavElement, request.comment, mode)
     if (!result.ok) props.onNavigationMiss?.(commentMissStatusText(result.reason))
   }, [props.navigationRequest, mode, wordReady, props.sessionId, props.onNavigationMiss])

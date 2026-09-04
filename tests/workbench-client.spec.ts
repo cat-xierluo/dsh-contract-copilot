@@ -36,6 +36,9 @@ import {
   wordRenderOptions,
   navigationGateFor,
   navigationRequestKey,
+  navigationWatermarkTransition,
+  type HandledNavigationWatermark,
+  type NavigationGateDecision,
   findDocCommentByRefId,
   commentRowStyle,
   COMMENT_ENTRY_DATA_ATTRIBUTE,
@@ -353,6 +356,61 @@ describe('navigationGateFor 渲染就绪门控', () => {
     expect(navigationRequestKey('s1', 1)).not.toBe(navigationRequestKey('s2', 1))
     expect(navigationGateFor({ seq: 1 }, 'word', true, navigationRequestKey('s1', 1), 's2')).toBe('execute')
     expect(navigationGateFor({ seq: 1 }, 'simple', true, navigationRequestKey('s1', 1), 's2')).toBe('execute')
+  })
+})
+
+describe('导航水位生命周期：A→B→A 返回后的首击不被吞', () => {
+  /**
+   * 按 WordPane 导航 effect 的真实步骤驱动一次 effect run：先同步水位生命周期
+   * （navigationWatermarkTransition），再用同步后的水位过门，执行成功才落水位。
+   */
+  function runNavigationEffect(
+    watermarkRef: { current: HandledNavigationWatermark | undefined },
+    sessionId: string,
+    request: { seq: number } | undefined,
+    view: 'word' | 'simple',
+    wordReady: boolean,
+  ): NavigationGateDecision {
+    const synced = navigationWatermarkTransition(sessionId, watermarkRef.current)
+    watermarkRef.current = synced
+    if (request === undefined) return 'skip'
+    const decision = navigationGateFor(request, view, wordReady, synced.handledKey, sessionId)
+    if (decision === 'execute') {
+      watermarkRef.current = { session: sessionId, handledKey: navigationRequestKey(sessionId, request.seq) }
+    }
+    return decision
+  }
+
+  it('A:1 已处理 → B → A → 重启的 A:1 必须 execute；未离场的连续 A:1 仍 skip', () => {
+    const watermarkRef: { current: HandledNavigationWatermark | undefined } = { current: undefined }
+
+    // 案件 A 首击：执行并落水位 A::1
+    expect(runNavigationEffect(watermarkRef, 'A', { seq: 1 }, 'word', true)).toBe('execute')
+    expect(watermarkRef.current).toEqual({ session: 'A', handledKey: navigationRequestKey('A', 1) })
+
+    // 未离开 A 的 effect 重放（mode/wordReady 变化等）：同一连续请求不得重复执行
+    expect(runNavigationEffect(watermarkRef, 'A', { seq: 1 }, 'word', true)).toBe('skip')
+
+    // A→B：父级激活清空请求；水位随 session 变化归零
+    expect(runNavigationEffect(watermarkRef, 'B', undefined, 'word', true)).toBe('skip')
+    expect(watermarkRef.current).toEqual({ session: 'B', handledKey: null })
+
+    // B→A：请求仍为空，不执行
+    expect(runNavigationEffect(watermarkRef, 'A', undefined, 'simple', true)).toBe('skip')
+
+    // 回到 A 后同一批注的首击（父级 seq 已重启为 1）：必须执行——
+    // 旧实现在此用残留的 A::1 水位判 skip，正是验收浏览器复现的吞首击缺陷
+    expect(runNavigationEffect(watermarkRef, 'A', { seq: 1 }, 'simple', true)).toBe('execute')
+    expect(watermarkRef.current).toEqual({ session: 'A', handledKey: navigationRequestKey('A', 1) })
+  })
+
+  it('word 渲染未就绪时 hold 不落水位，就绪后的重放执行（render-ready 语义保持）', () => {
+    const watermarkRef: { current: HandledNavigationWatermark | undefined } = { current: undefined }
+
+    expect(runNavigationEffect(watermarkRef, 'A', { seq: 1 }, 'word', false)).toBe('hold')
+    expect(watermarkRef.current).toEqual({ session: 'A', handledKey: null })
+
+    expect(runNavigationEffect(watermarkRef, 'A', { seq: 1 }, 'word', true)).toBe('execute')
   })
 })
 
