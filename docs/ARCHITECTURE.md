@@ -59,7 +59,7 @@ src/
 ├── agent-coordinator.ts      # 案件专属 Agent 的创建、恢复、命令互斥、取消和释放
 ├── host-api.ts              # Connection RPC + 认证 SSE/下载精确路由
 ├── python-bridge.ts         # 异步 spawn + 退码四分类（success/partial/rejected/error）
-├── docx-view.ts             # OOXML → HTML（React 简版视图输入）
+├── docx-view.ts             # OOXML → HTML + 内容派生的稳定批注锚点
 ├── progress.ts              # pre-step 注入文案 + 幂等判据
 ├── skill-config.ts          # 读 reviewer_profile / review_memory（Python 独占写入）
 ├── paths.ts                 # ~ 展开 + 合同 key 归一化（与 Python 一致）
@@ -68,6 +68,8 @@ src/
 │   ├── index.tsx            # 官方 sidebar.footer.action 注册
 │   ├── api.ts               # 浏览器侧认证传输适配器
 │   ├── decision-model.ts    # 五阶段与律师决定请求的纯浏览器投影
+│   ├── locale.ts            # 类型完整的中英文工作台词典与逐键参数 API
+│   ├── comment-navigation.ts # 批注选择器、滚动、聚焦和高亮的纯客户端控制器
 │   └── Workbench.tsx        # 队列、Word、逐项决策、Agent 控制、产物与历史
 └── tools/
     ├── intake.ts            # §3.2.1 前置澄清（必填 summary 合并来源：args > pendingAnswers > memory > profile）
@@ -139,6 +141,9 @@ ContractCopilotClient
 - 生命周期：Host 用 `ctx.inject(['connection'], …)` 延迟注册；没有 Connection 的 headless profile 不产生 Web 数据面
 - 安全：RPC、SSE、GET/HEAD 下载在处理前经过 Connection 的 Host/Origin fence 与签名 Cookie 认证
 - 渲染安全：文档 HTML 由 host 侧 `renderDocumentHtml` 生成（文本已 escape），client 直接注入
+- 主题与响应式：工作台消费 DSH 官方主题变量；窄屏使用任务、文档、操作三栏切换，不隐藏业务区域
+- 文案：`client/locale.ts` 是工作台产品文案的唯一来源，中文和英文键在类型层保持一致
+- 批注定位：Host 生成稳定锚点和确定性降级原因；`client/comment-navigation.ts` 已提供纯导航能力，接入 Workbench 的双向选择仍由 CC-V4-003 完成
 
 ## 9. 律师计划批准门（DECISIONS.md Q36–Q39）
 
