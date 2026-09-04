@@ -19,7 +19,18 @@ import {
   phaseIndex,
   type FindingDecisionDraft,
 } from './decision-model.ts'
-import { browserLocale, createTranslator, type MessageKey } from './locale.ts'
+import {
+  createCommentNavigator,
+  createDomNavigationEnvironment,
+  simpleCommentNavigationInput,
+  wordCommentNavigationInput,
+  type CommentNavigator,
+  type CommentNavigationInput,
+  type CommentMissReason,
+  type NavElement,
+  type NavigationEnvironment,
+} from './comment-navigation.ts'
+import { browserLocale, COMMENT_MISS_REASON_KEYS, createTranslator, type MessageKey } from './locale.ts'
 
 const label = createTranslator(browserLocale())
 
@@ -241,6 +252,60 @@ export const insDelCss = `
 `
 
 // ---------------------------------------------------------------------------
+// Comment navigation model (CC-V4-003): sidebar entries drive in-document
+// navigation through a single comment navigator per document pane.
+// ---------------------------------------------------------------------------
+
+/**
+ * renderAsync options for the Word view. `renderComments: true` makes
+ * docx-preview emit the comment markers the navigator anchors on; `className`
+ * is deliberately NOT set so docx-preview keeps its default `docx` class and
+ * reference bubbles match `.docx-comment-ref`.
+ */
+export function wordRenderOptions(): {
+  renderComments: boolean
+  renderChanges: boolean
+  ignoreLastRenderedPageBreak: boolean
+  experimental: boolean
+  useBase64URL: boolean
+} {
+  return {
+    renderComments: true,
+    renderChanges: true,
+    ignoreLastRenderedPageBreak: false,
+    experimental: true,
+    useBase64URL: true,
+  }
+}
+
+/** React holder class for the rendered Word (docx-preview) document. */
+export const WORD_VIEW_HOLDER_CLASS = 'ccp-docx-word'
+/** React holder classes for the simple (Host-rendered) document. */
+export const SIMPLE_VIEW_HOLDER_CLASS = 'ccp-doc ccp-docx-simple'
+
+/** Pick the navigation input that matches the currently displayed view. */
+export function commentNavigationInputFor(comment: DocComment, view: 'word' | 'simple'): CommentNavigationInput {
+  return view === 'word' ? wordCommentNavigationInput(comment) : simpleCommentNavigationInput(comment)
+}
+
+/** Localized miss status text for a structured navigation miss reason. */
+export function commentMissStatusText(reason: CommentMissReason): string {
+  return label(COMMENT_MISS_REASON_KEYS[reason])
+}
+
+/**
+ * Cleanup rule: the navigator's in-flight highlight is dropped whenever any of
+ * these inputs changes (session switch, view switch/re-render) or on unmount —
+ * i.e. whenever the DOM it holds references to may be replaced.
+ */
+export const NAVIGATOR_RESET_INPUTS = ['session', 'view', 'render'] as const
+
+/** Reset key bundling every navigator-resetting input; a change forces cleanup. */
+export function navigatorResetKey(sessionId: string, view: 'word' | 'simple', renderVersion: number): string {
+  return `${sessionId}::${view}::${String(renderVersion)}`
+}
+
+// ---------------------------------------------------------------------------
 // Narrow layout model: an explicit three-pane control replaces the old
 // `<=900px` media query that permanently hid the operation pane.
 // ---------------------------------------------------------------------------
@@ -395,11 +460,25 @@ function WordPane(props: {
   reviewedDocx?: string
   fallbackHtml: string
   label: string
+  /** Pending sidebar-driven navigation request; a new seq triggers navigation. */
+  navigationRequest?: { readonly comment: DocComment; readonly seq: number }
+  /** Called with a localized message when a navigation request misses. */
+  onNavigationMiss?: (message: string) => void
 }): React.JSX.Element {
-  const holder = useRef<HTMLDivElement | null>(null)
+  const wordHolder = useRef<HTMLDivElement | null>(null)
+  const simpleHolder = useRef<HTMLDivElement | null>(null)
+  const envRef = useRef<NavigationEnvironment | null>(null)
+  const navigatorRef = useRef<CommentNavigator | null>(null)
   const [mode, setMode] = useState<'word' | 'simple'>('word')
   const [error, setError] = useState<string | undefined>(undefined)
   const [renderVersion, setRenderVersion] = useState(0)
+
+  const getNavigator = (): CommentNavigator => {
+    if (envRef.current === null) envRef.current = createDomNavigationEnvironment(document)
+    if (navigatorRef.current === null) navigatorRef.current = createCommentNavigator(envRef.current)
+    return navigatorRef.current
+  }
+
   useEffect(() => {
     const controller = new AbortController()
     let alive = true
@@ -410,15 +489,10 @@ function WordPane(props: {
         const response = await fetch(props.client.downloadUrl(props.sessionId, kind), { signal: controller.signal })
         if (!response.ok) throw new Error(`HTTP ${String(response.status)}`)
         const blob = await response.blob()
-        const container = holder.current
+        const container = wordHolder.current
         if (!alive || container === null) return
         container.innerHTML = ''
-        await renderAsync(blob, container, undefined, {
-          renderChanges: true,
-          ignoreLastRenderedPageBreak: false,
-          experimental: true,
-          useBase64URL: true,
-        })
+        await renderAsync(blob, container, undefined, wordRenderOptions())
       } catch (caught) {
         if (!alive || controller.signal.aborted) return
         setError(caught instanceof Error ? caught.message : String(caught))
@@ -428,6 +502,24 @@ function WordPane(props: {
     void run()
     return () => { alive = false; controller.abort() }
   }, [props.client, props.sessionId, props.reviewedDocx, renderVersion])
+
+  // Drop the in-flight highlight whenever the rendered DOM may be replaced:
+  // session switch, view switch/re-render, and unmount.
+  useEffect(() => {
+    return () => { navigatorRef.current?.cleanup() }
+  }, [props.sessionId, mode, renderVersion])
+
+  // Sidebar-driven navigation against the currently displayed view.
+  useEffect(() => {
+    const request = props.navigationRequest
+    if (request === undefined) return
+    const root = mode === 'word' ? wordHolder.current : simpleHolder.current
+    if (root === null) return
+    const input = commentNavigationInputFor(request.comment, mode)
+    const result = getNavigator().navigate(root as unknown as NavElement, input.anchor)
+    if (!result.ok) props.onNavigationMiss?.(commentMissStatusText(result.reason))
+  }, [props.navigationRequest, mode, props.onNavigationMiss])
+
   return (
     <>
       <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 8, flexWrap: 'wrap' }}>
@@ -436,8 +528,8 @@ function WordPane(props: {
         <button type="button" className="ccp-btn" style={viewButton(mode === 'simple')} onClick={() => setMode('simple')}>{label('doc.simpleView')}</button>
         {error !== undefined ? <span title={error} style={{ ...S.muted, color: token('--dsw-alias-state-error-primary', '#b03a2e') }}>{label('doc.renderFailed')}</span> : null}
       </div>
-      <div ref={holder} style={{ ...S.docFrame, padding: 0, border: 0, minHeight: 400, display: mode === 'word' ? 'block' : 'none' }} />
-      {mode === 'simple' ? <div className="ccp-doc" style={S.docFrame} dangerouslySetInnerHTML={{ __html: props.fallbackHtml }} /> : null}
+      <div ref={wordHolder} className={WORD_VIEW_HOLDER_CLASS} style={{ ...S.docFrame, padding: 0, border: 0, minHeight: 400, display: mode === 'word' ? 'block' : 'none' }} />
+      {mode === 'simple' ? <div className={SIMPLE_VIEW_HOLDER_CLASS} style={S.docFrame} dangerouslySetInnerHTML={{ __html: props.fallbackHtml }} /> : null}
     </>
   )
 }
@@ -576,6 +668,7 @@ function Workbench({ client, onClose }: { readonly client: ContractCopilotClient
   const [commandBusy, setCommandBusy] = useState(false)
   const [narrow, setNarrow] = useState(() => typeof window !== 'undefined' && typeof window.matchMedia === 'function' && window.matchMedia(narrowMediaQuery()).matches)
   const [narrowPane, setNarrowPane] = useState<WorkbenchPane>('tasks')
+  const [navigationRequest, setNavigationRequest] = useState<{ comment: DocComment; seq: number } | undefined>(undefined)
   const panelRef = useRef<HTMLDivElement | null>(null)
   const decisionPlanHash = useRef<string | undefined>(undefined)
 
@@ -772,6 +865,13 @@ function Workbench({ client, onClose }: { readonly client: ContractCopilotClient
     setAnswers({})
     setDecisionDrafts({})
     decisionPlanHash.current = undefined
+    setNavigationRequest(undefined)
+  }
+
+  /** Sidebar comment click: show the document pane, then locate the comment in it. */
+  const openComment = (comment: DocComment): void => {
+    setNarrowPane('document')
+    setNavigationRequest(previous => ({ comment, seq: (previous?.seq ?? 0) + 1 }))
   }
 
   /** Render one workbench section by manifest id; shared by wide columns and narrow tabs. */
@@ -804,7 +904,7 @@ function Workbench({ client, onClose }: { readonly client: ContractCopilotClient
         return (
           <div key={id}>
             {doc !== undefined && selected !== undefined ? (
-              <WordPane client={client} sessionId={selected} reviewedDocx={doc.reviewedDocx} fallbackHtml={doc.html} label={doc.label} />
+              <WordPane client={client} sessionId={selected} reviewedDocx={doc.reviewedDocx} fallbackHtml={doc.html} label={doc.label} navigationRequest={navigationRequest} onNavigationMiss={setNotice} />
             ) : <div style={S.muted}>{label('doc.selectPrompt')}</div>}
           </div>
         )
@@ -876,10 +976,16 @@ function Workbench({ client, onClose }: { readonly client: ContractCopilotClient
           <div key={id} style={S.card}>
             <div style={{ ...S.muted, marginBottom: 6 }}>{label('comments.title', { count: comments.length })}</div>
             {comments.slice(0, 12).map(comment => (
-              <div key={comment.id} style={S.commentBlock}>
+              <button
+                key={comment.id}
+                type="button"
+                style={{ ...S.commentBlock, display: 'block', width: '100%', border: 0, textAlign: 'left', color: 'inherit', background: 'transparent', cursor: 'pointer' }}
+                aria-label={comment.text.slice(0, 120)}
+                onClick={() => openComment(comment)}
+              >
                 <div style={{ color: token('--dsw-alias-state-business-primary', '#2f5aae'), fontWeight: 550 }}>{comment.author.split('｜')[0] ?? comment.author}</div>
                 <div style={{ color: token('--dsw-alias-label-secondary', '#5c5b59') }}>{comment.text.slice(0, 120)}{comment.text.length > 120 ? '…' : ''}</div>
-              </div>
+              </button>
             ))}
           </div>
         )

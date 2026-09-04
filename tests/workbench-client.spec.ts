@@ -27,8 +27,16 @@ import {
   WIDE_COLUMN_SECTIONS,
   WORKBENCH_SECTIONS,
   wrapIndex,
+  WORD_VIEW_HOLDER_CLASS,
+  NAVIGATOR_RESET_INPUTS,
+  navigatorResetKey,
+  SIMPLE_VIEW_HOLDER_CLASS,
+  commentMissStatusText,
+  commentNavigationInputFor,
+  wordRenderOptions,
 } from '../src/client/Workbench.tsx'
-import { WORKBENCH_RPC_CHANNEL } from '../src/workbench-protocol.ts'
+import type { CommentMissReason } from '../src/client/comment-navigation.ts'
+import { WORKBENCH_RPC_CHANNEL, type DocComment } from '../src/workbench-protocol.ts'
 
 describe('ContractCopilotClient', () => {
   it('通过插件自有 RPC channel 调用 state', async () => {
@@ -235,5 +243,68 @@ describe('workbench dialog focus policy', () => {
     expect(FOCUSABLE_SELECTOR).toContain('a[href]')
     expect(FOCUSABLE_SELECTOR).toContain('[tabindex]:not([tabindex="-1"])')
     expect(FOCUSABLE_SELECTOR).not.toContain('button,')
+  })
+})
+
+const exactComment: DocComment = {
+  id: '7',
+  author: '张三｜法务',
+  text: '违约金上限建议不超过合同总额的 20%。',
+  anchorId: 'ccm-ab12cd34',
+  anchor: { status: 'exact', paragraphIndex: 4, quote: '违约金上限' },
+}
+
+const fallbackComment: DocComment = {
+  id: '9',
+  author: '李四｜外部律师',
+  text: '本条为孤立批注，正文无引用位置。',
+  anchorId: 'ccm-ef56ab78',
+  anchor: { status: 'fallback', reason: 'orphan-comment', paragraphIndex: 2 },
+}
+
+describe('workbench comment navigation', () => {
+  it('开启批注渲染且不覆盖 docx-preview 默认 class', () => {
+    const options = wordRenderOptions()
+    expect(options.renderComments).toBe(true)
+    expect(Object.hasOwn(options, 'className')).toBe(false)
+  })
+
+  it('两种视图的挂载点带可导航的 holder class', () => {
+    expect(WORD_VIEW_HOLDER_CLASS).toBe('ccp-docx-word')
+    expect(SIMPLE_VIEW_HOLDER_CLASS).toBe('ccp-doc ccp-docx-simple')
+  })
+
+  it('word 视图用 OOXML id 空间，simple 视图用 anchorId 空间', () => {
+    const word = commentNavigationInputFor(exactComment, 'word')
+    expect(word.anchor.commentId).toBe('7')
+    expect(word.anchor.refSelector).toBe('.docx-comment-ref')
+    expect(word.options.defaultRefSelector).toBe('.docx-comment-ref')
+    const simple = commentNavigationInputFor(fallbackComment, 'simple')
+    expect(simple.anchor.commentId).toBe('ccm-ef56ab78')
+    expect(simple.options.attributeName).toBe('data-cc-anchor')
+    expect(simple.options.defaultRefSelector).toBe('.cc-comment')
+  })
+
+  it('word 视图把 exact 锚点的引文降级为文本提示，fallback 锚点不带提示', () => {
+    expect(commentNavigationInputFor(exactComment, 'word').anchor.textHint).toBe('违约金上限')
+    expect(commentNavigationInputFor(fallbackComment, 'word').anchor.textHint).toBeUndefined()
+  })
+
+  it('每种未命中原因都有非空且互不相同的本地化 status 文案', () => {
+    const reasons: CommentMissReason[] = [
+      'invalid-anchor', 'root-empty', 'comments-not-rendered', 'id-not-found', 'ordinal-out-of-range', 'text-not-found',
+    ]
+    const texts = reasons.map(commentMissStatusText)
+    for (const text of texts) expect(text.length).toBeGreaterThan(0)
+    expect(new Set(texts).size).toBe(reasons.length)
+  })
+
+  it('session、视图或重渲染任一变化都会改变 navigator 重置键', () => {
+    expect(NAVIGATOR_RESET_INPUTS).toEqual(['session', 'view', 'render'])
+    const base = navigatorResetKey('s1', 'word', 0)
+    expect(navigatorResetKey('s1', 'word', 0)).toBe(base)
+    expect(navigatorResetKey('s2', 'word', 0)).not.toBe(base)
+    expect(navigatorResetKey('s1', 'simple', 0)).not.toBe(base)
+    expect(navigatorResetKey('s1', 'word', 1)).not.toBe(base)
   })
 })
