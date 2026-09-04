@@ -38,6 +38,7 @@ dsh plugin --profile lawyer add ./dsh-contract-copilot
 | `docs/DSH-PLUGIN-REFERENCE.md` | **DSH 插件技术范式与参考文件索引**（开发其他 DSH 插件可复用） |
 | `docs/2026-08-18-dsh-plugin-design.md` | v0.2 设计稿（含审计、e2e 记录、决策日志 Q1–Q28） |
 | `docs/plans/2026-09-04-dsh-0.1.2-workbench-migration-design.md` | DSH 0.1.2 工作台迁移设计与验收边界 |
+| `docs/acceptance/2026-09-04-dsh-0.1.2-workbench.md` | DSH 0.1.2 候选构建、安全与浏览器验收证据 |
 
 ## 开发循环（本地 link 安装）
 

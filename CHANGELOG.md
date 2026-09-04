@@ -18,7 +18,9 @@
 ### Testing（2026-09-04）
 - 新增 Host/Client 工作台测试，覆盖 RPC、错误传播、路由注册、SSE 生命周期、Unicode session ID 和 DOCX GET/HEAD 下载
 - 真实 Python spawn 集成测试改用独有临时配置与归档目录，避免改写用户的 Contract Copilot 配置或 archive
-- `pnpm run build` 与 dsh-plugin-lint 机械层通过；隔离 profile 与浏览器验收证据完成后补入本节
+- `pnpm run build`、9 个文件 80 项完整测试与 dsh-plugin-lint 机械层通过
+- 候选 `943b1b7` 从真实 tarball 安装到隔离 DSH home 并启动 Web profile；匿名 RPC、事件、下载请求均返回 `401`
+- 浏览器验收通过：官方侧栏入口、四阶段、最近操作、Word 正文、批注、发现、表单与下载入口均可见；证据见 `docs/acceptance/2026-09-04-dsh-0.1.2-workbench.md`
 
 ### Build（2026-09-04）
 - 客户端 tsdown 配置改用 DSH 0.1.2 的 `deps.neverBundle/alwaysBundle` 与 `outputOptions`，并把 React 类型对齐到 React 18
