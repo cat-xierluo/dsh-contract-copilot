@@ -6,7 +6,7 @@
 
 `@yangweixin/dsh-contract-copilot` 是 **function plugin**（`apply(ctx, config)` + 命名导出 `name / inject / Config`）。不是 Service Definition。
 
-**理由**：本插件无跨 plugin 消费需求，7 个 tool 的共享状态用 module-level 单例 + `ctx.effect()` 注册 disposer 足够。
+**理由**：本插件目前没有跨 plugin 消费需求，7 个 tool 与工作台共享同一个 `SessionStore` 实例；注册项的生命周期由当前 Cordis context 管理。
 
 ## 2. 数据流
 
@@ -18,6 +18,11 @@
                   DOCX 产物 → session.outputs
                               ↓
                       finalize → delivered
+
+DSH sidebar.footer.action → ContractCopilotClient
+                              ├─ Connection RPC → SessionStore / 文档渲染
+                              ├─ /api 精确 Fetch → SSE 状态事件
+                              └─ /api 精确 Fetch → DOCX 流式下载
 ```
 
 详细事件链、状态机、session 文件结构见 `docs/2026-08-18-dsh-plugin-design.md` §5。
@@ -27,14 +32,21 @@
 ```
 src/
 ├── index.ts                 # apply 入口：注册 7 个 tool + pre-step 进度注入
-├── config.ts                # Config + WorkbenchConfig（v2 预留）+ resolveConfig 校验
+├── config.ts                # Config + 内嵌 Workbench 开关 + resolveConfig 校验
+├── session-types.ts         # Host/Client 共用的纯 session 数据类型（零 Node 依赖）
 ├── session.ts               # SessionStore：9 态状态机 + 原子写 + 损坏恢复 + 事件订阅
+├── workbench-protocol.ts    # 鉴权 RPC、事件和下载协议常量及 DTO
+├── host-api.ts              # Connection RPC + 认证 SSE/下载精确路由
 ├── python-bridge.ts         # 异步 spawn + 退码四分类（success/partial/rejected/error）
-├── docx-view.ts             # OOXML → HTML（v2 复用为 React 组件输入）
+├── docx-view.ts             # OOXML → HTML（React 简版视图输入）
 ├── progress.ts              # pre-step 注入文案 + 幂等判据
 ├── skill-config.ts          # 读 reviewer_profile / review_memory（Python 独占写入）
 ├── paths.ts                 # ~ 展开 + 合同 key 归一化（与 Python 一致）
 ├── json.ts                  # 收窄 + compactUndefinedDeep（lossless JSON 合规）
+├── client/
+│   ├── index.tsx            # 官方 sidebar.footer.action 注册
+│   ├── api.ts               # 浏览器侧认证传输适配器
+│   └── Workbench.tsx        # 队列、Word、四阶段、表单、产物与历史
 └── tools/
     ├── intake.ts            # §3.2.1 前置澄清（必填 summary 合并来源：args > pendingAnswers > memory > profile）
     ├── analyze.ts           # §3.2.2 分层扫描（plan 必填 summary + findings）
@@ -44,8 +56,8 @@ src/
     ├── inspect-session.ts   # 横切：状态查询
     └── resume.ts            # 长程续接 + §9.5 再审回路（newContractPath 替换合同指向）
 
-lib/                         # tsc emit，构建产物（gitignore）
-tests/                        # vitest 单测（66 个全绿）
+lib/                         # tsc/tsdown 构建产物（gitignore）
+tests/                       # Vitest 单元与真实 Python spawn 集成测试
 ```
 
 ## 4. 7 个工具的职责边界
@@ -72,31 +84,32 @@ tests/                        # vitest 单测（66 个全绿）
 
 - Python CLI：`apply_review_plan.py`（v1.6.3），硬依赖 `defusedxml`
 - session 文件目录：`~/.dsh/contract-copilot/sessions/<id>.json`（插件可配）
-- DSH harness：`@deepseek-ai/dsh-tools`（defineTool）、`@deepseek-ai/dsh-llm`（createUserMessage）、`@deepseek-ai/dsh-agent`（PreStepDecision 类型）
+- DSH harness 0.1.2-rc.1：tools、llm、agent，以及 Web 侧 connection、ui-renderer、ui-sidebar
 - Cordis：`@deepseek-ai/cordis`（peer）
 
 ## 7. 已知限制（运行时）
 
 - **进度粒度 = tool 调用级**：Python CLI 执行期间零 stdout 输出（apply_review_plan.py:403-428 仅 main 尾部打印统计）
 - **apply 长任务**（数分钟）会阻塞单 conversation turn；异步 spawn 已支持 AbortSignal
-- **未实现验证点**：V2（ctx.userQuestions tool 内可用性）、V3（DSH session id API）、V4（HMR watch 范围）
+- **out-of-tree HMR 不覆盖本插件**：重建 node/client 工件后必须重启 DSH Web
+- **逐 finding 实时进度不可用**：Python CLI 在结束前不输出阶段事件；当前最细粒度是 tool 状态跃迁
 
-## 8. v2 工作台（已实现，DECISIONS.md Q31）
+## 8. DSH 0.1.2 工作台（DECISIONS.md Q35）
 
 双面插件：**host half**（Node）+ **client half**（浏览器）。
 
 ```
-src/
-├── host-api.ts          # host 数据面：ctx.get('webServer') 可选注册 /contract-copilot/*
-│                        #   GET /state | /sessions/:id | /sessions/:id/document
-│                        #   POST /sessions/:id/answers（确认表单回收 → session.pendingAnswers）
-├── docx-view.ts         # OOXML → HTML（python3 zipfile 抽取 + 纯函数渲染：修订/批注高亮）
-└── client/              # 浏览器 half（不进 tsc node 构建；tsdown 打成 lib/client.js）
-    ├── index.tsx        # apply：ctx.slots.inject('conversation.session.header.utilities', …)
-    └── Workbench.tsx    # 按钮 + 三栏对话框（列表/文档/状态卡，轮询 3-5s）
+sidebar.footer.action
+        │
+        ▼
+ContractCopilotClient
+   ├─ /contract-copilot/<endpoint> ── Connection RPC ── SessionStore
+   ├─ /api/contract-copilot.events ── authenticated Fetch/SSE
+   └─ /api/contract-copilot.download ── authenticated Fetch/stream
 ```
 
-- 声明：`package.json` `dsh.client {platform:web, inject:[@deepseek-ai/dsh-client-runtime]}` + `exports["./client"]`
+- 声明：`package.json` `dsh.client` 注入 connection、ui-renderer、ui-sidebar，并导出 `./client`
 - 构建：`tsdown.client.config.ts` 复刻 closure-factory 工件契约（见 `docs/DSH-PLUGIN-REFERENCE.md` §4）
-- 降级：headless/无 webServer 的 profile 里数据面静默跳过，7 个 tool 照常
+- 生命周期：Host 用 `ctx.inject(['connection'], …)` 延迟注册；没有 Connection 的 headless profile 不产生 Web 数据面
+- 安全：RPC、SSE、GET/HEAD 下载在处理前经过 Connection 的 Host/Origin fence 与签名 Cookie 认证
 - 渲染安全：文档 HTML 由 host 侧 `renderDocumentHtml` 生成（文本已 escape），client 直接注入

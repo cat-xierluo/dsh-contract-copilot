@@ -23,9 +23,6 @@ export interface PluginConfig {
 
 export interface WorkbenchConfig {
   readonly enabled: boolean
-  readonly port: number
-  readonly autoOpen: boolean
-  readonly host: string
 }
 
 export const Config: z<PluginConfig> = z.object({
@@ -38,11 +35,8 @@ export const Config: z<PluginConfig> = z.object({
   ),
   injectProgress: z.boolean().default(true).description('是否每步注入审查进度上下文'),
   workbench: z.object({
-    enabled: z.boolean().default(true).description('是否启用插件工作台 HTTP 服务器'),
-    port: z.number().min(1).max(65535).default(8790).description('工作台端口'),
-    autoOpen: z.boolean().default(true).description('创建/阻塞 session 时是否自动弹出工作台页面（macOS open）'),
-    host: z.string().default('127.0.0.1').description('绑定 host（默认仅本机）'),
-  }).description('v2 工作台（插件自带 HTTP 页面 + SSE 实时推送）'),
+    enabled: z.boolean().default(true).description('是否在 DSH Web 界面启用内嵌合同审查工作台'),
+  }).description('复用 DSH Connection 鉴权、侧栏插槽与 Web 地址的内嵌工作台'),
 })
 
 /** 校验并固化为运行时配置；skillRoot 指向不存在的目录时立刻失败（misconfiguration fails loud）。 */
@@ -62,9 +56,6 @@ export function resolveConfig(raw: PluginConfig): PluginConfig {
     injectProgress: raw.injectProgress !== false,
     workbench: {
       enabled: raw.workbench?.enabled !== false,
-      port: raw.workbench?.port ?? 8790,
-      autoOpen: raw.workbench?.autoOpen !== false,
-      host: raw.workbench?.host ?? '127.0.0.1',
     },
   }
 }

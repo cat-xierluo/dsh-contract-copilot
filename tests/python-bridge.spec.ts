@@ -48,6 +48,10 @@ describe('buildArgv', () => {
     expect(buildArgv({ ...BASE_ARGS, department: '' })).not.toContain('--department')
   })
 
+  it('显式归档目录通过 --archive-dir 传给 Python', () => {
+    expect(buildArgv({ ...BASE_ARGS, archiveDir: '/tmp/archive' })).toContain('/tmp/archive')
+  })
+
   it('第一条 argv 永远是 skillRoot 拼出的脚本绝对路径', () => {
     const argv = buildArgv(BASE_ARGS)
     expect(argv[0]).toBe('/skills/contract-copilot/scripts/review/apply_review_plan.py')

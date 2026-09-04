@@ -4,7 +4,7 @@
  */
 
 import { execSync } from 'node:child_process'
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
@@ -26,6 +26,7 @@ const hasPythonDeps = (() => {
 describe.skipIf(!hasPythonDeps)('runApplyCli 集成（真实 spawn）', () => {
   beforeAll(() => {
     dir = mkdtempSync(path.join(tmpdir(), 'cc-bridge-'))
+    mkdirSync(path.join(dir, 'config'))
     docx = path.join(dir, 'fixture.docx')
     const genScript = path.join(dir, 'gen.py')
     writeFileSync(genScript, [
@@ -69,6 +70,8 @@ describe.skipIf(!hasPythonDeps)('runApplyCli 集成（真实 spawn）', () => {
       reportDocx: path.join(dir, 'report.docx'),
       clientName: '测试客户', partyRole: '甲方', reviewIntensity: '常规',
       editPolicy: 'revise-first', author: '测试', organization: '测试所',
+      archiveDir: path.join(dir, 'archive'),
+      environment: { CONTRACT_COPILOT_CONFIG_DIR: path.join(dir, 'config') },
     })
     expect(result.kind).toBe('success')
     expect(result.exitCode).toBe(0)

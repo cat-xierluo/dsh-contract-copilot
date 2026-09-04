@@ -9,90 +9,19 @@
 import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, unlinkSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { normalizeContractKey } from './paths.ts'
+import type { ContractSession, SessionState } from './session-types.ts'
 
-export type SessionState =
-  | 'created'
-  | 'intake_done'
-  | 'plan_ready'
-  | 'applying'
-  | 'applied'
-  | 'partial'
-  | 'rejected'
-  | 'failed'
-  | 'delivered'
-
-export type ReviewerIdentity = {
-  readonly author: string
-  readonly organization: string
-  readonly department?: string
-}
-
-export type IntakeData = {
-  clientName: string
-  /** 甲方 / 乙方 / 中立 / 其他 */
-  partyRole: string
-  /** 签约前把关 / 谈判修订 / 其他（plugin 层阻塞项，CLI 不消费） */
-  reviewPurpose: string
-  /** 克制 / 常规 / 强势 */
-  reviewIntensity: string
-  deadline?: string
-  priority?: string
-  allowRestructure?: boolean
-  /** revise-first / balanced / comment-first */
-  editPolicy: string
-  /** 用户授权"按默认口径处理"时的授权来源记录（对齐 SKILL.md §3.2.1） */
-  authorization?: string
-  reviewer: ReviewerIdentity
-}
-
-export type ApplyStats = {
-  applied: number
-  failed: number
-  skipped: number
-  reportOnly: number
-}
-
-export type ApplyOutputs = {
-  reviewedDocx?: string
-  reportDocx?: string
-  archiveDir?: string
-  stats?: ApplyStats
-}
-
-export type HistoryEntry = {
-  at: string
-  tool: string
-  from: SessionState
-  to: SessionState
-}
-
-export type DecisionOption = { field: string; question: string; options?: string[] }
-export type DecisionAnswers = Record<string, string>
-
-export type ContractSession = {
-  version: 1
-  id: string
-  /** 发起 intake 的 DSH agent/session id（Agent.id 即 SessionId，runtime-types.ts:66）；跨 DSH 会话 resume 的索引备选 */
-  dshSessionId?: string
-  contractPath: string
-  contractKey: string
-  contractName: string
-  state: SessionState
-  intake?: IntakeData
-  planPath?: string
-  /** 阻塞项清单（intake blocked 时写入，供工作台页面渲染表单） */
-  intakeMissing?: DecisionOption[]
-  /** 工作台页面提交的答案（按字段名 → 用户回答）。intake 执行时与显式入参合并 */
-  pendingAnswers?: DecisionAnswers
-  outputs: ApplyOutputs
-  /** 单调递增；pre-step 注入用它做幂等判断 */
-  progressCounter: number
-  /** 上一次进度注入时的 counter 值（内存态 + 随 session 持久化） */
-  lastInjectedCounter: number
-  history: HistoryEntry[]
-  createdAt: string
-  updatedAt: string
-}
+export type {
+  ApplyOutputs,
+  ApplyStats,
+  ContractSession,
+  DecisionAnswers,
+  DecisionOption,
+  HistoryEntry,
+  IntakeData,
+  ReviewerIdentity,
+  SessionState,
+} from './session-types.ts'
 
 /** session 状态跃迁 + 落盘。所有 tool handler 通过它改状态。 */
 export class SessionStore {

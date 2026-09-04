@@ -37,8 +37,8 @@ export function apply(ctx: Context, raw: PluginConfig): void {
   registerInspectSessionTool(ctx, store)
   registerResumeTool(ctx, store)
 
-  // v2 工作台数据面（可选服务）：web profile 下给浏览器 client half 供数据；
-  // headless 下无 webServer，静默跳过（见 docs/DECISIONS.md Q31）。
+  // Web profile 通过 Connection 提供鉴权 RPC、SSE 与下载；headless profile
+  // 没有 Connection 时只运行工具链（见 docs/DECISIONS.md Q35）。
   registerHostApi(ctx, config, store)
 
   // DSH 的 lossless JSON 校验（packages/core/session/src/json.ts）拒绝任何值为

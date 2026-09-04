@@ -32,21 +32,7 @@
 | Q27 | 被拒后的 re-analyze | **扩展到 rejected/partial/failed** | integrity 拒绝后的修复回路就是"改 summary/findings 再 analyze" |
 | Q28 | 实质性改写的修订收束 | **沿用收束 + schema 文档化 force_edit** | action_executor.resolve_delivery_action 对 substantive rewrite 默认降级批注；schema description 告知 agent 显式授权 |
 
-## Q33：intake 复用 blocked session（2026-08-19）
-
-| 字段 | 内容 |
-|---|---|
-| **结论** | intake 对同合同最近一个 `state=created` 且带非空 `pendingAnswers` 的 session **复用而非新建**（前提 contractPath 相同） |
-| **理由** | 表单答案存在 session A、agent 重调 intake 若新建 session B 则答案丢失——工作台表单回路断在两半。复用后"blocked → 表单 → 无参重调"闭合成环 |
-| **验证** | e2e 实测：blocked session `…0259953` → 表单答案写入 → 无参重调 intake → **同一 sessionId** 返回 ok（客户名来自表单而非 memory）→ analyze(force_edit) → apply 4/0/0/0 → finalize 全通 |
-
-## Q34：实现期验证点 V2/V3/V4 结论（2026-08-19）
-
-| # | 结论 | 证据 |
-|---|---|---|
-| V2 | **关闭（被表单方案取代）** | Q25 原首选"tool 内调 ctx.userQuestions"未实施；工作台确认表单（Q31）成为 intake 交互的主路径且 e2e 验证通过。Q25 的回退路径升级为正式路径 |
-| V3 | **✅ 已接线** | `Agent.id` 即 `SessionId`（`packages/core/agent/src/runtime-types.ts:66`"The single identity shared with session"）；intake 通过 `exec.agent.id` 写入 `session.dshSessionId` |
-| V4 | **❌ 不支持（记录为已知限制）** | 实测：out-of-tree 插件重建 lib/client.js（内容变化）后 `__DSH_BOOT__` rev 不变——client-modules 的 `rebuilt()` 只被 harness 仓库 `dev:web` watcher 触发，不 watch link: 插件。**out-of-tree 插件更新需重启 dsh web**（已记入 DSH-PLUGIN-REFERENCE.md §4） |
+## Q29：tool 返回值适配 DSH lossless JSON（2026-08-19）
 
 | 字段 | 内容 |
 |---|---|
@@ -65,7 +51,7 @@
 | **问题** | **方向错误**——用户原话："**我要的不是说你启动一个 local host** 而是这个工作台是在 dsh **以插件这个形式**，比如说侧边栏或者什么其他的方式去进行展示的"；类比"成熟的法律 AI 产品" |
 | **撤回时机** | 2026-08-19 用户明确反馈后 |
 
-## Q31：v2 交付形态——DSH 原生 client-modules + ui-slots（2026-08-19，**当前路线**）
+## Q31：v2 交付形态——DSH 原生 client-modules + ui-slots（2026-08-19，**由 Q35 更新接入细节**）
 
 | 字段 | 内容 |
 |---|---|
@@ -85,25 +71,21 @@
 | **理由** | 错路径代码无价值，但功能（OOXML 渲染）正确 |
 | **影响** | 下一轮 v2 实施时按 Q31 拆解为 React 组件 |
 
----
+## Q33：intake 复用 blocked session（2026-08-19）
 
-## 决策索引（按主题）
+| 字段 | 内容 |
+|---|---|
+| **结论** | intake 对同合同最近一个 `state=created` 且带非空 `pendingAnswers` 的 session **复用而非新建**（前提 contractPath 相同） |
+| **理由** | 表单答案存在 session A、agent 重调 intake 若新建 session B 则答案丢失——工作台表单回路断在两半。复用后"blocked → 表单 → 无参重调"闭合成环 |
+| **验证** | e2e 实测：blocked session `…0259953` → 表单答案写入 → 无参重调 intake → **同一 sessionId** 返回 ok（客户名来自表单而非 memory）→ analyze(force_edit) → apply 4/0/0/0 → finalize 全通 |
 
-**产品形态**
-- Q22 / Q23 / Q25 — 范围边界（起草排除、复核组合覆盖、ask 交互首选 userQuestions）
-- Q30 / Q31 — v2 形态：localhost 错路径 → DSH 原生 client-modules + ui-slots
+## Q34：实现期验证点 V2/V3/V4 结论（2026-08-19）
 
-**DSH harness 适配**
-- Q17 / Q18 / Q21 — 状态写盘、异步 spawn、integrity 不自建回滚
-- Q26 / Q27 / Q28 — analyze 必填 summary、re-analyze 状态门、force_edit 授权
-- Q29 — compactUndefinedDeep 适配 lossless JSON
-
-**作用域与命名**
-- Q1 / Q5 / Q6 / Q7 / Q9 / Q10 / Q11 — 用户、仓库、scope、GitHub 用户名
-- Q2 / Q3 / Q4 — 核心交互能力 5 项 + 排除项
-
-**脚本与产物**
-- Q19 / Q24 — 进度粒度、归档位置
+| # | 结论 | 证据 |
+|---|---|---|
+| V2 | **关闭（被表单方案取代）** | Q25 原首选"tool 内调 ctx.userQuestions"未实施；工作台确认表单（Q31）成为 intake 交互的主路径且 e2e 验证通过。Q25 的回退路径升级为正式路径 |
+| V3 | **✅ 已接线** | `Agent.id` 即 `SessionId`（`packages/core/agent/src/runtime-types.ts:66`"The single identity shared with session"）；intake 通过 `exec.agent.id` 写入 `session.dshSessionId` |
+| V4 | **❌ 不支持（记录为已知限制）** | 实测：out-of-tree 插件重建 lib/client.js（内容变化）后 `__DSH_BOOT__` rev 不变——client-modules 的 `rebuilt()` 只被 harness 仓库 `dev:web` watcher 触发，不 watch link: 插件。**out-of-tree 插件更新需重启 dsh web**（已记入 DSH-PLUGIN-REFERENCE.md §4） |
 
 ## Q35：DSH 0.1.2 工作台迁移边界（2026-09-04）
 
@@ -113,3 +95,24 @@
 | **理由** | 旧插件在 DSH 0.1.2 仍可启动，但依赖已删除的 `dsh-client-runtime`、轮询非公开 sidebar DOM，且 `/contract-copilot/*` 在无浏览器会话 token 时仍返回数据。核心在新版依赖下构建和 69 项测试均通过，无需整体重写。 |
 | **影响** | Client 组件通过独立 API 适配器访问 Host；headless 保留原有 agent tool 行为；旧的 `workbench.port/autoOpen/host` 配置退出。 |
 | **何时重新评估** | 需要工作台直接创建后台 Agent、逐 finding 实时进度或跨插件消费 ContractSession 时，评估 Service Definition + Typert Remote。 |
+
+---
+
+## 决策索引（按主题）
+
+**产品形态**
+- Q22 / Q23 / Q25 — 范围边界（起草排除、复核组合覆盖、ask 交互首选 userQuestions）
+- Q30 / Q31 / Q35 — localhost 错路径 → DSH 原生 UI → DSH 0.1.2 官方 slot 与认证连接层
+
+**DSH harness 适配**
+- Q17 / Q18 / Q21 — 状态写盘、异步 spawn、integrity 不自建回滚
+- Q26 / Q27 / Q28 — analyze 必填 summary、re-analyze 状态门、force_edit 授权
+- Q29 — compactUndefinedDeep 适配 lossless JSON
+- Q34 / Q35 — DSH 会话接线、HMR 边界与 0.1.2 工作台迁移
+
+**作用域与命名**
+- Q1 / Q5 / Q6 / Q7 / Q9 / Q10 / Q11 — 用户、仓库、scope、GitHub 用户名
+- Q2 / Q3 / Q4 — 核心交互能力 5 项 + 排除项
+
+**脚本与产物**
+- Q19 / Q24 — 进度粒度、归档位置
