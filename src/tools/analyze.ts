@@ -1,7 +1,8 @@
 /**
  * Tool 2：contract_copilot_analyze —— §3.2.2 分层扫描（9.2）的落地。
  *
- * agent 先读 skill references 产出结构化 findings，本 tool 负责：
+ * agent 产出结构化 findings（工作台专属回合直接用内嵌指导与合同正文；
+ * 交互式环境可选读 skill references），本 tool 负责：
  * 组装完整 review-plan.json（meta 用 intake 值填充）→ 写入 session 产物目录 →
  * 前置软校验法律依据（integrity 门禁的早期反馈，门禁本身仍在 CLI）。
  */
@@ -54,7 +55,9 @@ export function registerAnalyzeTool(ctx: Context, config: PluginConfig, store: S
   ctx.tools.register(defineTool({
     name: 'contract_copilot_analyze',
     description: '提交结构化审查发现，生成 review-plan.json（SKILL.md §3.2.2 分层扫描 → §3.2.3 的计划载体）。'
-      + '调用前请先读 skill 的 references/（contract-routing、review-framework、revision-strategy）。'
+      + 'Contract Copilot 工作台的专属分析回合（DSH Web 专属 Agent，无 skill/文件工具）：'
+      + '分析提示已内嵌执行所必需的审查指导与合同正文，直接使用内嵌数据，不必读取 skill references。'
+      + '具备 skill 工具的交互式环境可选读 references/（contract-routing、review-framework、revision-strategy），非硬性前置。'
       + '每个 finding 必须带 legal_basis（法条依据）；summary 的概况字段必须从合同正文提取填写——'
       + '两者缺失都会在执行阶段被完整性门禁拒绝（报告渲染占位超阈值）。'
       + '修订收束规则：实质性整段改写即使 action=replace 也默认降级为批注，'

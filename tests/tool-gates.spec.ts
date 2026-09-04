@@ -9,6 +9,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type { PluginConfig } from '../src/config.ts'
 import { approvePlan, beginPlanReview } from '../src/plan-review.ts'
 import { SessionStore } from '../src/session.ts'
+import { registerAnalyzeTool } from '../src/tools/analyze.ts'
 import { registerApplyTool } from '../src/tools/apply.ts'
 import { registerIntakeTool } from '../src/tools/intake.ts'
 
@@ -126,5 +127,25 @@ describe('Contract Copilot tool gates', () => {
     await expect(registeredTool(registerApplyTool).execute({ sessionId: session.id }, execution()))
       .rejects.toMatchObject({ code: 'contract-copilot/plan-changed' })
     expect(store.get(session.id)?.state).toBe('plan_ready')
+  })
+})
+
+describe('Contract Copilot analyze description contract', () => {
+  it('不把读取 skill references 设为硬前置：工作台专属回合使用内嵌指导与合同正文，交互式环境可选读', () => {
+    const { description } = registeredTool(registerAnalyzeTool)
+
+    // 旧文案的硬性前置对 DSH Web 专属 Agent（无 skill/fs 工具）不可执行
+    expect(description).not.toContain('调用前请先读')
+    expect(description).not.toContain('必须先读')
+
+    // 工作台专属回合：分析提示已内嵌审查指导与合同正文，直接使用
+    expect(description).toContain('工作台')
+    expect(description).toContain('内嵌')
+    expect(description).toContain('合同正文')
+
+    // 具备 skill 工具的交互式环境：可选读，非硬性前置
+    expect(description).toContain('可选读')
+    expect(description).toContain('非硬性前置')
+    expect(description).toContain('references/')
   })
 })
