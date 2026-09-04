@@ -23,6 +23,10 @@ dsh plugin --profile lawyer add ./dsh-contract-copilot
 
 启动 DSH Web 后，侧栏底部的“合同审查”入口会打开三栏工作台：左侧是审查队列，中间是 Word 修订视图，右侧是“前置信息 → 风险分析 → 律师决策 → 修订交付 → 完成”五阶段进度。律师可逐项选择按建议处理、仅批注、仅意见书或忽略，调整风险等级、填写内部备注，再批准方案并让同一 Agent 继续交付。工作台所有 RPC、实时事件和 DOCX 下载都复用 DSH 的浏览器会话认证；headless profile 不加载界面，但 7 个工具及批准门仍照常工作。
 
+## 为什么选择 DSH 工作台
+
+DSH 同时提供可观察的 Agent 生命周期、持久 Session、命名 Tool 调用和状态事件，使插件能够在一次完整审查内部设置暂停、确认、取消、重试和恢复点，而不必把全部交互压缩成一轮轮聊天。Contract Copilot 将这些运行信号投影为可持久化、可操作、可审计的案件状态；这不表示展示模型的隐藏思维链。具体职责映射和边界见 [`docs/ARCHITECTURE.md` §2.1](docs/ARCHITECTURE.md#21-工作台交互粒度的来源)及 [`docs/DECISIONS.md` Q40](docs/DECISIONS.md#q40dsh-可观察运行面支撑工作台交互粒度2026-09-04)。
+
 ## 项目协议
 
 本仓库按全局 AGENTS.md（v4）维护协议文件：

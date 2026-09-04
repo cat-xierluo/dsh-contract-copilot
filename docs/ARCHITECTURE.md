@@ -31,6 +31,21 @@ DSH sidebar.footer.action → ContractCopilotClient
 
 详细事件链、状态机、session 文件结构见 `docs/2026-08-18-dsh-plugin-design.md` §5。
 
+### 2.1 工作台交互粒度的来源
+
+DSH 为插件提供四类可观察运行面，Contract Copilot 将其转换为律师能够理解和操作的案件状态：
+
+| DSH 运行面 | 可观察或可控制内容 | 工作台用途 |
+|---|---|---|
+| Agent | create、resume、followup、cancel、whenIdle | 启动分析或交付、停止任务、失败后恢复，并判断 Agent 是否真正结束当前阶段 |
+| Session | 消息、步骤、tool 轨迹和关联的持久 session id | 保存可重放的运行轨迹，并在 DSH 重启后重新关联案件与专属 Agent |
+| Tools | intake、analyze、apply、finalize 等命名调用及结果 | 把长流程切成有明确输入、输出、权限和失败语义的业务检查点 |
+| 状态事件 | ContractSession 变化、SSE 推送和 automation 状态 | 实时刷新五阶段进度、等待律师、运行、失败、取消和已交付状态 |
+
+这些运行面提供的是已发生或正在发生的可观察事实，不是模型隐藏思维链。工作台不展示内部推理文本，也不把临时 Agent handle 或 UI 消息当作法律业务事实。所有影响交付的状态、律师决定和批准结果必须先写入 `ContractSession`；DSH session 负责运行轨迹，二者通过 `dshSessionId` 关联。
+
+因此，新增工作台交互必须同时满足三个条件：能够映射到明确的业务状态或决定；能够通过事件恢复当前显示；涉及法律结果时有持久化授权门。只有调试价值、无法稳定重建的内部过程不进入产品界面。
+
 ## 3. 模块布局
 
 ```
