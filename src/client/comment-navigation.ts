@@ -19,6 +19,8 @@
  * 作为其他渲染器（含 docx-view.ts 旧渲染）的降级路径。
  */
 
+import type { DocComment } from '../workbench-protocol.ts'
+
 /** 导航端口里的最小节点结构（真实 Element/Node 结构上天然满足）。 */
 export interface NavNode {
   readonly nodeType: number
@@ -342,6 +344,44 @@ export function resolveCommentTarget(
     return { ok: false, reason: 'text-not-found', message: `正文中找不到文本提示「${anchor.textHint.trim()}」` }
   }
   return { ok: false, reason: 'id-not-found', message: `DOM 中存在批注标记，但没有匹配 id「${anchor.commentId}」的标记` }
+}
+
+// ---------------------------------------------------------------------------
+// 协议 DocComment → 导航输入适配（CC-V4-003）：每种渲染器绑定一个 id 空间
+// ---------------------------------------------------------------------------
+
+/** docx-preview（Word 视图）引用气泡 class。 */
+export const WORD_VIEW_REF_SELECTOR = '.docx-comment-ref'
+/** 简版视图（docx-view.ts）引用气泡 class 与正文/气泡打点属性。 */
+export const SIMPLE_VIEW_REF_SELECTOR = '.cc-comment'
+export const SIMPLE_VIEW_ATTRIBUTE_NAME = 'data-cc-anchor'
+
+/** 一次批注导航的完整输入：anchor 传 navigate，options 传 createCommentNavigator。 */
+export interface CommentNavigationInput {
+  readonly anchor: CommentAnchor
+  readonly options: CommentNavigatorOptions
+}
+
+/**
+ * Word 批注 → docx-preview 渲染结果：id 空间是 OOXML w:id（注释节点精确命中）；
+ * exact 锚点的 quote 降级为正文文本提示；气泡选择器指向 docx-preview 引用 span。
+ */
+export function wordCommentNavigationInput(comment: DocComment): CommentNavigationInput {
+  const anchor: CommentAnchor = comment.anchor.status === 'exact'
+    ? { commentId: comment.id, textHint: comment.anchor.quote, refSelector: WORD_VIEW_REF_SELECTOR }
+    : { commentId: comment.id, refSelector: WORD_VIEW_REF_SELECTOR }
+  return { anchor, options: { defaultRefSelector: WORD_VIEW_REF_SELECTOR } }
+}
+
+/**
+ * 简版批注 → docx-view.ts 打点渲染结果：id 空间是内容派生 anchorId；
+ * 属性策略用渲染器约定的打点属性（正文范围包裹与引用气泡都携带它）。
+ */
+export function simpleCommentNavigationInput(comment: DocComment): CommentNavigationInput {
+  return {
+    anchor: { commentId: comment.anchorId, refSelector: SIMPLE_VIEW_REF_SELECTOR },
+    options: { attributeName: SIMPLE_VIEW_ATTRIBUTE_NAME, defaultRefSelector: SIMPLE_VIEW_REF_SELECTOR },
+  }
 }
 
 // ---------------------------------------------------------------------------

@@ -3,6 +3,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import {
   browserLocale,
+  COMMENT_MISS_REASON_KEYS,
   createTranslator,
   DEFAULT_LOCALE,
   LOCALES,
@@ -12,6 +13,7 @@ import {
   type Locale,
   type MessageKey,
 } from '../src/client/locale.ts'
+import type { CommentMissReason } from '../src/client/comment-navigation.ts'
 
 function valueOf(locale: Locale, key: MessageKey): string | ((params: never) => string) {
   return (MESSAGES[locale] as Record<string, string | ((params: never) => string)>)[key]
@@ -164,5 +166,35 @@ describe('workbench locale 字典', () => {
     const en = createTranslator('en-GB')
     expect(en('workbench.title')).toBe('📋 Contract Copilot · Review Workbench')
     expect(en('pane.operations')).toBe('Operations')
+  })
+
+  describe('批注导航未命中文案（CommentMissReason 全集）', () => {
+    const reasons: readonly CommentMissReason[] = [
+      'invalid-anchor',
+      'root-empty',
+      'comments-not-rendered',
+      'id-not-found',
+      'ordinal-out-of-range',
+      'text-not-found',
+    ]
+
+    it('映射覆盖全部枚举值，键一律为 nav.<reason>', () => {
+      expect(Object.keys(COMMENT_MISS_REASON_KEYS).sort()).toEqual([...reasons].sort())
+      for (const reason of reasons) {
+        expect(COMMENT_MISS_REASON_KEYS[reason]).toBe(`nav.${reason}`)
+      }
+    })
+
+    it('映射键与字典 nav.* 键双向一致，中英文提示均非空', () => {
+      const navKeys = Object.keys(MESSAGES.zh).filter((key) => key.startsWith('nav.')).sort()
+      expect(navKeys).toEqual(Object.values(COMMENT_MISS_REASON_KEYS).map((key) => key as string).sort())
+
+      for (const key of Object.values(COMMENT_MISS_REASON_KEYS)) {
+        expect(t('zh', key).trim().length, `zh 空提示：${key}`).toBeGreaterThan(0)
+        expect(t('en', key).trim().length, `en 空提示：${key}`).toBeGreaterThan(0)
+      }
+      expect(t('zh', 'nav.id-not-found')).toBe('文档中没有找到这条批注的标记。')
+      expect(t('en', 'nav.id-not-found')).toBe('No marker for this comment was found in the document.')
+    })
   })
 })

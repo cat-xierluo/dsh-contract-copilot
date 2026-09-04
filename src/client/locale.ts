@@ -1,5 +1,6 @@
 /** Typed zh/en workbench dictionary: the single source of all product copy for UI wiring. */
 
+import type { CommentMissReason } from './comment-navigation.ts'
 import type { AutomationStatus, FindingDisposition, SessionState } from '../session-types.ts'
 
 /** Locales shipped with the workbench; unknown requests deterministically fall back to zh. */
@@ -53,6 +54,14 @@ const zh = {
   'disposition.comment-only': '仅批注',
   'disposition.report-only': '仅意见书',
   'disposition.omit': '忽略',
+
+  // 批注导航未命中原因（CommentMissReason；完整覆盖由下方编译期守卫保证）
+  'nav.invalid-anchor': '批注锚点无效，无法定位。',
+  'nav.root-empty': '文档区域为空，尚未完成渲染。',
+  'nav.comments-not-rendered': '文档中没有批注标记，可能未开启批注渲染。',
+  'nav.id-not-found': '文档中没有找到这条批注的标记。',
+  'nav.ordinal-out-of-range': '批注序号超出文档中的批注数量。',
+  'nav.text-not-found': '正文中找不到这条批注圈选的文本片段。',
 
   // 工作台入口与标题
   'workbench.dialogAria': 'Contract Copilot 审查工作台',
@@ -186,6 +195,13 @@ const en: WorkbenchMessages = {
   'disposition.report-only': 'Report only',
   'disposition.omit': 'Omit',
 
+  'nav.invalid-anchor': 'The comment anchor is invalid; it cannot be located.',
+  'nav.root-empty': 'The document area is empty; rendering has not finished.',
+  'nav.comments-not-rendered': 'No comment markers were found in the document; comment rendering may be disabled.',
+  'nav.id-not-found': 'No marker for this comment was found in the document.',
+  'nav.ordinal-out-of-range': 'The comment ordinal exceeds the number of comments in the document.',
+  'nav.text-not-found': 'The text quoted by this comment was not found in the document.',
+
   'workbench.dialogAria': 'Contract Copilot review workbench',
   'workbench.title': '📋 Contract Copilot · Review Workbench',
   'workbench.closeAria': 'Close the contract review workbench',
@@ -274,6 +290,17 @@ type AssertNever<T extends never> = T
 type StateLabelsComplete = AssertNever<Exclude<`state.${SessionState}`, MessageKey>>
 type AutomationLabelsComplete = AssertNever<Exclude<`automation.${AutomationStatus}`, MessageKey>>
 type DispositionLabelsComplete = AssertNever<Exclude<`disposition.${FindingDisposition}`, MessageKey>>
+type NavMissLabelsComplete = AssertNever<Exclude<`nav.${CommentMissReason}`, MessageKey>>
+
+/** Complete CommentMissReason → typed key mapping so navigation misses stay localizable. */
+export const COMMENT_MISS_REASON_KEYS: Readonly<Record<CommentMissReason, `nav.${CommentMissReason}`>> = {
+  'invalid-anchor': 'nav.invalid-anchor',
+  'root-empty': 'nav.root-empty',
+  'comments-not-rendered': 'nav.comments-not-rendered',
+  'id-not-found': 'nav.id-not-found',
+  'ordinal-out-of-range': 'nav.ordinal-out-of-range',
+  'text-not-found': 'nav.text-not-found',
+}
 
 /** Normalize a locale tag; any unknown, malformed, or non-string value falls back to zh. */
 export function resolveLocale(candidate: unknown): Locale {

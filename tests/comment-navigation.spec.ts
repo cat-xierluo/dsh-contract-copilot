@@ -9,11 +9,14 @@ import {
   escapeCssAttributeValue,
   parseCommentMarkerText,
   resolveCommentTarget,
+  simpleCommentNavigationInput,
+  wordCommentNavigationInput,
   type CommentAnchor,
   type NavElement,
   type NavigationEnvironment,
   type NavNode,
 } from '../src/client/comment-navigation.ts'
+import type { DocComment } from '../src/workbench-protocol.ts'
 
 // ---------------------------------------------------------------------------
 // 内存假 DOM：仅实现 NavigationEnvironment 所需的最小结构。
@@ -528,6 +531,93 @@ describe('resolveCommentTarget：降级策略', () => {
 
     expect(result.ok).toBe(false)
     if (!result.ok) expect(result.reason).toBe('invalid-anchor')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// 协议 DocComment → 导航输入适配（CC-V4-003）：两种 id 空间
+// ---------------------------------------------------------------------------
+
+const exactWordComment: DocComment = {
+  id: '7',
+  author: '张律师',
+  text: '付款期限过短。',
+  anchorId: 'ccm-1a2b3c',
+  anchor: { status: 'exact', paragraphIndex: 2, quote: '按期支付' },
+}
+const fallbackComment: DocComment = {
+  id: '9',
+  author: '张律师',
+  text: '孤立批注。',
+  anchorId: 'ccm-9f8e7d',
+  anchor: { status: 'fallback', reason: 'orphan-comment' },
+}
+
+describe('协议 DocComment 导航输入适配', () => {
+  it('word：commentId 取 OOXML id，exact quote 映射 textHint，气泡选择器指向 docx-preview', () => {
+    expect(wordCommentNavigationInput(exactWordComment)).toEqual({
+      anchor: { commentId: '7', textHint: '按期支付', refSelector: '.docx-comment-ref' },
+      options: { defaultRefSelector: '.docx-comment-ref' },
+    })
+  })
+
+  it('word：fallback 锚点无 quote，不虚构 textHint', () => {
+    expect(wordCommentNavigationInput(fallbackComment).anchor)
+      .toEqual({ commentId: '9', refSelector: '.docx-comment-ref' })
+  })
+
+  it('simple：commentId 取 anchorId，属性策略打点名 data-cc-anchor，气泡选择器 .cc-comment', () => {
+    expect(simpleCommentNavigationInput(exactWordComment)).toEqual({
+      anchor: { commentId: 'ccm-1a2b3c', refSelector: '.cc-comment' },
+      options: { attributeName: 'data-cc-anchor', defaultRefSelector: '.cc-comment' },
+    })
+  })
+
+  it('word 输入端到端命中 docx-preview 形态 DOM（id 空间：OOXML w:id）', () => {
+    const fake = createFakeEnvironment({ root: null })
+    const root = buildPreviewDoc(fake, { commentId: '7' })
+    const input = wordCommentNavigationInput(exactWordComment)
+
+    const result = resolveCommentTarget(fake.env, root, input.anchor, input.options)
+
+    expect(result.ok).toBe(true)
+    if (result.ok) {
+      expect(result.target.kind).toBe('reference-marker')
+      expect(result.target.element).toBe(refSpanOf(root))
+    }
+  })
+
+  it('simple 输入端到端命中打点形态 DOM（id 空间：ccm anchorId），属性策略取首个打点元素', () => {
+    const fake = createFakeEnvironment({ root: null })
+    const root = el('div', 'docx-body')
+    const p = append(root, el('p'))
+    append(p, new FakeTextNode('甲方应当'))
+    const wrap = append(p, el('span', 'cc-comment-anchor', { 'data-cc-anchor': 'ccm-1a2b3c' }))
+    append(p, new FakeTextNode('按期支付。'))
+    append(p, el('sup', 'cc-comment', { 'data-cc-anchor': 'ccm-1a2b3c' }))
+    const input = simpleCommentNavigationInput(exactWordComment)
+
+    const result = resolveCommentTarget(fake.env, root, input.anchor, input.options)
+
+    expect(result.ok).toBe(true)
+    if (result.ok) {
+      expect(result.target.kind).toBe('attribute')
+      expect(result.target.element).toBe(wrap)
+    }
+  })
+
+  it('id 空间互不相通：word 输入对简版 DOM 不误跳', () => {
+    const fake = createFakeEnvironment({ root: null })
+    const root = el('div', 'docx-body')
+    const p = append(root, el('p'))
+    append(p, new FakeTextNode('甲方应当按期支付。'))
+    append(p, el('sup', 'cc-comment', { 'data-cc-anchor': 'ccm-1a2b3c' }))
+    const input = wordCommentNavigationInput(fallbackComment)
+
+    const result = resolveCommentTarget(fake.env, root, input.anchor, input.options)
+
+    expect(result.ok).toBe(false)
+    if (!result.ok) expect(result.reason).toBe('comments-not-rendered')
   })
 })
 

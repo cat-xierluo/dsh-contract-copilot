@@ -5,6 +5,7 @@ import type { ConnectionHandle } from '@deepseek-ai/dsh-client-connection/client
 import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
 import type {} from '@deepseek-ai/dsh-client-ui-sidebar/client'
 import { ContractCopilotClient } from './api.ts'
+import { browserLocale, t } from './locale.ts'
 import { RailEntryButton, type WorkbenchFace } from './Workbench.tsx'
 
 /** Client services required by the authenticated workbench entry. */
@@ -18,7 +19,7 @@ export function apply(ctx: ClientContext): void {
     name: 'sidebar.footer.action',
     id: 'contract-copilot',
     order: 50,
-    label: '合同审查',
+    label: t(browserLocale(), 'workbench.railLabel'),
     inject: (): WorkbenchFace => ({ client }),
   }, RailEntryButton))
 }
