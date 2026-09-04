@@ -1,7 +1,9 @@
 /** Typed-locale dictionary contract: key parity, complete translations, deterministic fallback. */
 
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import {
+  browserLocale,
+  createTranslator,
   DEFAULT_LOCALE,
   LOCALES,
   MESSAGES,
@@ -137,5 +139,30 @@ describe('workbench locale 字典', () => {
   it('未知键确定性回显键名而不抛错', () => {
     expect(t('zh', 'unknown.key' as MessageKey)).toBe('unknown.key')
     expect(t('en', 'unknown.key' as MessageKey)).toBe('unknown.key')
+  })
+
+  it('browserLocale 跟随 navigator 语言，未知或缺失时确定性回退 zh', () => {
+    vi.stubGlobal('navigator', { language: 'en-GB' })
+    expect(browserLocale()).toBe('en')
+    vi.stubGlobal('navigator', { language: 'zh-CN' })
+    expect(browserLocale()).toBe('zh')
+    vi.stubGlobal('navigator', { language: 'fr-FR' })
+    expect(browserLocale()).toBe('zh')
+    vi.stubGlobal('navigator', { language: undefined })
+    expect(browserLocale()).toBe('zh')
+    vi.unstubAllGlobals()
+  })
+
+  it('createTranslator 绑定 locale 并保留逐键参数契约（含窄屏 pane 键）', () => {
+    const label = createTranslator('zh')
+    expect(label('decision.progress', { decided: 2, total: 5 })).toBe('已决定 2/5')
+    expect(label('pane.group')).toBe('工作台区域')
+    expect(label('pane.tasks')).toBe('任务')
+    expect(label('pane.document')).toBe('文档')
+    expect(label('pane.operations')).toBe('操作')
+
+    const en = createTranslator('en-GB')
+    expect(en('workbench.title')).toBe('📋 Contract Copilot · Review Workbench')
+    expect(en('pane.operations')).toBe('Operations')
   })
 })

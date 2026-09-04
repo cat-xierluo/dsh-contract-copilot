@@ -63,6 +63,12 @@ const zh = {
   'workbench.railTitle': '合同审查工作台',
   'workbench.railTitleWithState': (p: { readonly contractName: string; readonly state: string }): string => `${p.contractName} · ${p.state}`,
 
+  // 窄屏三栏切换（≤900px 时保持全部区域可达）
+  'pane.group': '工作台区域',
+  'pane.tasks': '任务',
+  'pane.document': '文档',
+  'pane.operations': '操作',
+
   // 文档窗格
   'doc.wordView': 'Word 视图',
   'doc.simpleView': '简版（修订高亮）',
@@ -188,6 +194,11 @@ const en: WorkbenchMessages = {
   'workbench.railTitle': 'Contract review workbench',
   'workbench.railTitleWithState': p => `${p.contractName} · ${p.state}`,
 
+  'pane.group': 'Workbench areas',
+  'pane.tasks': 'Tasks',
+  'pane.document': 'Document',
+  'pane.operations': 'Operations',
+
   'doc.wordView': 'Word view',
   'doc.simpleView': 'Simple (tracked changes)',
   'doc.renderFailed': 'Word rendering failed; showing the simple view',
@@ -272,6 +283,11 @@ export function resolveLocale(candidate: unknown): Locale {
   return normalized === 'en' || normalized.startsWith('en-') ? 'en' : DEFAULT_LOCALE
 }
 
+/** Browser-derived active locale; non-browser runs deterministically fall back to zh. */
+export function browserLocale(): Locale {
+  return resolveLocale(typeof navigator === 'undefined' ? undefined : navigator.language)
+}
+
 /**
  * Look up one message by locale and typed key. Parametrized keys require their
  * parameter object at the type level; plain keys take no argument. Unknown
@@ -287,4 +303,12 @@ export function t<K extends MessageKey>(
   if (value === undefined) return key
   if (typeof value === 'function') return value((args as readonly unknown[])[0] as never)
   return value
+}
+
+/** `t` bound to one locale for compact call sites; per-key parameter contracts are preserved. */
+export function createTranslator(locale: Locale | string | undefined): <K extends MessageKey>(
+  key: K,
+  ...args: (typeof zh)[K] extends (params: infer P) => string ? readonly [params: P] : readonly []
+) => string {
+  return (key, ...args) => t(locale, key, ...args)
 }

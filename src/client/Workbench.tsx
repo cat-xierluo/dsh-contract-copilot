@@ -19,77 +19,317 @@ import {
   phaseIndex,
   type FindingDecisionDraft,
 } from './decision-model.ts'
+import { bindTranslate, browserLocale, type LocaleParams, type WorkbenchLocaleKey } from './locale.ts'
 
-const STATE_LABELS: Record<SessionState, string> = {
-  created: '待补齐',
-  intake_done: '前置信息已确认',
-  plan_ready: '审查计划就绪',
-  applying: '正在生成修订',
-  applied: '修订完成',
-  partial: '部分完成',
-  rejected: '完整性复核未通过',
-  failed: '执行失败',
-  delivered: '已交付',
+const t = bindTranslate(browserLocale())
+
+function label(key: WorkbenchLocaleKey, params?: LocaleParams): string {
+  return t(key, params)
 }
 
-const TOOL_LABELS: Record<string, string> = {
-  contract_copilot_intake: '确认前置信息',
-  contract_copilot_analyze: '完成风险分析',
-  contract_copilot_apply: '生成修订与意见书',
-  contract_copilot_finalize: '确认交付',
-  contract_copilot_resume: '恢复审查任务',
-  contract_copilot_recheck: '开始复审',
+const STATE_KEYS: Record<SessionState, WorkbenchLocaleKey> = {
+  created: 'state.created',
+  intake_done: 'state.intake_done',
+  plan_ready: 'state.plan_ready',
+  applying: 'state.applying',
+  applied: 'state.applied',
+  partial: 'state.partial',
+  rejected: 'state.rejected',
+  failed: 'state.failed',
+  delivered: 'state.delivered',
 }
 
-const PHASES = ['前置信息', '风险分析', '律师决策', '修订交付', '完成'] as const
-
-const AUTOMATION_LABELS: Record<AutomationStatus, string> = {
-  idle: '待启动',
-  'running-analysis': 'Agent 正在分析',
-  'waiting-decisions': '等待律师决策',
-  'running-delivery': 'Agent 正在生成交付物',
-  failed: 'Agent 需要重试',
-  delivered: 'Agent 已完成',
+const TOOL_KEYS: Record<string, WorkbenchLocaleKey> = {
+  contract_copilot_intake: 'tool.contract_copilot_intake',
+  contract_copilot_analyze: 'tool.contract_copilot_analyze',
+  contract_copilot_apply: 'tool.contract_copilot_apply',
+  contract_copilot_finalize: 'tool.contract_copilot_finalize',
+  contract_copilot_resume: 'tool.contract_copilot_resume',
+  contract_copilot_recheck: 'tool.contract_copilot_recheck',
 }
 
-const DISPOSITION_LABELS: Record<FindingDisposition, string> = {
-  accept: '按建议处理',
-  'comment-only': '仅批注',
-  'report-only': '仅意见书',
-  omit: '忽略',
+const AUTOMATION_KEYS: Record<AutomationStatus, WorkbenchLocaleKey> = {
+  idle: 'automation.idle',
+  'running-analysis': 'automation.running-analysis',
+  'waiting-decisions': 'automation.waiting-decisions',
+  'running-delivery': 'automation.running-delivery',
+  failed: 'automation.failed',
+  delivered: 'automation.delivered',
 }
 
-const S: Record<string, React.CSSProperties> = {
-  overlay: { position: 'fixed', inset: 0, background: 'rgba(19, 25, 34, 0.42)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center' },
-  panel: { background: 'var(--dsw-alias-bg-base, #fff)', color: 'var(--dsw-alias-fg-base, #1d1d1b)', borderRadius: 12, width: 'min(1400px, 97vw)', height: 'min(860px, 94vh)', display: 'flex', flexDirection: 'column', boxShadow: '0 16px 56px rgba(0,0,0,0.28)', overflow: 'hidden' },
-  head: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 18px', borderBottom: '1px solid var(--dsw-alias-border-l2, #e5e3dd)' },
-  title: { fontSize: 14, fontWeight: 650 },
-  close: { border: 0, background: 'transparent', fontSize: 18, cursor: 'pointer', color: 'var(--dsw-alias-fg-muted, #777)' },
+const DISPOSITION_KEYS: Array<[FindingDisposition, WorkbenchLocaleKey]> = [
+  ['accept', 'disposition.accept'],
+  ['comment-only', 'disposition.comment-only'],
+  ['report-only', 'disposition.report-only'],
+  ['omit', 'disposition.omit'],
+]
+
+/**
+ * DSH UI theme tokens verified to exist in the shipped 0.1.2-rc.1 client
+ * packages (`@deepseek-ai/dsh-client-ui-*` stylesheets and bundles). The host
+ * re-maps every alias here per light/dark theme, so styling through this set
+ * is what keeps the workbench readable in both modes. Style code below must
+ * reference tokens from this list (tests enforce it).
+ */
+export const DSH_THEME_TOKENS = [
+  '--dsw-alias-bg-base',
+  '--dsw-alias-bg-layer-1',
+  '--dsw-alias-bg-layer-2',
+  '--dsw-alias-bg-mask-1',
+  '--dsw-alias-border-l2',
+  '--dsw-alias-border-l3',
+  '--dsw-alias-border-inverted',
+  '--dsw-alias-label-primary',
+  '--dsw-alias-label-secondary',
+  '--dsw-alias-label-tertiary',
+  '--dsw-alias-label-primary-inverted',
+  '--dsw-alias-interactive-bg-hover',
+  '--dsw-alias-interactive-bg-active',
+  '--dsw-alias-state-business-primary',
+  '--dsw-alias-state-success-primary',
+  '--dsw-alias-state-success-secondary',
+  '--dsw-alias-state-warn-primary',
+  '--dsw-alias-state-warn-secondary',
+  '--dsw-alias-state-error-primary',
+  '--dsw-alias-state-error-secondary',
+  '--dsw-alias-button-primary-fill',
+  '--dsw-alias-button-info-fill',
+  '--dsw-shadow-lv3',
+  '--dsw-mask-blur',
+] as const
+
+function token(name: (typeof DSH_THEME_TOKENS)[number], fallback: string): string {
+  return `var(${name}, ${fallback})`
+}
+
+/**
+ * Style keys allowed to carry raw (mode-independent) colors: the document
+ * canvas mimics a paper page — the DOCX body renders with its own print-like
+ * palette, so it stays light in both themes exactly like Word's page in dark
+ * mode. Everything else must go through DSH_THEME_TOKENS.
+ */
+export const PAPER_COLOR_STYLE_KEYS = ['docFrame'] as const
+
+/** Static workbench styles; every color resolves through a DSH theme token. */
+export const S = {
+  overlay: { position: 'fixed', inset: 0, background: token('--dsw-alias-bg-mask-1', 'rgba(19, 25, 34, 0.42)'), backdropFilter: token('--dsw-mask-blur', 'blur(2px)'), zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center' },
+  panel: { background: token('--dsw-alias-bg-layer-2', '#fff'), color: token('--dsw-alias-label-primary', '#1d1d1b'), border: `1px solid ${token('--dsw-alias-border-inverted', '#e5e3dd')}`, borderRadius: 12, width: 'min(1400px, 97vw)', height: 'min(860px, 94vh)', display: 'flex', flexDirection: 'column', boxShadow: token('--dsw-shadow-lv3', '0 16px 56px rgba(0,0,0,0.28)'), overflow: 'hidden', outline: 'none' },
+  head: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 18px', borderBottom: `1px solid ${token('--dsw-alias-border-l2', '#e5e3dd')}` },
+  title: { fontSize: 14, fontWeight: 650, color: token('--dsw-alias-label-primary', '#1d1d1b') },
+  close: { border: 0, background: 'transparent', fontSize: 18, cursor: 'pointer', color: token('--dsw-alias-label-secondary', '#777') },
   body: { display: 'grid', gridTemplateColumns: '250px minmax(360px, 1fr) 400px', flex: 1, minHeight: 0 },
-  list: { borderRight: '1px solid var(--dsw-alias-border-l2, #e5e3dd)', overflow: 'auto', padding: 10 },
-  doc: { overflow: 'auto', padding: '20px 26px', background: 'var(--dsw-alias-bg-subtle, #faf9f6)' },
-  docFrame: { background: '#fff', color: '#1d1d1b', border: '1px solid #e5e3dd', borderRadius: 6, padding: '28px 36px', lineHeight: 1.8, fontSize: 14 },
-  side: { borderLeft: '1px solid var(--dsw-alias-border-l2, #e5e3dd)', overflow: 'auto', padding: 14 },
+  bodyNarrow: { display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 },
+  tabList: { display: 'flex', gap: 4, padding: 8, borderBottom: `1px solid ${token('--dsw-alias-border-l2', '#e5e3dd')}` },
+  list: { borderRight: `1px solid ${token('--dsw-alias-border-l2', '#e5e3dd')}`, overflow: 'auto', padding: 10 },
+  doc: { overflow: 'auto', padding: '20px 26px', background: token('--dsw-alias-bg-layer-1', '#faf9f6') },
+  // Paper canvas exception (see PAPER_COLOR_STYLE_KEYS): print-like page stays light in both themes.
+  docFrame: { background: '#fff', color: '#1d1d1b', border: `1px solid ${token('--dsw-alias-border-l2', '#e5e3dd')}`, borderRadius: 6, padding: '28px 36px', lineHeight: 1.8, fontSize: 14 },
+  side: { borderLeft: `1px solid ${token('--dsw-alias-border-l2', '#e5e3dd')}`, overflow: 'auto', padding: 14 },
+  narrowPanel: { flex: 1, minHeight: 0, overflow: 'auto', padding: 14 },
   row: { padding: '9px 10px', borderRadius: 7, cursor: 'pointer', marginBottom: 2 },
-  pill: { display: 'inline-block', padding: '2px 10px', borderRadius: 10, fontSize: 12, background: '#eef2fb', color: '#2f5aae' },
-  card: { border: '1px solid var(--dsw-alias-border-l2, #e5e3dd)', borderRadius: 7, padding: '10px 12px', marginBottom: 12, fontSize: 13 },
+  pill: { display: 'inline-block', padding: '2px 10px', borderRadius: 10, fontSize: 12, background: token('--dsw-alias-interactive-bg-hover', '#eef2fb'), color: token('--dsw-alias-state-business-primary', '#2f5aae') },
+  card: { border: `1px solid ${token('--dsw-alias-border-l2', '#e5e3dd')}`, borderRadius: 7, padding: '10px 12px', marginBottom: 12, fontSize: 13 },
+  intakeCard: { border: `1px solid ${token('--dsw-alias-state-warn-primary', '#f0e0a0')}`, borderRadius: 7, padding: '10px 12px', marginBottom: 12, fontSize: 13, background: token('--dsw-alias-state-warn-secondary', '#fffbf0') },
+  errorStrip: { padding: '7px 18px', background: token('--dsw-alias-state-error-secondary', '#fff0ee'), color: token('--dsw-alias-state-error-primary', '#a53a2d'), fontSize: 12 },
+  noticeStrip: { padding: '8px 18px', borderTop: `1px solid ${token('--dsw-alias-border-l2', '#e5e3dd')}`, background: token('--dsw-alias-bg-layer-1', '#faf9f6'), color: token('--dsw-alias-label-primary', '#1d1d1b'), fontSize: 12 },
   field: { marginBottom: 10 },
-  input: { boxSizing: 'border-box', width: '100%', padding: '7px 8px', border: '1px solid var(--dsw-alias-border-l2, #d9d6cf)', borderRadius: 5, background: 'var(--dsw-alias-bg-base, #fff)', color: 'var(--dsw-alias-fg-base, #1d1d1b)', fontSize: 13 },
-  opt: { display: 'inline-block', margin: '0 6px 6px 0', padding: '3px 10px', border: '1px solid #d9d6cf', borderRadius: 12, fontSize: 12, cursor: 'pointer' },
-  btn: { background: '#2f5aae', color: '#fff', border: 0, borderRadius: 5, padding: '7px 14px', fontSize: 13, cursor: 'pointer' },
-  secondaryBtn: { background: '#fff', color: '#2f5aae', border: '1px solid #c9d4ec', borderRadius: 5, padding: '7px 12px', fontSize: 12, cursor: 'pointer' },
-  muted: { color: 'var(--dsw-alias-fg-muted, #7b7975)', fontSize: 12 },
+  input: { boxSizing: 'border-box', width: '100%', padding: '7px 8px', border: `1px solid ${token('--dsw-alias-border-l2', '#d9d6cf')}`, borderRadius: 5, background: token('--dsw-alias-bg-layer-1', '#fff'), color: token('--dsw-alias-label-primary', '#1d1d1b'), fontSize: 13 },
+  opt: { display: 'inline-block', margin: '0 6px 6px 0', padding: '3px 10px', border: `1px solid ${token('--dsw-alias-border-l3', '#d9d6cf')}`, borderRadius: 12, fontSize: 12, cursor: 'pointer' },
+  btn: { background: token('--dsw-alias-button-primary-fill', '#2f5aae'), color: token('--dsw-alias-label-primary-inverted', '#fff'), border: 0, borderRadius: 5, padding: '7px 14px', fontSize: 13, cursor: 'pointer' },
+  secondaryBtn: { background: 'transparent', color: token('--dsw-alias-state-business-primary', '#2f5aae'), border: `1px solid ${token('--dsw-alias-border-l3', '#c9d4ec')}`, borderRadius: 5, padding: '7px 12px', fontSize: 12, cursor: 'pointer' },
+  muted: { color: token('--dsw-alias-label-secondary', '#7b7975'), fontSize: 12 },
+  successNote: { color: token('--dsw-alias-state-success-primary', '#2f7449'), fontSize: 12 },
+  commentBlock: { fontSize: 12, marginBottom: 8, paddingLeft: 6, borderLeft: `2px solid ${token('--dsw-alias-border-l3', '#c9d4ec')}` },
+} satisfies Record<string, React.CSSProperties>
+
+/** Sidebar launcher button styles (active state highlights the open queue). */
+export function railButtonStyle(active: boolean, wide: boolean): React.CSSProperties {
+  return {
+    display: 'flex', alignItems: 'center', justifyContent: wide ? 'flex-start' : 'center', gap: 8,
+    width: '100%', minWidth: 0, padding: wide ? '7px 10px' : '8px 0', borderRadius: 8,
+    border: '1px solid',
+    borderColor: active ? token('--dsw-alias-state-business-primary', '#2f5aae') : token('--dsw-alias-border-l2', '#d9d6cf'),
+    background: active ? token('--dsw-alias-interactive-bg-active', '#eef2fb') : 'transparent',
+    color: token('--dsw-alias-label-primary', '#1d1d1b'), fontSize: 13,
+    cursor: 'pointer', textAlign: 'left', position: 'relative',
+  }
 }
 
-const insDelCss = `
+/** Launcher status dot: business accent while a case is in flight, success otherwise. */
+export function statusDotStyle(active: boolean, wide: boolean): React.CSSProperties {
+  return {
+    width: 8, height: 8, borderRadius: 4, flexShrink: 0,
+    background: active ? token('--dsw-alias-state-business-primary', '#2f5aae') : token('--dsw-alias-state-success-primary', '#3fae6a'),
+    ...(wide ? {} : { position: 'absolute', right: 5, top: 5 }),
+  }
+}
+
+/** Session list row; the selected row uses the themed active surface. */
+export function sessionRowStyle(selected: boolean): React.CSSProperties {
+  return {
+    ...S.row, width: '100%', border: 0, textAlign: 'left', color: 'inherit',
+    background: selected ? token('--dsw-alias-interactive-bg-active', '#eef2fb') : 'transparent',
+  }
+}
+
+/** Decision card: success surface once approved, warn surface while awaiting decisions. */
+export function decisionCardStyle(approved: boolean): React.CSSProperties {
+  return {
+    ...S.card,
+    borderColor: approved ? token('--dsw-alias-state-success-primary', '#9bc6aa') : token('--dsw-alias-state-warn-primary', '#d7b766'),
+    background: approved ? token('--dsw-alias-state-success-secondary', '#f2faf5') : token('--dsw-alias-state-warn-secondary', '#fffaf0'),
+  }
+}
+
+/** Phase bar colors: error while failing, success for finished, business for the active phase. */
+export function progressBarStyle(done: boolean, active: boolean, failed: boolean): { bar: string; label: string } {
+  const color = failed && active
+    ? token('--dsw-alias-state-error-primary', '#b03a2e')
+    : done
+      ? token('--dsw-alias-state-success-primary', '#3f8d62')
+      : active
+        ? token('--dsw-alias-state-business-primary', '#2f5aae')
+        : token('--dsw-alias-border-l3', '#c9c6bf')
+  return { bar: color, label: color }
+}
+
+/** History timeline dot: business accent for the newest entry. */
+export function historyDotStyle(latest: boolean): React.CSSProperties {
+  return {
+    width: 7, height: 7, borderRadius: 4, marginTop: 5,
+    background: latest ? token('--dsw-alias-state-business-primary', '#2f5aae') : token('--dsw-alias-border-l3', '#aeb9cf'),
+  }
+}
+
+/** Word/simple view switch; the selected view uses the primary fill. */
+export function viewButton(selected: boolean): React.CSSProperties {
+  return {
+    ...S.btn,
+    padding: '2px 10px',
+    fontSize: 12,
+    background: selected ? token('--dsw-alias-button-primary-fill', '#2f5aae') : token('--dsw-alias-bg-base', '#fff'),
+    color: selected ? token('--dsw-alias-label-primary-inverted', '#fff') : token('--dsw-alias-state-business-primary', '#2f5aae'),
+    border: selected ? '1px solid transparent' : `1px solid ${token('--dsw-alias-border-l3', '#c9d4ec')}`,
+  }
+}
+
+/** Narrow-layout pane tab; the active tab uses the themed active surface. */
+export function narrowTabStyle(selected: boolean): React.CSSProperties {
+  return {
+    flex: 1, padding: '7px 0', borderRadius: 8, border: '1px solid transparent', fontSize: 13, cursor: 'pointer',
+    background: selected ? token('--dsw-alias-interactive-bg-active', '#eef2fb') : 'transparent',
+    color: selected ? token('--dsw-alias-label-primary', '#1d1d1b') : token('--dsw-alias-label-secondary', '#777'),
+  }
+}
+
+/** Opinion-letter link keeps a secondary fill under the reviewed-docx link. */
+export function downloadLinkStyle(kind: 'reviewed' | 'report'): React.CSSProperties {
+  return {
+    ...S.btn, textAlign: 'center', textDecoration: 'none', display: 'block',
+    ...(kind === 'report' ? { background: token('--dsw-alias-button-info-fill', '#47639c') } : {}),
+  }
+}
+
+/**
+ * Document-scoped styles. All colors here sit on the paper canvas
+ * (S.docFrame), which is intentionally mode-independent, so these stay static
+ * like the tracked-change marks in Word. The narrow-viewport media query is
+ * gone: narrow layouts are driven by the explicit pane control instead.
+ */
+export const insDelCss = `
   .ccp-doc ins.cc-ins { color:#1d8348; background:#e6f3ec; text-decoration:underline; }
   .ccp-doc del.cc-del { color:#b03a2e; background:#f9e6e3; text-decoration:line-through; }
   .ccp-doc sup.cc-comment { color:#2f5aae; cursor:help; margin:0 1px; }
-  @media (max-width: 900px) {
-    .ccp-workbench-body { grid-template-columns: 210px minmax(320px, 1fr) !important; }
-    .ccp-workbench-side { display: none; }
-  }
+  .ccp-btn:disabled { opacity: 0.45; cursor: default; }
+  .ccp-field::placeholder { color: ${token('--dsw-alias-label-tertiary', '#a8a6a1')}; }
 `
+
+// ---------------------------------------------------------------------------
+// Narrow layout model: an explicit three-pane control replaces the old
+// `<=900px` media query that permanently hid the operation pane.
+// ---------------------------------------------------------------------------
+
+/** Workbench sections, in wide-layout render order. */
+export const WORKBENCH_SECTIONS = ['tasks', 'document', 'status', 'deliverables', 'recheck', 'intake', 'comments', 'decisions', 'history'] as const
+
+export type WorkbenchSectionId = typeof WORKBENCH_SECTIONS[number]
+
+/** Operation-pane sections shared by the wide third column and the narrow Operations tab. */
+export const OPERATIONS_SECTIONS = ['status', 'deliverables', 'recheck', 'intake', 'comments', 'decisions', 'history'] as const
+
+/** Wide layout columns (left to right); every section appears exactly once. */
+export const WIDE_COLUMN_SECTIONS: readonly (readonly WorkbenchSectionId[])[] = [['tasks'], ['document'], OPERATIONS_SECTIONS]
+
+export const NARROW_TABS = [
+  { id: 'tasks', labelKey: 'pane.tasks', sections: ['tasks'] as const },
+  { id: 'document', labelKey: 'pane.document', sections: ['document'] as const },
+  { id: 'operations', labelKey: 'pane.operations', sections: OPERATIONS_SECTIONS },
+] as const
+
+export type WorkbenchPane = typeof NARROW_TABS[number]['id']
+
+/** Viewport width (px) at or below which the narrow pane control engages. */
+export const NARROW_BREAKPOINT_PX = 900
+
+/** The media query backing `isNarrowWidth` (kept in sync with the breakpoint). */
+export function narrowMediaQuery(): string {
+  return `(max-width: ${String(NARROW_BREAKPOINT_PX)}px)`
+}
+
+/** Deterministic narrow-viewport predicate (900px is narrow). */
+export function isNarrowWidth(width: number): boolean {
+  return width <= NARROW_BREAKPOINT_PX
+}
+
+/** Neighbor pane for arrow-key tab movement, wrapping around both ends. */
+export function adjacentPaneId(current: WorkbenchPane, offset: number): WorkbenchPane {
+  const ids = NARROW_TABS.map(tab => tab.id)
+  const index = ids.indexOf(current)
+  return ids[(index + offset % ids.length + ids.length) % ids.length]
+}
+
+// ---------------------------------------------------------------------------
+// Dialog focus model: deterministic initial focus, Tab containment, Escape
+// gating, and focus return to the launcher.
+// ---------------------------------------------------------------------------
+
+/** Focusable selector used for Tab containment (`[disabled]` nodes are skipped). */
+export const FOCUSABLE_SELECTOR = [
+  'button:not([disabled])',
+  'a[href]',
+  'input:not([disabled])',
+  'select:not([disabled])',
+  'textarea:not([disabled])',
+  '[tabindex]:not([tabindex="-1"])',
+].join(', ')
+
+/**
+ * Deterministic dialog focus policy: focus lands on the dialog panel itself
+ * (its accessible label announces the dialog without pre-triggering any
+ * control), the launcher regains focus on close, and Escape is ignored while
+ * a command is in flight so a mid-flight notice cannot be dismissed blindly.
+ */
+export const DIALOG_FOCUS_POLICY = {
+  initial: 'panel',
+  restore: 'launcher',
+  escapeGatedByBusy: true,
+} as const
+
+/**
+ * Wrap-around Tab target over `count` focusables. `index === -1` means focus
+ * currently sits outside the list (enter at the leading edge for Tab, the
+ * trailing edge for Shift+Tab). Returns -1 only when the list is empty.
+ */
+export function wrapIndex(count: number, index: number, shift: boolean): number {
+  if (count <= 0) return -1
+  if (index < 0 || index >= count) return shift ? count - 1 : 0
+  return (index + (shift ? -1 : 1) + count) % count
+}
+
+/** Escape closes the workbench only when no command is in flight. */
+export function escapeClosesDialog(commandBusy: boolean): boolean {
+  return !commandBusy
+}
 
 /** Private face supplied by this plugin's sidebar slot registration. */
 export interface WorkbenchFace {
@@ -102,6 +342,8 @@ export type RailEntryButtonProps = SidebarFooterActionOwnerProps & WorkbenchFace
 export function RailEntryButton({ client, wide }: RailEntryButtonProps): React.JSX.Element {
   const [open, setOpen] = useState(false)
   const [latest, setLatest] = useState<SessionBrief | undefined>(undefined)
+  const buttonRef = useRef<HTMLButtonElement | null>(null)
+  const wasOpen = useRef(false)
   useEffect(() => {
     let alive = true
     const load = async (): Promise<void> => {
@@ -116,31 +358,31 @@ export function RailEntryButton({ client, wide }: RailEntryButtonProps): React.J
     const timer = setInterval(() => { void load() }, 8_000)
     return () => { alive = false; clearInterval(timer) }
   }, [client])
+  useEffect(() => {
+    if (open) { wasOpen.current = true; return }
+    if (!wasOpen.current) return
+    wasOpen.current = false
+    buttonRef.current?.focus()
+  }, [open])
   const active = latest !== undefined && latest.state !== 'delivered'
   const title = latest === undefined
-    ? '合同审查工作台'
-    : `${latest.contractName} · ${STATE_LABELS[latest.state]}`
+    ? label('entry.titleFallback')
+    : `${latest.contractName} · ${label(STATE_KEYS[latest.state])}`
   return (
     <>
       <button
-        aria-label="打开合同审查工作台"
+        ref={buttonRef}
+        aria-label={label('entry.open')}
+        aria-haspopup="dialog"
+        aria-expanded={open}
         type="button"
         title={title}
         onClick={() => setOpen(true)}
-        style={{
-          display: 'flex', alignItems: 'center', justifyContent: wide ? 'flex-start' : 'center', gap: 8,
-          width: '100%', minWidth: 0, padding: wide ? '7px 10px' : '8px 0', borderRadius: 8,
-          border: '1px solid', borderColor: active ? '#2f5aae' : 'var(--dsw-alias-border-l2, #d9d6cf)',
-          background: active ? '#eef2fb' : 'transparent',
-          color: 'var(--dsw-alias-fg-base, #1d1d1b)', fontSize: 13,
-          cursor: 'pointer', textAlign: 'left', position: 'relative',
-        }}
+        style={railButtonStyle(active, wide)}
       >
         <span aria-hidden="true" style={{ fontSize: 16 }}>📋</span>
-        {wide ? <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>合同审查</span> : null}
-        {latest !== undefined ? (
-          <span aria-hidden="true" style={{ width: 8, height: 8, borderRadius: 4, background: active ? '#2f5aae' : '#3fae6a', flexShrink: 0, ...(wide ? {} : { position: 'absolute', right: 5, top: 5 }) }} />
-        ) : null}
+        {wide ? <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{label('entry.label')}</span> : null}
+        {latest !== undefined ? <span aria-hidden="true" style={statusDotStyle(active, wide)} /> : null}
       </button>
       {open ? <Workbench client={client} onClose={() => setOpen(false)} /> : null}
     </>
@@ -191,9 +433,9 @@ function WordPane(props: {
     <>
       <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 8, flexWrap: 'wrap' }}>
         <span style={S.muted}>{props.label}</span>
-        <button type="button" style={viewButton(mode === 'word')} onClick={() => { setMode('word'); setRenderVersion(value => value + 1) }}>Word 视图</button>
-        <button type="button" style={viewButton(mode === 'simple')} onClick={() => setMode('simple')}>简版（修订高亮）</button>
-        {error !== undefined ? <span title={error} style={{ ...S.muted, color: '#b03a2e' }}>Word 渲染失败，已显示简版</span> : null}
+        <button type="button" className="ccp-btn" style={viewButton(mode === 'word')} onClick={() => { setMode('word'); setRenderVersion(value => value + 1) }}>{label('word.view')}</button>
+        <button type="button" className="ccp-btn" style={viewButton(mode === 'simple')} onClick={() => setMode('simple')}>{label('word.simpleView')}</button>
+        {error !== undefined ? <span title={error} style={{ ...S.muted, color: token('--dsw-alias-state-error-primary', '#b03a2e') }}>{label('word.renderFailed')}</span> : null}
       </div>
       <div ref={holder} style={{ ...S.docFrame, padding: 0, border: 0, minHeight: 400, display: mode === 'word' ? 'block' : 'none' }} />
       {mode === 'simple' ? <div className="ccp-doc" style={S.docFrame} dangerouslySetInnerHTML={{ __html: props.fallbackHtml }} /> : null}
@@ -201,30 +443,22 @@ function WordPane(props: {
   )
 }
 
-function viewButton(selected: boolean): React.CSSProperties {
-  return {
-    ...S.btn,
-    padding: '2px 10px',
-    fontSize: 12,
-    background: selected ? '#2f5aae' : '#fff',
-    color: selected ? '#fff' : '#2f5aae',
-    border: '1px solid #c9d4ec',
-  }
-}
-
 function ReviewProgress({ session }: { readonly session: SessionDetail['session'] }): React.JSX.Element {
   const current = phaseIndex(session)
   const failed = session.state === 'failed' || session.state === 'rejected' || session.automation?.status === 'failed'
+  const phases: readonly string[] = [
+    label('phase.0'), label('phase.1'), label('phase.2'), label('phase.3'), label('phase.4'),
+  ]
   return (
-    <div aria-label="合同审查进度" style={{ display: 'grid', gridTemplateColumns: `repeat(${String(PHASES.length)}, 1fr)`, gap: 5, marginTop: 10 }}>
-      {PHASES.map((phase, index) => {
+    <div aria-label={label('progress.label')} style={{ display: 'grid', gridTemplateColumns: `repeat(${String(phases.length)}, 1fr)`, gap: 5, marginTop: 10 }}>
+      {phases.map((phase, index) => {
         const done = current > index
         const active = current === index
-        const color = failed && active ? '#b03a2e' : done ? '#3f8d62' : active ? '#2f5aae' : '#c9c6bf'
+        const color = progressBarStyle(done, active, failed)
         return (
           <div key={phase} style={{ minWidth: 0 }}>
-            <div style={{ height: 4, borderRadius: 2, background: color }} />
-            <div style={{ marginTop: 4, fontSize: 10, color, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{phase}</div>
+            <div style={{ height: 4, borderRadius: 2, background: color.bar }} />
+            <div style={{ marginTop: 4, fontSize: 10, color: color.label, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{phase}</div>
           </div>
         )
       })}
@@ -249,33 +483,36 @@ function DecisionPanel(props: {
     })))
   }
   return (
-    <div style={{ ...S.card, borderColor: approved ? '#9bc6aa' : '#d7b766', background: approved ? '#f2faf5' : '#fffaf0' }}>
+    <div style={decisionCardStyle(approved)}>
       <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, alignItems: 'center', marginBottom: 8 }}>
         <div>
-          <div style={{ fontWeight: 650 }}>律师逐项决策</div>
-          <div style={S.muted}>{approved ? '计划已批准' : `已决定 ${decided}/${props.detail.findings.length}`}</div>
+          <div style={{ fontWeight: 650 }}>{label('decisions.title')}</div>
+          <div style={S.muted}>{approved ? label('decisions.approved') : label('decisions.progress', { decided, total: props.detail.findings.length })}</div>
         </div>
-        {!approved ? <button type="button" style={S.secondaryBtn} onClick={setAll}>全部按建议</button> : null}
+        {!approved ? <button type="button" className="ccp-btn" style={S.secondaryBtn} onClick={setAll}>{label('decisions.acceptAll')}</button> : null}
       </div>
       {props.detail.findings.map((finding, index) => {
         const id = findingId(finding, index)
         const existing = props.detail.session.planReview?.decisions[id]
         const draft = props.drafts[id] ?? existing ?? {}
+        const targetText = findingText(finding, 'target_text')
+        const suggestionText = findingText(finding, 'replacement_text') ?? findingText(finding, 'recommended_text')
+        const legalBasis = findingText(finding, 'legal_basis')
         return (
-          <div key={id} style={{ borderTop: '1px solid #e5dcc3', padding: '10px 0' }}>
+          <div key={id} style={{ borderTop: `1px solid ${token('--dsw-alias-border-l2', '#e5dcc3')}`, padding: '10px 0' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
-              <b>{id} · {findingText(finding, 'risk') ?? '未命名风险'}</b>
+              <b>{id} · {findingText(finding, 'risk') ?? label('decisions.unnamedRisk')}</b>
               <span style={S.pill}>{findingText(finding, 'severity') ?? '?'}</span>
             </div>
-            {findingText(finding, 'target_text') !== undefined ? <div style={{ ...S.muted, marginTop: 5 }}>原文：{findingText(finding, 'target_text')}</div> : null}
-            {findingText(finding, 'recommended_text') !== undefined || findingText(finding, 'replacement_text') !== undefined ? (
-              <div style={{ ...S.muted, marginTop: 4 }}>建议：{findingText(finding, 'replacement_text') ?? findingText(finding, 'recommended_text')}</div>
+            {targetText !== undefined ? <div style={{ ...S.muted, marginTop: 5 }}>{label('decisions.originalText', { text: targetText })}</div> : null}
+            {suggestionText !== undefined ? (
+              <div style={{ ...S.muted, marginTop: 4 }}>{label('decisions.suggestion', { text: suggestionText })}</div>
             ) : null}
-            {findingText(finding, 'legal_basis') !== undefined ? <div style={{ ...S.muted, marginTop: 4 }}>依据：{findingText(finding, 'legal_basis')}</div> : null}
+            {legalBasis !== undefined ? <div style={{ ...S.muted, marginTop: 4 }}>{label('decisions.legalBasis', { text: legalBasis })}</div> : null}
             <label style={{ display: 'block', marginTop: 8, fontSize: 12 }}>
-              处理方式
+              {label('decisions.disposition')}
               <select
-                aria-label={`${id} 处理方式`}
+                aria-label={label('decisions.dispositionAria', { id })}
                 style={{ ...S.input, marginTop: 3 }}
                 value={draft.disposition ?? ''}
                 disabled={approved}
@@ -284,25 +521,26 @@ function DecisionPanel(props: {
                   props.setDrafts(previous => ({ ...previous, [id]: { ...previous[id], disposition } }))
                 }}
               >
-                <option value="">请选择</option>
-                {Object.entries(DISPOSITION_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+                <option value="">{label('decisions.dispositionPlaceholder')}</option>
+                {DISPOSITION_KEYS.map(([value, key]) => <option key={value} value={value}>{label(key)}</option>)}
               </select>
             </label>
             <div style={{ display: 'grid', gridTemplateColumns: '90px 1fr', gap: 6, marginTop: 6 }}>
               <select
-                aria-label={`${id} 风险等级`}
+                aria-label={label('decisions.severityAria', { id })}
                 style={S.input}
                 value={draft.severity ?? findingText(finding, 'severity') ?? ''}
                 disabled={approved}
                 onChange={event => props.setDrafts(previous => ({ ...previous, [id]: { ...previous[id], severity: event.target.value } }))}
               >
-                <option value="">原等级</option>
+                <option value="">{label('decisions.severityOriginal')}</option>
                 <option value="P0">P0</option><option value="P1">P1</option><option value="P2">P2</option>
               </select>
               <input
-                aria-label={`${id} 律师备注`}
+                aria-label={label('decisions.noteAria', { id })}
+                className="ccp-field"
                 style={S.input}
-                placeholder="内部备注（不进入对外文书）"
+                placeholder={label('decisions.notePlaceholder')}
                 value={draft.note ?? ''}
                 disabled={approved}
                 onChange={event => props.setDrafts(previous => ({ ...previous, [id]: { ...previous[id], note: event.target.value } }))}
@@ -312,10 +550,10 @@ function DecisionPanel(props: {
         )
       })}
       {!approved ? (
-        <button type="button" style={{ ...S.btn, width: '100%', marginTop: 8 }} disabled={requests === undefined || props.busy} onClick={props.onApprove}>
-          {requests === undefined ? '请先决定全部审查项' : '批准方案并生成交付物'}
+        <button type="button" className="ccp-btn" style={{ ...S.btn, width: '100%', marginTop: 8 }} disabled={requests === undefined || props.busy} onClick={props.onApprove}>
+          {requests === undefined ? label('decisions.approveLocked') : label('decisions.approve')}
         </button>
-      ) : <div style={{ color: '#2f7449', fontSize: 12 }}>✓ 本计划已经律师批准并锁定</div>}
+      ) : <div style={S.successNote}>{label('decisions.approvedNote')}</div>}
     </div>
   )
 }
@@ -337,13 +575,45 @@ function Workbench({ client, onClose }: { readonly client: ContractCopilotClient
   const [newContractPath, setNewContractPath] = useState('')
   const [decisionDrafts, setDecisionDrafts] = useState<Record<string, FindingDecisionDraft>>({})
   const [commandBusy, setCommandBusy] = useState(false)
+  const [narrow, setNarrow] = useState(() => typeof window !== 'undefined' && typeof window.matchMedia === 'function' && window.matchMedia(narrowMediaQuery()).matches)
+  const [narrowPane, setNarrowPane] = useState<WorkbenchPane>('tasks')
+  const panelRef = useRef<HTMLDivElement | null>(null)
   const decisionPlanHash = useRef<string | undefined>(undefined)
 
   useEffect(() => {
-    const closeOnEscape = (event: KeyboardEvent): void => { if (event.key === 'Escape') onClose() }
-    window.addEventListener('keydown', closeOnEscape)
-    return () => window.removeEventListener('keydown', closeOnEscape)
-  }, [onClose])
+    if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return
+    const list = window.matchMedia(narrowMediaQuery())
+    const update = (): void => setNarrow(list.matches)
+    update()
+    list.addEventListener('change', update)
+    return () => { list.removeEventListener('change', update) }
+  }, [])
+
+  useEffect(() => {
+    panelRef.current?.focus()
+  }, [])
+
+  const onOverlayKeyDown = (event: React.KeyboardEvent<HTMLDivElement>): void => {
+    if (event.key === 'Escape') {
+      if (escapeClosesDialog(commandBusy)) {
+        event.stopPropagation()
+        onClose()
+      }
+      return
+    }
+    if (event.key !== 'Tab') return
+    const root = panelRef.current
+    if (root === null) return
+    const focusables = Array.from(root.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR))
+      .filter(element => element.getAttribute('aria-disabled') !== 'true')
+    const active = document.activeElement
+    const current = active === null ? -1 : focusables.indexOf(active as HTMLElement)
+    const target = focusables[wrapIndex(focusables.length, current, event.shiftKey)]
+    if (target !== undefined) {
+      event.preventDefault()
+      target.focus()
+    }
+  }
 
   useEffect(() => {
     let alive = true
@@ -355,7 +625,7 @@ function Workbench({ client, onClose }: { readonly client: ContractCopilotClient
         setSelected(current => current ?? data.sessions[0]?.id)
         setLoadError(undefined)
       } catch (caught) {
-        if (alive) setLoadError(`工作台连接失败：${errorMessage(caught)}`)
+        if (alive) setLoadError(label('error.connection', { message: errorMessage(caught) }))
       }
     }
     void loadList()
@@ -396,7 +666,7 @@ function Workbench({ client, onClose }: { readonly client: ContractCopilotClient
         })
         setLoadError(undefined)
       } catch (caught) {
-        if (alive && !controller.signal.aborted) setLoadError(`读取审查详情失败：${errorMessage(caught)}`)
+        if (alive && !controller.signal.aborted) setLoadError(label('error.detail', { message: errorMessage(caught) }))
       }
     }
     void load()
@@ -411,16 +681,16 @@ function Workbench({ client, onClose }: { readonly client: ContractCopilotClient
   const runAnalysis = async (): Promise<void> => {
     if (selected === undefined) return
     if (missing.some(item => (answers[item.field] ?? '').trim() === '')) {
-      setNotice('请先补齐全部必填前置信息。')
+      setNotice(label('notice.missingIntake'))
       return
     }
     setCommandBusy(true)
     try {
       if (missing.length > 0) await client.submitAnswers(selected, answers)
       await client.runAnalysis(selected)
-      setNotice('专属 Agent 已启动，将在生成风险清单后等待你的逐项决定。')
+      setNotice(label('notice.analysisStarted'))
     } catch (caught) {
-      setNotice(`启动失败：${errorMessage(caught)}`)
+      setNotice(label('notice.analysisFailed', { message: errorMessage(caught) }))
     } finally {
       setCommandBusy(false)
     }
@@ -429,14 +699,14 @@ function Workbench({ client, onClose }: { readonly client: ContractCopilotClient
   const approveAndDeliver = async (): Promise<void> => {
     if (selected === undefined || detail?.session.planReview === undefined) return
     const requests = decisionRequests(detail.findings, decisionDrafts)
-    if (requests === undefined) { setNotice('请先决定全部审查项。'); return }
+    if (requests === undefined) { setNotice(label('notice.undecidedFindings')); return }
     setCommandBusy(true)
     try {
       const result = await client.approvePlan(selected, detail.session.planReview.sourcePlanHash, requests)
       await client.runDelivery(selected)
-      setNotice(`律师方案已锁定：执行 ${result.approvedFindings} 项，忽略 ${result.omittedFindings} 项；Agent 正在生成交付物。`)
+      setNotice(label('notice.planApproved', { approved: result.approvedFindings, omitted: result.omittedFindings }))
     } catch (caught) {
-      setNotice(`批准或派发失败：${errorMessage(caught)}`)
+      setNotice(label('notice.approveFailed', { message: errorMessage(caught) }))
     } finally {
       setCommandBusy(false)
     }
@@ -447,9 +717,9 @@ function Workbench({ client, onClose }: { readonly client: ContractCopilotClient
     setCommandBusy(true)
     try {
       await client.cancel(selected)
-      setNotice('Agent 已停止并进入静止状态，可以从当前阶段重试。')
+      setNotice(label('notice.agentCancelled'))
     } catch (caught) {
-      setNotice(`停止失败：${errorMessage(caught)}`)
+      setNotice(label('notice.cancelFailed', { message: errorMessage(caught) }))
     } finally {
       setCommandBusy(false)
     }
@@ -460,9 +730,9 @@ function Workbench({ client, onClose }: { readonly client: ContractCopilotClient
     setCommandBusy(true)
     try {
       await client.runDelivery(selected)
-      setNotice('Agent 已恢复，正在按获批方案重新生成交付物。')
+      setNotice(label('notice.deliveryRetried'))
     } catch (caught) {
-      setNotice(`重试失败：${errorMessage(caught)}`)
+      setNotice(label('notice.retryFailed', { message: errorMessage(caught) }))
     } finally {
       setCommandBusy(false)
     }
@@ -479,7 +749,7 @@ function Workbench({ client, onClose }: { readonly client: ContractCopilotClient
       setNewContractPath('')
       setNotice(result.nextStep)
     } catch (caught) {
-      setNotice(`创建失败：${errorMessage(caught)}`)
+      setNotice(label('notice.createFailed', { message: errorMessage(caught) }))
     }
   }
 
@@ -490,7 +760,7 @@ function Workbench({ client, onClose }: { readonly client: ContractCopilotClient
       setRecheckPath('')
       setNotice(result.hint)
     } catch (caught) {
-      setNotice(`提交失败：${errorMessage(caught)}`)
+      setNotice(label('notice.recheckFailed', { message: errorMessage(caught) }))
     }
   }
 
@@ -498,126 +768,202 @@ function Workbench({ client, onClose }: { readonly client: ContractCopilotClient
   const stats = detail?.session.outputs.stats
   const comments: DocComment[] = doc?.comments ?? []
 
-  return (
-    <div role="dialog" aria-modal="true" aria-label="Contract Copilot 审查工作台" style={S.overlay} onClick={onClose}>
-      <style>{insDelCss}</style>
-      <div style={S.panel} onClick={event => event.stopPropagation()}>
-        <div style={S.head}>
-          <span style={S.title}>📋 Contract Copilot · 审查工作台</span>
-          <button aria-label="关闭合同审查工作台" type="button" style={S.close} onClick={onClose}>✕</button>
-        </div>
-        {loadError !== undefined ? <div role="alert" style={{ padding: '7px 18px', background: '#fff0ee', color: '#a53a2d', fontSize: 12 }}>{loadError}</div> : null}
-        <div className="ccp-workbench-body" style={S.body}>
-          <div style={S.list}>
+  const selectSession = (id: string): void => {
+    setSelected(id)
+    setAnswers({})
+    setDecisionDrafts({})
+    decisionPlanHash.current = undefined
+  }
+
+  /** Render one workbench section by manifest id; shared by wide columns and narrow tabs. */
+  const renderSection = (id: WorkbenchSectionId): React.JSX.Element | null => {
+    switch (id) {
+      case 'tasks':
+        return (
+          <div key={id}>
             <div style={{ ...S.card, marginBottom: 10 }}>
-              <div style={{ ...S.muted, marginBottom: 6 }}>➕ 新建审查</div>
-              <input aria-label="合同 DOCX 本地绝对路径" style={S.input} placeholder="合同 DOCX 本地绝对路径" value={newContractPath} onChange={event => setNewContractPath(event.target.value)} />
-              <button type="button" style={{ ...S.btn, marginTop: 6, width: '100%' }} onClick={() => { void startReview() }} disabled={newContractPath.trim() === ''}>建立审查案件</button>
+              <div style={{ ...S.muted, marginBottom: 6 }}>{label('tasks.newReview')}</div>
+              <input aria-label={label('tasks.pathLabel')} className="ccp-field" style={S.input} placeholder={label('tasks.pathLabel')} value={newContractPath} onChange={event => setNewContractPath(event.target.value)} />
+              <button type="button" className="ccp-btn" style={{ ...S.btn, marginTop: 6, width: '100%' }} onClick={() => { void startReview() }} disabled={newContractPath.trim() === ''}>{label('tasks.create')}</button>
             </div>
             {sessions.length === 0 ? (
-              <div style={S.muted}>尚无审查任务。可在上方输入合同路径，或直接让 Agent 审查合同。</div>
+              <div style={S.muted}>{label('tasks.empty')}</div>
             ) : sessions.map(session => (
               <button
                 type="button"
                 key={session.id}
-                style={{ ...S.row, width: '100%', border: 0, textAlign: 'left', color: 'inherit', background: session.id === selected ? '#eef2fb' : 'transparent' }}
-                onClick={() => { setSelected(session.id); setAnswers({}); setDecisionDrafts({}); decisionPlanHash.current = undefined }}
+                style={sessionRowStyle(session.id === selected)}
+                onClick={() => selectSession(session.id)}
               >
                 <div style={{ fontSize: 13, fontWeight: 550, overflow: 'hidden', textOverflow: 'ellipsis' }}>{session.contractName}</div>
-                <div style={S.muted}>{STATE_LABELS[session.state]} · {new Date(session.updatedAt).toLocaleTimeString()}</div>
+                <div style={S.muted}>{label(STATE_KEYS[session.state])} · {new Date(session.updatedAt).toLocaleTimeString()}</div>
               </button>
             ))}
           </div>
-          <div style={S.doc}>
+        )
+      case 'document':
+        return (
+          <div key={id}>
             {doc !== undefined && selected !== undefined ? (
               <WordPane client={client} sessionId={selected} reviewedDocx={doc.reviewedDocx} fallbackHtml={doc.html} label={doc.label} />
-            ) : <div style={S.muted}>选择左侧审查任务查看文档。</div>}
+            ) : <div style={S.muted}>{label('doc.empty')}</div>}
           </div>
-          <div className="ccp-workbench-side" style={S.side}>
-            <div style={S.card}>
-              <div style={S.muted}>当前状态</div>
-              <div style={{ marginTop: 6 }}><span style={S.pill}>{detail === undefined ? '—' : STATE_LABELS[detail.session.state]}</span></div>
-              {detail?.session.automation !== undefined ? <div style={{ marginTop: 7, fontSize: 12 }}>{AUTOMATION_LABELS[detail.session.automation.status]}</div> : null}
-              {detail?.session.automation?.error !== undefined ? <div role="alert" style={{ ...S.muted, color: '#b03a2e', marginTop: 5 }}>{detail.session.automation.error}</div> : null}
-              {detail !== undefined ? <ReviewProgress session={detail.session} /> : null}
-              {stats !== undefined ? <div style={{ marginTop: 8, ...S.muted }}>成功 {stats.applied} · 失败 {stats.failed} · 仅意见书 {stats.reportOnly}</div> : null}
-              {detail !== undefined && (detail.session.state === 'created' || detail.session.state === 'intake_done' || detail.session.state === 'failed' || detail.session.state === 'rejected')
-                && detail.session.automation?.status !== 'running-analysis' ? (
-                  <button type="button" style={{ ...S.btn, marginTop: 9, width: '100%' }} disabled={commandBusy || missing.length > 0} onClick={() => { void runAnalysis() }}>启动风险分析</button>
-                ) : null}
-              {detail?.session.automation?.status === 'running-analysis' || detail?.session.automation?.status === 'running-delivery' ? (
-                <button type="button" style={{ ...S.secondaryBtn, marginTop: 9, width: '100%', color: '#a53a2d', borderColor: '#d9aaa3' }} disabled={commandBusy} onClick={() => { void cancelAgent() }}>停止 Agent</button>
+        )
+      case 'status':
+        return (
+          <div key={id} style={S.card}>
+            <div style={S.muted}>{label('status.currentState')}</div>
+            <div style={{ marginTop: 6 }}><span style={S.pill}>{detail === undefined ? '—' : label(STATE_KEYS[detail.session.state])}</span></div>
+            {detail?.session.automation !== undefined ? <div style={{ marginTop: 7, fontSize: 12 }}>{label(AUTOMATION_KEYS[detail.session.automation.status])}</div> : null}
+            {detail?.session.automation?.error !== undefined ? <div role="alert" style={{ ...S.muted, color: token('--dsw-alias-state-error-primary', '#b03a2e'), marginTop: 5 }}>{detail.session.automation.error}</div> : null}
+            {detail !== undefined ? <ReviewProgress session={detail.session} /> : null}
+            {stats !== undefined ? <div style={{ marginTop: 8, ...S.muted }}>{label('status.stats', { applied: stats.applied, failed: stats.failed, reportOnly: stats.reportOnly })}</div> : null}
+            {detail !== undefined && (detail.session.state === 'created' || detail.session.state === 'intake_done' || detail.session.state === 'failed' || detail.session.state === 'rejected')
+              && detail.session.automation?.status !== 'running-analysis' ? (
+                <button type="button" className="ccp-btn" style={{ ...S.btn, marginTop: 9, width: '100%' }} disabled={commandBusy || missing.length > 0} onClick={() => { void runAnalysis() }}>{label('status.startAnalysis')}</button>
               ) : null}
-              {detail?.session.state === 'plan_ready' && detail.session.planReview?.status === 'approved'
-                && detail.session.automation?.status !== 'running-delivery' ? (
-                  <button type="button" style={{ ...S.btn, marginTop: 9, width: '100%' }} disabled={commandBusy} onClick={() => { void retryDelivery() }}>按获批方案生成交付物</button>
-                ) : null}
+            {detail?.session.automation?.status === 'running-analysis' || detail?.session.automation?.status === 'running-delivery' ? (
+              <button type="button" className="ccp-btn" style={{ ...S.secondaryBtn, marginTop: 9, width: '100%', color: token('--dsw-alias-state-error-primary', '#a53a2d'), borderColor: token('--dsw-alias-state-error-primary', '#d9aaa3') }} disabled={commandBusy} onClick={() => { void cancelAgent() }}>{label('status.stopAgent')}</button>
+            ) : null}
+            {detail?.session.state === 'plan_ready' && detail.session.planReview?.status === 'approved'
+              && detail.session.automation?.status !== 'running-delivery' ? (
+                <button type="button" className="ccp-btn" style={{ ...S.btn, marginTop: 9, width: '100%' }} disabled={commandBusy} onClick={() => { void retryDelivery() }}>{label('status.retryDelivery')}</button>
+              ) : null}
+          </div>
+        )
+      case 'deliverables':
+        if (detail?.session.outputs.reviewedDocx === undefined) return null
+        return (
+          <div key={id} style={S.card}>
+            <div style={S.muted}>{label('deliverables.title')}</div>
+            <div style={{ marginTop: 7, display: 'flex', flexDirection: 'column', gap: 6 }}>
+              <a style={downloadLinkStyle('reviewed')} href={client.downloadUrl(detail.session.id, 'reviewed')}>{label('deliverables.reviewedDocx')}</a>
+              {detail.session.outputs.reportDocx !== undefined ? (
+                <a style={downloadLinkStyle('report')} href={client.downloadUrl(detail.session.id, 'report')}>{label('deliverables.reportDocx')}</a>
+              ) : null}
             </div>
-            {detail?.session.outputs.reviewedDocx !== undefined ? (
-              <div style={S.card}>
-                <div style={S.muted}>交付产物</div>
-                <div style={{ marginTop: 7, display: 'flex', flexDirection: 'column', gap: 6 }}>
-                  <a style={{ ...S.btn, textAlign: 'center', textDecoration: 'none', display: 'block' }} href={client.downloadUrl(detail.session.id, 'reviewed')}>⬇ 审核修订版 DOCX</a>
-                  {detail.session.outputs.reportDocx !== undefined ? (
-                    <a style={{ ...S.btn, textAlign: 'center', textDecoration: 'none', display: 'block', background: '#47639c' }} href={client.downloadUrl(detail.session.id, 'report')}>⬇ 审查意见书 DOCX</a>
-                  ) : null}
+          </div>
+        )
+      case 'recheck':
+        if (detail?.session.state !== 'delivered') return null
+        return (
+          <div key={id} style={S.card}>
+            <div style={{ ...S.muted, marginBottom: 6 }}>{label('recheck.title')}</div>
+            <input aria-label={label('recheck.pathLabel')} className="ccp-field" style={S.input} placeholder={label('recheck.pathPlaceholder')} value={recheckPath} onChange={event => setRecheckPath(event.target.value)} />
+            <button type="button" className="ccp-btn" style={{ ...S.btn, marginTop: 6 }} onClick={() => { void submitRecheck() }} disabled={recheckPath.trim() === ''}>{label('recheck.submit')}</button>
+          </div>
+        )
+      case 'intake':
+        if (missing.length === 0) return null
+        return (
+          <div key={id} style={S.intakeCard}>
+            <div style={{ fontSize: 12, fontWeight: 650, marginBottom: 8, color: token('--dsw-alias-label-primary', '#1d1d1b') }}>{label('intake.title', { count: missing.length })}</div>
+            {missing.map(item => (
+              <div key={item.field} style={S.field}>
+                <div style={{ ...S.muted, marginBottom: 4 }}>{item.question}</div>
+                {item.options !== undefined && item.options.length > 0 ? item.options.map(option => (
+                  <label key={option} style={{ ...S.opt, background: answers[item.field] === option ? token('--dsw-alias-interactive-bg-active', '#eef2fb') : 'transparent' }}>
+                    <input type="radio" name={item.field} checked={answers[item.field] === option} onChange={() => setAnswers({ ...answers, [item.field]: option })} /> {option}
+                  </label>
+                )) : <input aria-label={item.question} className="ccp-field" style={S.input} value={answers[item.field] ?? ''} onChange={event => setAnswers({ ...answers, [item.field]: event.target.value })} />}
+              </div>
+            ))}
+            <button type="button" className="ccp-btn" style={{ ...S.btn, width: '100%' }} disabled={commandBusy || missing.some(item => (answers[item.field] ?? '').trim() === '')} onClick={() => { void runAnalysis() }}>{label('intake.submit')}</button>
+          </div>
+        )
+      case 'comments':
+        if (comments.length === 0) return null
+        return (
+          <div key={id} style={S.card}>
+            <div style={{ ...S.muted, marginBottom: 6 }}>{label('comments.title', { count: comments.length })}</div>
+            {comments.slice(0, 12).map(comment => (
+              <div key={comment.id} style={S.commentBlock}>
+                <div style={{ color: token('--dsw-alias-state-business-primary', '#2f5aae'), fontWeight: 550 }}>{comment.author.split('｜')[0] ?? comment.author}</div>
+                <div style={{ color: token('--dsw-alias-label-secondary', '#5c5b59') }}>{comment.text.slice(0, 120)}{comment.text.length > 120 ? '…' : ''}</div>
+              </div>
+            ))}
+          </div>
+        )
+      case 'decisions':
+        if (detail?.session.planReview === undefined) return null
+        return (
+          <div key={id}>
+            <DecisionPanel detail={detail} drafts={decisionDrafts} setDrafts={setDecisionDrafts} onApprove={() => { void approveAndDeliver() }} busy={commandBusy} />
+          </div>
+        )
+      case 'history':
+        if (detail === undefined || detail.session.historyTail.length === 0) return null
+        return (
+          <div key={id} style={S.card}>
+            <div style={{ ...S.muted, marginBottom: 7 }}>{label('history.title')}</div>
+            {[...detail.session.historyTail].reverse().map((entry, index) => (
+              <div key={`${entry.at}-${String(index)}`} style={{ display: 'grid', gridTemplateColumns: '8px 1fr', columnGap: 7, marginBottom: 7 }}>
+                <span aria-hidden="true" style={historyDotStyle(index === 0)} />
+                <div style={{ fontSize: 12 }}>
+                  <div>{TOOL_KEYS[entry.tool] !== undefined ? label(TOOL_KEYS[entry.tool]) : entry.tool}</div>
+                  <div style={S.muted}>{label(STATE_KEYS[entry.from])} → {label(STATE_KEYS[entry.to])} · {new Date(entry.at).toLocaleString()}</div>
                 </div>
               </div>
-            ) : null}
-            {detail?.session.state === 'delivered' ? (
-              <div style={S.card}>
-                <div style={{ ...S.muted, marginBottom: 6 }}>对方改稿后复审</div>
-                <input aria-label="新版合同 DOCX 的本地绝对路径" style={S.input} placeholder="新版合同 DOCX 本地绝对路径" value={recheckPath} onChange={event => setRecheckPath(event.target.value)} />
-                <button type="button" style={{ ...S.btn, marginTop: 6 }} onClick={() => { void submitRecheck() }} disabled={recheckPath.trim() === ''}>指向新版合同</button>
-              </div>
-            ) : null}
-            {missing.length > 0 ? (
-              <div style={{ ...S.card, background: '#fffbf0', borderColor: '#f0e0a0', color: '#1d1d1b' }}>
-                <div style={{ fontSize: 12, fontWeight: 650, marginBottom: 8 }}>需要你确认（{missing.length}）</div>
-                {missing.map(item => (
-                  <div key={item.field} style={S.field}>
-                    <div style={{ ...S.muted, marginBottom: 4 }}>{item.question}</div>
-                    {item.options !== undefined && item.options.length > 0 ? item.options.map(option => (
-                      <label key={option} style={{ ...S.opt, background: answers[item.field] === option ? '#eef2fb' : '#fff' }}>
-                        <input type="radio" name={item.field} checked={answers[item.field] === option} onChange={() => setAnswers({ ...answers, [item.field]: option })} /> {option}
-                      </label>
-                    )) : <input aria-label={item.question} style={S.input} value={answers[item.field] ?? ''} onChange={event => setAnswers({ ...answers, [item.field]: event.target.value })} />}
-                  </div>
-                ))}
-                <button type="button" style={{ ...S.btn, width: '100%' }} disabled={commandBusy || missing.some(item => (answers[item.field] ?? '').trim() === '')} onClick={() => { void runAnalysis() }}>提交并开始分析</button>
-              </div>
-            ) : null}
-            {comments.length > 0 ? (
-              <div style={S.card}>
-                <div style={{ ...S.muted, marginBottom: 6 }}>💬 批注（{comments.length}）</div>
-                {comments.slice(0, 12).map(comment => (
-                  <div key={comment.id} style={{ fontSize: 12, marginBottom: 8, paddingLeft: 6, borderLeft: '2px solid #c9d4ec' }}>
-                    <div style={{ color: '#2f5aae', fontWeight: 550 }}>{comment.author.split('｜')[0] ?? comment.author}</div>
-                    <div style={{ color: 'var(--dsw-alias-fg-muted, #5c5b59)' }}>{comment.text.slice(0, 120)}{comment.text.length > 120 ? '…' : ''}</div>
-                  </div>
-                ))}
-              </div>
-            ) : null}
-            {detail?.session.planReview !== undefined ? (
-              <DecisionPanel detail={detail} drafts={decisionDrafts} setDrafts={setDecisionDrafts} onApprove={() => { void approveAndDeliver() }} busy={commandBusy} />
-            ) : null}
-            {detail !== undefined && detail.session.historyTail.length > 0 ? (
-              <div style={S.card}>
-                <div style={{ ...S.muted, marginBottom: 7 }}>最近交付记录</div>
-                {[...detail.session.historyTail].reverse().map((entry, index) => (
-                  <div key={`${entry.at}-${String(index)}`} style={{ display: 'grid', gridTemplateColumns: '8px 1fr', columnGap: 7, marginBottom: 7 }}>
-                    <span aria-hidden="true" style={{ width: 7, height: 7, borderRadius: 4, marginTop: 5, background: index === 0 ? '#2f5aae' : '#aeb9cf' }} />
-                    <div style={{ fontSize: 12 }}>
-                      <div>{TOOL_LABELS[entry.tool] ?? entry.tool}</div>
-                      <div style={S.muted}>{STATE_LABELS[entry.from]} → {STATE_LABELS[entry.to]} · {new Date(entry.at).toLocaleString()}</div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            ) : null}
-            {notice !== undefined ? <div role="status" style={{ ...S.card, background: '#1d1d1b', color: '#fff' }}>{notice}</div> : null}
+            ))}
           </div>
+        )
+    }
+  }
+
+  const activeTab = NARROW_TABS.find(tab => tab.id === narrowPane) ?? NARROW_TABS[0]
+
+  return (
+    <div style={S.overlay} onClick={onClose} onKeyDown={onOverlayKeyDown}>
+      <style>{insDelCss}</style>
+      <div
+        ref={panelRef}
+        role="dialog"
+        aria-modal="true"
+        aria-label={label('dialog.label')}
+        tabIndex={-1}
+        style={S.panel}
+        onClick={event => event.stopPropagation()}
+      >
+        <div style={S.head}>
+          <span style={S.title}>{label('dialog.title')}</span>
+          <button aria-label={label('dialog.close')} type="button" style={S.close} onClick={onClose}>✕</button>
         </div>
+        {loadError !== undefined ? <div role="alert" style={S.errorStrip}>{loadError}</div> : null}
+        {narrow ? (
+          <div style={S.bodyNarrow}>
+            <div role="tablist" aria-label={label('pane.group')} style={S.tabList}
+              onKeyDown={(event) => {
+                if (event.key === 'ArrowLeft') { event.preventDefault(); setNarrowPane(pane => adjacentPaneId(pane, -1)) }
+                if (event.key === 'ArrowRight') { event.preventDefault(); setNarrowPane(pane => adjacentPaneId(pane, 1)) }
+              }}
+            >
+              {NARROW_TABS.map(tab => (
+                <button
+                  key={tab.id}
+                  type="button"
+                  role="tab"
+                  id={`ccp-tab-${tab.id}`}
+                  aria-selected={tab.id === activeTab.id}
+                  aria-controls={`ccp-panel-${tab.id}`}
+                  style={narrowTabStyle(tab.id === activeTab.id)}
+                  onClick={() => setNarrowPane(tab.id)}
+                >
+                  {label(tab.labelKey)}
+                </button>
+              ))}
+            </div>
+            <div role="tabpanel" id={`ccp-panel-${activeTab.id}`} aria-labelledby={`ccp-tab-${activeTab.id}`} style={S.narrowPanel}>
+              {activeTab.sections.map(sectionId => renderSection(sectionId))}
+            </div>
+          </div>
+        ) : (
+          <div className="ccp-workbench-body" style={S.body}>
+            <div style={S.list}>{WIDE_COLUMN_SECTIONS[0].map(sectionId => renderSection(sectionId))}</div>
+            <div style={S.doc}>{WIDE_COLUMN_SECTIONS[1].map(sectionId => renderSection(sectionId))}</div>
+            <div style={S.side}>{WIDE_COLUMN_SECTIONS[2].map(sectionId => renderSection(sectionId))}</div>
+          </div>
+        )}
+        {notice !== undefined ? <div role="status" style={S.noticeStrip}>{notice}</div> : null}
       </div>
     </div>
   )
