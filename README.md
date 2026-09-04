@@ -5,7 +5,7 @@
 - 设计稿：`docs/2026-08-18-dsh-plugin-design.md`
 - 原 skill：`legal-skills/skills/contract-copilot/SKILL.md`（**Python 一行不动**，插件只做外壳）
 - 安装：`dsh plugin --profile lawyer add ./dsh-contract-copilot`
-- 当前阶段：**v0.2 已适配 DSH 0.1.2-rc.1，v0.3 律师决策工作台进入候选验收**；7 个 Agent tool 与 Python CLI 保持不变，工作台可直接驱动案件专属 Agent，并在修订前执行逐 finding 律师批准
+- 当前阶段：**v0.3 律师决策工作台已通过 DSH 0.1.2-rc.1 候选验收**；7 个 Agent tool 与 Python CLI 保持不变，工作台可直接驱动案件专属 Agent，并在修订前执行逐 finding 律师批准
 
 ## 快速开始
 
@@ -40,6 +40,7 @@ dsh plugin --profile lawyer add ./dsh-contract-copilot
 | `docs/plans/2026-09-04-dsh-0.1.2-workbench-migration-design.md` | DSH 0.1.2 工作台迁移设计与验收边界 |
 | `docs/acceptance/2026-09-04-dsh-0.1.2-workbench.md` | DSH 0.1.2 候选构建、安全与浏览器验收证据 |
 | `docs/plans/2026-09-04-lawyer-decision-workbench-design.md` | v0.3 专属 Agent、律师决策门与逐 finding 交互设计 |
+| `docs/acceptance/2026-09-04-lawyer-decision-workbench.md` | v0.3 候选绑定、完整链路、重启恢复与正式插件审查证据 |
 | `status/TASKS.md` | 当前执行任务、范围、验收条件与证据 |
 
 ## 开发循环（本地 link 安装）

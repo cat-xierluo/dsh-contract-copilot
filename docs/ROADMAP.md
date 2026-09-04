@@ -48,18 +48,22 @@
 
 验收记录：[DSH 0.1.2 工作台迁移验收](acceptance/2026-09-04-dsh-0.1.2-workbench.md)。
 
-### v3.0：律师决策工作台（**进行中**）
+### v3.0：律师决策工作台（**已交付** ✅ 2026-09-04）
 
 - ✅ 工作台建案后直接创建或恢复专属 DSH Agent，消除聊天窗口的第二次指令
 - ✅ 风险分析后强制暂停；所有 finding 经律师显式决定并批准，才能生成修订版
 - ✅ 决定、风险等级调整、批准和失效原因形成追加式审计历史
 - ✅ 工作台呈现五阶段、逐项决定、批量采用建议、取消、失败重试和获批后继续交付
 - ✅ 刷新或重启后从 ContractSession 与关联 DSH session 恢复当前阶段
-- ⏳ 候选 tarball、完整检查与真实 DSH Web 浏览器验收
+- ✅ 候选 `793b7ca` 完成 tarball 隔离安装、完整检查和真实 DSH Web 浏览器验收
+- ✅ 使用脱敏合成合同和本地回放模型跑通建案、Agent 分析、律师决定、批准、真实 Python 修订、finalize 与双 DOCX 交付
+- ✅ DSH 重启后恢复已交付案件、律师决定、批准锁、修订预览和下载入口
 
 **退出条件**：真实候选从工作台完成建案 → Agent 分析 → 律师逐项决定 → Agent 修订和 finalize；未批准、旧计划和篡改计划三条路径均不能进入 Python apply。
 
 设计与执行清单分别见 [律师决策工作台设计](plans/2026-09-04-lawyer-decision-workbench-design.md)和 [`status/TASKS.md`](../status/TASKS.md)。
+
+验收记录：[律师决策工作台验收](acceptance/2026-09-04-lawyer-decision-workbench.md)。
 
 ### v3.1：案件级交付包
 
