@@ -104,3 +104,12 @@
 
 **脚本与产物**
 - Q19 / Q24 — 进度粒度、归档位置
+
+## Q35：DSH 0.1.2 工作台迁移边界（2026-09-04）
+
+| 字段 | 内容 |
+|---|---|
+| **结论** | 保留 Python CLI、7 个 tool 与 `SessionStore`；把 Web 外壳迁移到 `sidebar.footer.action`、Connection 认证 RPC、认证事件流与精确下载路由。工作台增加四阶段进度和最近状态跃迁。 |
+| **理由** | 旧插件在 DSH 0.1.2 仍可启动，但依赖已删除的 `dsh-client-runtime`、轮询非公开 sidebar DOM，且 `/contract-copilot/*` 在无浏览器会话 token 时仍返回数据。核心在新版依赖下构建和 69 项测试均通过，无需整体重写。 |
+| **影响** | Client 组件通过独立 API 适配器访问 Host；headless 保留原有 agent tool 行为；旧的 `workbench.port/autoOpen/host` 配置退出。 |
+| **何时重新评估** | 需要工作台直接创建后台 Agent、逐 finding 实时进度或跨插件消费 ContractSession 时，评估 Service Definition + Typert Remote。 |
