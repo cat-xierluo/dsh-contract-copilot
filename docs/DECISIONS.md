@@ -96,6 +96,42 @@
 | **影响** | Client 组件通过独立 API 适配器访问 Host；headless 保留原有 agent tool 行为；旧的 `workbench.port/autoOpen/host` 配置退出。 |
 | **何时重新评估** | 需要工作台直接创建后台 Agent、逐 finding 实时进度或跨插件消费 ContractSession 时，评估 Service Definition + Typert Remote。 |
 
+## Q36：案件状态与 DSH 运行状态分层（2026-09-04）
+
+| 字段 | 内容 |
+|---|---|
+| **结论** | ContractSession 继续作为合同计划、律师决定和交付物的权威来源；专属 DSH session 记录 Agent 消息、步骤和 tool 轨迹，两者通过 `dshSessionId` 关联。 |
+| **理由** | DSH 运行过程可观察，但 live Agent 与进程同寿命；案件可能跨小时、刷新或重启，不能依赖内存 handle 恢复法律决定。 |
+| **影响** | 工作台读取业务 session 投影案件状态，Agent 运行状态只补充当前执行信息；所有影响交付的决定必须先持久化。 |
+| **何时重新评估** | ContractSession 成为其他插件的公共能力，或 DSH 提供适合业务记录的可扩展案件投影时。 |
+
+## Q37：分析后设置不可绕过的律师决策门（2026-09-04）
+
+| 字段 | 内容 |
+|---|---|
+| **结论** | 每次 analyze 都使计划进入 `awaiting-decisions`；所有 finding 获得显式决定并批准后才允许 apply。批准与计划 hash 绑定，文件变化自动失效。 |
+| **理由** | 只在提示词里要求 Agent 停止不能构成产品约束；律师确认必须同时约束工作台、Agent 和直接 tool 调用。 |
+| **影响** | `apply` 新增 fail-closed 门禁；重新 analyze、改变计划或外部改写文件后必须重新批准。 |
+| **何时重新评估** | 用户明确要求某类低风险合同采用预授权自动审查，并能定义可审计的授权规则时。 |
+
+## Q38：专属 Agent 使用 AgentRegistry，不使用 workflowEngine（2026-09-04）
+
+| 字段 | 内容 |
+|---|---|
+| **结论** | 工作台通过 `ctx.agents.create/resume` 创建或恢复一个案件专属 Agent，用 `followup/cancel/whenIdle` 驱动阶段；workflowEngine 不承担案件主流程。 |
+| **理由** | Agent session 可持久化并恢复；当前 workflow run 是 holder-owned foreground collection，缺少后台 start/poll、journaling 和 restart resume。 |
+| **影响** | 插件持有并完整 dispose 自己创建的 AgentHandle；配置显式指定 Agent provider/model，工作台记录 create/resume 失败。 |
+| **何时重新评估** | workflow capability 提供后台句柄、持久检查点和重启恢复后。 |
+
+## Q39：第一版 finding 决策词汇（2026-09-04）
+
+| 字段 | 内容 |
+|---|---|
+| **结论** | 每项 finding 必选“按建议处理 / 仅批注 / 仅意见书 / 忽略”，另可调整 severity 和写内部律师备注。 |
+| **理由** | 四种动作能映射现有 Python plan 语义，不要求改 Python；备注不自动进入对外文书，避免内部意见泄漏。 |
+| **影响** | 批量采用建议仍生成逐项审计记录；`忽略`只从获批执行计划移除，原发现和决定保留在 session 历史。 |
+| **何时重新评估** | 需要律师直接编辑替换文本、合并 finding 或新增人工 finding 时。 |
+
 ---
 
 ## 决策索引（按主题）
@@ -103,12 +139,13 @@
 **产品形态**
 - Q22 / Q23 / Q25 — 范围边界（起草排除、复核组合覆盖、ask 交互首选 userQuestions）
 - Q30 / Q31 / Q35 — localhost 错路径 → DSH 原生 UI → DSH 0.1.2 官方 slot 与认证连接层
+- Q36 / Q37 / Q39 — 案件与运行状态分层、律师决策门和 finding 决策词汇
 
 **DSH harness 适配**
 - Q17 / Q18 / Q21 — 状态写盘、异步 spawn、integrity 不自建回滚
 - Q26 / Q27 / Q28 — analyze 必填 summary、re-analyze 状态门、force_edit 授权
 - Q29 — compactUndefinedDeep 适配 lossless JSON
-- Q34 / Q35 — DSH 会话接线、HMR 边界与 0.1.2 工作台迁移
+- Q34 / Q35 / Q38 — DSH 会话接线、HMR 边界、0.1.2 工作台迁移与专属 Agent 驱动
 
 **作用域与命名**
 - Q1 / Q5 / Q6 / Q7 / Q9 / Q10 / Q11 — 用户、仓库、scope、GitHub 用户名

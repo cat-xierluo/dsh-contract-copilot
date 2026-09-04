@@ -14,6 +14,7 @@
 | 项目说明 | `README.md` | 项目用途、安装、使用 |
 | 项目协作规则 | `AGENTS.md`（`CLAUDE.md` symlink） | 本文件 |
 | 路线图 | `docs/ROADMAP.md` | 愿景、阶段退出条件、依赖风险 |
+| 当前任务源 | `status/TASKS.md` | 当前任务边界、状态、验收和执行证据 |
 | 决策记录 | `docs/DECISIONS.md` | 真实发生过的取舍（Q1 起，编号连续） |
 | 架构 | `docs/ARCHITECTURE.md` | 当前已实现的模块、边界、数据流 |
 | 设计稿 | `docs/2026-08-18-dsh-plugin-design.md` | v0.2 设计稿（架构 + 测试映射 + e2e 记录） |
@@ -41,7 +42,7 @@
 ## 完成标准
 
 1. 结果完整：交付物符合当前任务目标
-2. 行为可验证：`pnpm run test` 全绿（当前 69/69）；e2e 涉及 API 时记录在 `CHANGELOG.md`
+2. 行为可验证：`pnpm run test` 全绿（当前基线 80/80）；e2e 涉及 API 时记录在 `CHANGELOG.md`
 3. 文档同步：本次变化的真实影响写入对应文档（变更日志、决策）
 4. 状态透明：剩余风险、未验证项在 `docs/ROADMAP.md` 或 `docs/DECISIONS.md` 标明
 5. **发布门禁**：发布/声称完成前跑 `dsh-plugin-lint`（skill 位于 `../../legal-skills/skills/dsh-plugin-lint/`：`node ../../legal-skills/skills/dsh-plugin-lint/scripts/lint.mjs .` + 人工过其 SKILL.md §2–§5）；不采信自报 PASS
