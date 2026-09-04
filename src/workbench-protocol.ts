@@ -27,6 +27,9 @@ export type WorkbenchRpcEndpoint =
   | 'document'
   | 'answers'
   | 'approve'
+  | 'run-analysis'
+  | 'run-delivery'
+  | 'cancel'
   | 'start'
   | 'recheck'
 
@@ -36,6 +39,7 @@ export interface SessionBrief {
   readonly contractName: string
   readonly state: SessionState
   readonly updatedAt: string
+  readonly automationStatus?: AutomationState['status']
 }
 
 /** Authenticated state response. */
@@ -111,6 +115,13 @@ export interface ApprovePlanResult {
   readonly omittedFindings: number
 }
 
+/** Accepted dedicated-Agent command. Completion arrives through session events. */
+export interface AgentDispatchResult {
+  readonly accepted: true
+  readonly dshSessionId: string
+  readonly phase: 'analysis' | 'delivery'
+}
+
 /** Endpoint payload and result pairs used by both Host and Client adapters. */
 export interface WorkbenchRpcMap {
   readonly state: { readonly input: Record<string, never>; readonly output: WorkbenchState }
@@ -127,6 +138,18 @@ export interface WorkbenchRpcMap {
       readonly decisions: FindingDecisionRequest[]
     }
     readonly output: ApprovePlanResult
+  }
+  readonly 'run-analysis': {
+    readonly input: { readonly sessionId: string }
+    readonly output: AgentDispatchResult
+  }
+  readonly 'run-delivery': {
+    readonly input: { readonly sessionId: string }
+    readonly output: AgentDispatchResult
+  }
+  readonly cancel: {
+    readonly input: { readonly sessionId: string }
+    readonly output: { readonly accepted: true }
   }
   readonly start: { readonly input: { readonly contractPath: string }; readonly output: StartReviewResult }
   readonly recheck: {

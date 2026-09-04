@@ -11,7 +11,7 @@ import path from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { PluginConfig } from '../config.ts'
-import { compactUndefinedDeep } from '../json.ts'
+import { asString, compactUndefinedDeep } from '../json.ts'
 import { hasBlockers, resolveIntakeFields } from '../intake-fields.ts'
 import type { MissingItem } from '../intake-fields.ts'
 import { findContractMemory, readReviewerProfile, readReviewMemory } from '../skill-config.ts'
@@ -36,6 +36,7 @@ export function registerIntakeTool(ctx: Context, config: PluginConfig, store: Se
       + '返回 blocked 时请把 missing 清单逐项问用户（可用 ask_user_question），拿到答案后带参重调本 tool。'
       + '阻塞项未齐不得开始实质审查。',
     parameters: {
+      sessionId: { type: 'string', description: '工作台已创建的业务 session id；提供时复用该 session' },
       contractPath: { type: 'string', required: true, description: '合同 DOCX 绝对路径' },
       clientName: { type: 'string', description: '客户名称（通常为我方主体名称）' },
       partyRole: { type: 'string', description: '审查立场：甲方 / 乙方 / 中立 / 其他' },
@@ -78,12 +79,24 @@ export function registerIntakeTool(ctx: Context, config: PluginConfig, store: Se
       // 工作台表单回路：同合同最近一个 blocked(带待消费 pendingAnswers)的 session
       // 直接复用，而不是新建——否则"表单答案存在 session A、重调 intake 建 session B"
       // 会把答案丢掉，回路断在两半。
-      const reusable = store.latestByContractKey(normalizeContractKey(contractName))
+      const requestedSessionId = asString(args.sessionId)
+      const reusable = requestedSessionId === undefined
+        ? store.latestByContractKey(normalizeContractKey(contractName))
+        : store.get(requestedSessionId)
+      if (requestedSessionId !== undefined && reusable === undefined) {
+        throw new Error(`contract-copilot: 工作台 session 不存在: ${requestedSessionId}`)
+      }
+      if (requestedSessionId !== undefined && reusable?.contractPath !== contractPath) {
+        throw new Error('contract-copilot: 工作台 session 与合同路径不一致')
+      }
+      if (requestedSessionId !== undefined && reusable?.state !== 'created') {
+        throw new Error(`contract-copilot: 工作台 session 当前状态 ${reusable?.state} 不能重新 intake`)
+      }
       const session = reusable !== undefined
         && reusable.state === 'created'
         && reusable.contractPath === contractPath
-        && reusable.pendingAnswers !== undefined
-        && Object.keys(reusable.pendingAnswers).length > 0
+        && (requestedSessionId !== undefined
+          || (reusable.pendingAnswers !== undefined && Object.keys(reusable.pendingAnswers).length > 0))
         ? (store.setCurrent(reusable.id), reusable)
         : store.create(contractPath, contractName)
       // 合并与缺失计算抽到 intake-fields.ts（工作台"新建审查"共用同一套语义）

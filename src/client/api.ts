@@ -74,6 +74,18 @@ export class ContractCopilotClient {
     return this.call('recheck', { sessionId, newContractPath }, signal)
   }
 
+  runAnalysis(sessionId: string, signal?: AbortSignal): Promise<WorkbenchRpcMap['run-analysis']['output']> {
+    return this.call('run-analysis', { sessionId }, signal)
+  }
+
+  runDelivery(sessionId: string, signal?: AbortSignal): Promise<WorkbenchRpcMap['run-delivery']['output']> {
+    return this.call('run-delivery', { sessionId }, signal)
+  }
+
+  cancel(sessionId: string, signal?: AbortSignal): Promise<{ readonly accepted: true }> {
+    return this.call('cancel', { sessionId }, signal)
+  }
+
   /** Same-origin EventSource URL protected by the Connection browser cookie. */
   eventsUrl(): string {
     return WORKBENCH_EVENTS_PATH

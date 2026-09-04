@@ -42,8 +42,10 @@ export function beginPlanReview(
   now = new Date().toISOString(),
 ): PlanReview {
   const sourcePlanHash = hashPlanFile(planPath)
+  const sourceFindings = planFindings(readPlan(planPath)).map(finding => ({ ...finding }))
   return {
     sourcePlanHash,
+    sourceFindings,
     status: 'awaiting-decisions',
     decisions: {},
     history: [
@@ -145,6 +147,7 @@ export function approvePlan(
   return {
     planReview: {
       sourcePlanHash: expectedSourcePlanHash,
+      sourceFindings: review.sourceFindings,
       status: 'approved',
       decisions: auditedById,
       approvedPlanHash,

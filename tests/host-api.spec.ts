@@ -6,6 +6,8 @@ import path from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { PluginConfig } from '../src/config.ts'
+import type { ContractAgentCoordinator } from '../src/agent-coordinator.ts'
+import { AgentCoordinatorError } from '../src/agent-coordinator.ts'
 import { beginPlanReview } from '../src/plan-review.ts'
 import {
   handleWorkbenchRpc,
@@ -95,6 +97,25 @@ describe('handleWorkbenchRpc', () => {
     expect(approved).toMatchObject({ ok: true, value: { ok: true, approvedFindings: 1, omittedFindings: 0 } })
     expect(store.get(session.id)?.planReview?.status).toBe('approved')
   })
+
+  it('通过工作台命令启动专属 Agent 并保留控制器错误码', async () => {
+    const session = store.create(path.join(root, 'contract.docx'), 'contract')
+    store.transition(session.id, 'contract_copilot_intake', 'intake_done')
+    const runAnalysis = vi.fn(async () => ({ accepted: true as const, dshSessionId: 'agent-1', phase: 'analysis' as const }))
+    const coordinator = { runAnalysis } as unknown as ContractAgentCoordinator
+
+    await expect(handleWorkbenchRpc(config, store, 'run-analysis', { sessionId: session.id }, coordinator))
+      .resolves.toMatchObject({ ok: true, value: { accepted: true, phase: 'analysis' } })
+    expect(runAnalysis).toHaveBeenCalledWith(session.id)
+
+    const busy = {
+      runAnalysis: vi.fn(async () => {
+        throw new AgentCoordinatorError('contract-copilot/agent-busy', 'busy')
+      }),
+    } as unknown as ContractAgentCoordinator
+    await expect(handleWorkbenchRpc(config, store, 'run-analysis', { sessionId: session.id }, busy))
+      .resolves.toMatchObject({ ok: false, error: { code: 'contract-copilot/agent-busy' } })
+  })
 })
 
 describe('Connection registration', () => {
@@ -107,7 +128,7 @@ describe('Connection registration', () => {
       },
     } as unknown as Context
 
-    registerHostApi(ctx, config, store)
+    registerHostApi(ctx, config, store, {} as ContractAgentCoordinator)
 
     expect(handle).toHaveBeenCalledWith(WORKBENCH_RPC_CHANNEL, expect.any(Function))
     expect(register).toHaveBeenCalledTimes(2)

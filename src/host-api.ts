@@ -10,8 +10,9 @@ import type {
   HostConnectionHandle,
 } from '@deepseek-ai/dsh-client-connection'
 import type { PluginConfig } from './config.ts'
+import { AgentCoordinatorError, ContractAgentCoordinator } from './agent-coordinator.ts'
 import { extractDocxParts, parseCommentsXml, renderDocumentHtml } from './docx-view.ts'
-import { resolveIntakeFields } from './intake-fields.ts'
+import { hasBlockers, resolveIntakeFields } from './intake-fields.ts'
 import { expandHome, normalizeContractKey } from './paths.ts'
 import { approvePlan, PlanReviewError, type FindingDecisionInput } from './plan-review.ts'
 import type { ContractSession, DecisionAnswers, SessionStore } from './session.ts'
@@ -45,13 +46,18 @@ class WorkbenchRequestError extends Error {
 }
 
 /** Register workbench routes when the Web profile provides Connection. */
-export function registerHostApi(ctx: Context, config: PluginConfig, store: SessionStore): void {
+export function registerHostApi(
+  ctx: Context,
+  config: PluginConfig,
+  store: SessionStore,
+  coordinator: ContractAgentCoordinator,
+): void {
   if (!config.workbench.enabled) return
   ctx.inject(['connection'], (connectionCtx) => {
     const connection = connectionCtx.connection as HostConnectionHandle
     connection.rpc.handle(
       WORKBENCH_RPC_CHANNEL,
-      (endpoint, payload) => handleWorkbenchRpc(config, store, endpoint, payload),
+      (endpoint, payload) => handleWorkbenchRpc(config, store, endpoint, payload, coordinator),
     )
     connection.fetch.register({
       path: WORKBENCH_EVENTS_PATH,
@@ -72,12 +78,13 @@ export async function handleWorkbenchRpc(
   store: SessionStore,
   endpoint: string,
   payload: unknown,
+  coordinator?: ContractAgentCoordinator,
 ): Promise<ConnectionRpcResult<unknown>> {
   try {
     const input = recordPayload(payload)
     switch (endpoint as WorkbenchRpcEndpoint) {
       case 'state':
-        return success<WorkbenchState>({ sessions: store.listRecent(30) })
+        return success<WorkbenchState>(workbenchState(store))
       case 'detail':
         return success(sessionDetail(store, sessionIdFrom(input)))
       case 'document':
@@ -102,6 +109,19 @@ export async function handleWorkbenchRpc(
           omittedFindings: approved.omittedFindings,
         })
       }
+      case 'run-analysis': {
+        const session = requireSession(store, sessionIdFrom(input))
+        assertIntakeReady(config, session)
+        return success(await requireCoordinator(coordinator).runAnalysis(session.id))
+      }
+      case 'run-delivery': {
+        const session = requireSession(store, sessionIdFrom(input))
+        return success(await requireCoordinator(coordinator).runDelivery(session.id))
+      }
+      case 'cancel': {
+        const session = requireSession(store, sessionIdFrom(input))
+        return success(await requireCoordinator(coordinator).cancel(session.id))
+      }
       case 'start':
         return success(startReview(config, store, stringField(input, 'contractPath')))
       case 'recheck':
@@ -119,6 +139,9 @@ function success<T>(value: T): ConnectionRpcResult<T> {
 }
 
 function failure(error: unknown): ConnectionRpcResult<never> {
+  if (error instanceof AgentCoordinatorError) {
+    return { ok: false, error: rpcFailure(error.code, error.message) }
+  }
   if (error instanceof PlanReviewError) {
     return { ok: false, error: rpcFailure(error.code, error.message) }
   }
@@ -127,6 +150,13 @@ function failure(error: unknown): ConnectionRpcResult<never> {
   }
   const message = error instanceof Error ? error.message : String(error)
   return { ok: false, error: rpcFailure('contract-copilot/internal', message) }
+}
+
+function requireCoordinator(coordinator: ContractAgentCoordinator | undefined): ContractAgentCoordinator {
+  if (coordinator === undefined) {
+    throw new WorkbenchRequestError('contract-copilot/automation-unavailable', '工作台 Agent 控制器未加载。')
+  }
+  return coordinator
 }
 
 function decisionsFrom(value: unknown): FindingDecisionInput[] {
@@ -212,6 +242,19 @@ function requireSession(store: SessionStore, sessionId: string): ContractSession
   return session
 }
 
+function assertIntakeReady(config: PluginConfig, session: ContractSession): void {
+  if (session.state !== 'created') return
+  const memory = findContractMemory(readReviewMemory(config.skillRoot), session.contractKey)
+  const profile = readReviewerProfile(config.skillRoot)
+  const { missing } = resolveIntakeFields({}, session.pendingAnswers ?? {}, memory, profile)
+  if (hasBlockers(missing)) {
+    throw new WorkbenchRequestError(
+      'contract-copilot/intake-incomplete',
+      `仍有 ${missing.length} 项前置信息未填写。`,
+    )
+  }
+}
+
 function resolveDocxPath(input: string, label: string): string {
   const resolved = path.resolve(expandHome(input))
   if (!resolved.toLowerCase().endsWith('.docx')) {
@@ -236,8 +279,8 @@ function startReview(config: PluginConfig, store: SessionStore, inputPath: strin
     contractName,
     missing,
     nextStep: missing.length > 0
-      ? `右侧表单补齐后，对 Agent 说：审查 ${contractPath}（工作台表单已填）`
-      : `直接对 Agent 说：审查 ${contractPath}`,
+      ? '请在右侧补齐前置信息，然后点击“提交并开始分析”。'
+      : '前置信息已齐，可以直接启动风险分析。',
   }
 }
 
@@ -245,15 +288,17 @@ function recheck(store: SessionStore, sessionId: string, inputPath: string): Rec
   const session = requireSession(store, sessionId)
   const contractPath = resolveDocxPath(inputPath, '新版合同')
   const contractName = path.basename(contractPath, path.extname(contractPath))
-  store.save({
-    ...session,
-    contractPath,
-    contractKey: normalizeContractKey(contractName),
-    contractName,
+  store.transition(session.id, 'contract_copilot_recheck', 'intake_done', (target) => {
+    target.contractPath = contractPath
+    target.contractKey = normalizeContractKey(contractName)
+    target.contractName = contractName
+    target.outputs = {}
+    delete target.planPath
+    delete target.planReview
   })
   return {
     ok: true,
-    hint: '已指向新版合同。请让 Agent 恢复本 session，并重新分析新版合同。',
+    hint: '已指向新版合同，可以从工作台重新启动风险分析。',
   }
 }
 
@@ -273,7 +318,7 @@ function sessionDetail(store: SessionStore, sessionId: string): SessionDetail {
       updatedAt: session.updatedAt,
       historyTail: session.history.slice(-8),
     },
-    findings: planFindings(session),
+    findings: session.planReview?.sourceFindings ?? planFindings(session),
   }
 }
 
@@ -307,6 +352,7 @@ export function workbenchEventsResponse(request: Request, store: SessionStore): 
           contractName: session.contractName,
           state: session.state,
           updatedAt: session.updatedAt,
+          automationStatus: session.automation?.status,
         })
       })
       const heartbeat = setInterval(() => {
@@ -324,7 +370,7 @@ export function workbenchEventsResponse(request: Request, store: SessionStore): 
       dispose = () => { release(false) }
       if (request.signal.aborted) abort()
       else request.signal.addEventListener('abort', abort, { once: true })
-      send('snapshot', { sessions: store.listRecent(30) })
+      send('snapshot', workbenchState(store))
     },
     cancel() { dispose() },
   })
@@ -335,6 +381,15 @@ export function workbenchEventsResponse(request: Request, store: SessionStore): 
       'cache-control': 'no-cache, no-transform',
     },
   })
+}
+
+function workbenchState(store: SessionStore): WorkbenchState {
+  return {
+    sessions: store.listRecent(30).map((entry) => ({
+      ...entry,
+      automationStatus: store.get(entry.id)?.automation?.status,
+    })),
+  }
 }
 
 /** Stream one authenticated source or delivery DOCX response. */

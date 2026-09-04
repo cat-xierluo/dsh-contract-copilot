@@ -14,7 +14,7 @@
 
 ## 2. 采用方案
 
-采用“业务状态机 + 专属 DSH Agent + 强制律师决策门”。`ctx.agents.create()` 创建 Agent，`followup()` 启动分析或继续交付，`whenIdle()` 提供明确的运行结束信号；应用重启后用 `ctx.agents.resume()` 恢复已有 DSH session。插件持有自己创建的 AgentHandle，并在卸载时取消和等待退出。
+采用“业务状态机 + 专属 DSH Agent + 强制律师决策门”。`ctx.agents.create()` 使用 DSH 当前默认模型选择创建 Agent，`followup()` 启动分析或继续交付，`whenIdle()` 提供明确的运行结束信号；应用重启后用 `ctx.agents.resume()` 恢复已有 DSH session。插件持有自己创建的 AgentHandle，并在卸载时取消和等待退出。
 
 不采用 `workflowEngine` 作为案件主流程。当前 workflow run 由调用者前台持有，缺少后台 start/poll、journaling 与 restart resume；它适合一次性并行编排，不适合作为跨小时或跨天的合同案件状态源。也不采用只观察聊天工具事件的看板方案，因为它仍要求用户在聊天与工作台之间切换，不能形成不可绕过的律师决策门。
 

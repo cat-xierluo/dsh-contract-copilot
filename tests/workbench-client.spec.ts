@@ -48,4 +48,15 @@ describe('ContractCopilotClient', () => {
       decisions: [{ findingId: 'R001', disposition: 'accept' }],
     }, undefined)
   })
+
+  it('从工作台派发分析、交付和取消命令', async () => {
+    const call = vi.fn().mockResolvedValue({ ok: true, value: { accepted: true, dshSessionId: 'agent-1', phase: 'analysis' } })
+    const client = new ContractCopilotClient({ rpc: { call } } as WorkbenchConnection)
+
+    await client.runAnalysis('case-1')
+    await client.runDelivery('case-1')
+    await client.cancel('case-1')
+
+    expect(call.mock.calls.map(([, endpoint]) => endpoint)).toEqual(['run-analysis', 'run-delivery', 'cancel'])
+  })
 })

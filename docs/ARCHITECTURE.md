@@ -11,7 +11,9 @@
 ## 2. 数据流
 
 ```
-用户消息 → agent loop → tool handler → SessionStore (原子写 JSON)
+工作台命令 → ContractAgentCoordinator → 专属 DSH Agent
+                                      ↓ followup / whenIdle / cancel
+用户消息或专属 Agent → agent loop → tool handler → SessionStore (原子写 JSON)
                               ↓
                     planReview 律师批准门
                               ↓
@@ -39,6 +41,7 @@ src/
 ├── session.ts               # SessionStore：9 态状态机 + 原子写 + 损坏恢复 + 事件订阅
 ├── workbench-protocol.ts    # 鉴权 RPC、事件和下载协议常量及 DTO
 ├── plan-review.ts           # 计划 hash、逐 finding 决定、获批计划投影与 apply 门禁
+├── agent-coordinator.ts      # 案件专属 Agent 的创建、恢复、命令互斥、取消和释放
 ├── host-api.ts              # Connection RPC + 认证 SSE/下载精确路由
 ├── python-bridge.ts         # 异步 spawn + 退码四分类（success/partial/rejected/error）
 ├── docx-view.ts             # OOXML → HTML（React 简版视图输入）
@@ -84,6 +87,8 @@ tests/                       # Vitest 单元与真实 Python spawn 集成测试
 - **apply 全量显式传参**：不依赖 Python 非交互默认值（review_intensity 缺失静默"强势"）
 - **律师批准不可绕过**：analyze 生成 `awaiting-decisions` 计划；apply 仅接受逐项决定、已批准且文件 hash 未变化的计划
 - **决策与执行分离**：律师备注只进入追加式审计历史；四种决定确定性投影到 Python plan，不把内部备注混入对外文书
+- **案件状态与 Agent 轨迹分层**：ContractSession 保存业务事实；DSH session 保存消息、步骤和 tool 轨迹，两者只通过 `dshSessionId` 关联
+- **一个案件一个在途命令**：Coordinator 在进程内拒绝重复分析或交付；取消和插件卸载均等待 Agent 进入 idle 后再报告完成
 
 ## 6. 边界与外部依赖
 
@@ -95,7 +100,7 @@ tests/                       # Vitest 单元与真实 Python spawn 集成测试
 ## 7. 已知限制（运行时）
 
 - **进度粒度 = tool 调用级**：Python CLI 执行期间零 stdout 输出（apply_review_plan.py:403-428 仅 main 尾部打印统计）
-- **apply 长任务**（数分钟）会阻塞单 conversation turn；异步 spawn 已支持 AbortSignal
+- **apply 长任务**（数分钟）占用案件专属 Agent 的当前 turn；工作台可继续显示状态并发送取消
 - **out-of-tree HMR 不覆盖本插件**：重建 node/client 工件后必须重启 DSH Web
 - **逐 finding 实时进度不可用**：Python CLI 在结束前不输出阶段事件；当前最细粒度是 tool 状态跃迁
 
@@ -126,3 +131,11 @@ ContractCopilotClient
 工作台批准请求携带当前 hash 和每项决定。Host 要求 finding 与决定一一对应，再按决定生成获批计划：`accept` 保留动作，`comment-only` 去除直接改文载荷并设为 comment，`report-only` 不在正文落痕，`omit` 从执行计划移除。获批计划原子写盘后记录 `approvedPlanHash`。
 
 `contract_copilot_apply` 在启动 Python 前重新计算计划 hash。缺少批准或 hash 不一致时 fail closed，因此 Agent 提示词、工作台按钮和直接 tool 调用共享同一门禁。
+
+## 10. 案件专属 Agent（DECISIONS.md Q36、Q38）
+
+工作台通过认证 RPC 启动分析或交付。`ContractAgentCoordinator` 使用 `agentDefaultModel.currentSelection()` 创建案件专属 Agent，将业务 session id 写入严格阶段提示，并通过 `followup()` 发送命令。分析命令只允许 intake 与 analyze；交付命令只允许 apply，并在成功后 finalize。
+
+`dshSessionId` 持久化后，进程内优先复用已持有或仍存活的 Agent，重启后调用 `ctx.agents.resume()`。创建失败不会写入不存在的 DSH session 关联，后续重试仍走 create；创建和恢复错误写入 `automation.error`。
+
+Coordinator 用 `whenIdle()` 判断真实停止，再把运行状态投影为 `waiting-decisions`、`delivered`、`idle` 或 `failed`。同一案件存在在途命令时返回稳定的 `agent-busy` 错误；插件卸载先停止接收命令，再取消、等待并 dispose 自己持有的全部 AgentHandle。

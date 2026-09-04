@@ -120,7 +120,7 @@
 |---|---|
 | **结论** | 工作台通过 `ctx.agents.create/resume` 创建或恢复一个案件专属 Agent，用 `followup/cancel/whenIdle` 驱动阶段；workflowEngine 不承担案件主流程。 |
 | **理由** | Agent session 可持久化并恢复；当前 workflow run 是 holder-owned foreground collection，缺少后台 start/poll、journaling 和 restart resume。 |
-| **影响** | 插件持有并完整 dispose 自己创建的 AgentHandle；配置显式指定 Agent provider/model，工作台记录 create/resume 失败。 |
+| **影响** | 插件持有并完整 dispose 自己创建的 AgentHandle；新建 Agent 使用 DSH 当前默认模型选择，工作台记录 create/resume 失败。 |
 | **何时重新评估** | workflow capability 提供后台句柄、持久检查点和重启恢复后。 |
 
 ## Q39：第一版 finding 决策词汇（2026-09-04）

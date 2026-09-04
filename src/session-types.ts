@@ -86,6 +86,7 @@ export type PlanReviewHistoryEntry =
 /** Lawyer-review state for the current generated plan. */
 export type PlanReview = {
   readonly sourcePlanHash: string
+  readonly sourceFindings: Array<Record<string, unknown>>
   readonly status: 'awaiting-decisions' | 'approved'
   readonly decisions: Record<string, FindingDecision>
   readonly approvedPlanHash?: string
