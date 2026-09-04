@@ -1,5 +1,33 @@
 # 当前任务
 
+## CC-V4-001：工作台视觉与窄屏交互统一
+
+- 状态：进行中（Wave 1，GLM-5.3-Flash worker）
+- 基线：`6c52c76`（律师决策工作台已验收）
+- 目标：让工作台在 DSH 明暗主题与桌面/窄屏布局中保持一致、可读、可操作，并补齐对话框键盘焦点管理。
+- 文件边界：`src/client/Workbench.tsx`、必要的 `src/client/` 本地化/样式辅助模块，以及对应 client 测试；不修改 Host、协议、DOCX 解析或 Python。
+- 验收：夜间模式不再出现浅色孤岛或低对比文本；窄屏不隐藏案件操作入口；对话框具备初始焦点、Tab 环与关闭后焦点归还；UI 文案由 typed locale 字典拥有；client typecheck、聚焦测试与 build 通过。
+
+## CC-V4-002：批注定位锚点模型
+
+- 状态：进行中（Wave 1，GLM-5.3-Flash worker）
+- 基线：`6c52c76`（律师决策工作台已验收）
+- 目标：Host/协议层为 DOCX 批注和简版文档渲染提供稳定、可持久传输的定位信息，供工作台执行双向跳转与高亮。
+- 文件边界：`src/docx-view.ts`、`src/workbench-protocol.ts`、`src/host-api.ts` 及其对应测试；不修改 `src/client/Workbench.tsx`、共享文档或 Python。
+- 验收：每条批注具有稳定 id 和可解析锚点；正文输出存在可选择的对应标记；无法精确定位时保留可解释降级信息；协议/RPC 兼容简单视图与 Word 预览；聚焦测试与 build 通过。
+
+## CC-V4-003：批注双向导航与 Word 原生观感
+
+- 状态：待执行（Wave 2，依赖 CC-V4-001/002）
+- 目标：工作台启用 `docx-preview` 批注渲染，将侧栏批注与正文锚点连接；点击批注滚动到正文并短暂高亮，正文批注标记反向选中侧栏条目，同时兼顾键盘与降级路径。
+- 验收：真实含批注 DOCX 在简单视图和 Word 预览中均可完成可见的定位反馈；未找到锚点时不误跳且给出状态；浏览器实操与截图/GIF 绑定候选提交。
+
+## CC-V4-004：独立验收与项目收口
+
+- 状态：待执行（依赖 CC-V4-003）
+- 目标：由未参与实现的 reviewer 对暗色、窄屏、焦点、批注跳转、回归测试和文档一致性做独立验收；PM 只在通过后写回 CHANGELOG、ARCHITECTURE、ROADMAP 与本任务源。
+- 验收：typecheck、完整测试、build、更新后的 dsh-plugin-lint、真实 DSH Web 浏览器流程和 GUI GIF 均绑定最终候选；未通过项退回原 worker 修复。
+
 ## CC-V3-001：律师决策工作台闭环
 
 - 状态：已完成
