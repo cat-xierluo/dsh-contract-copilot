@@ -150,6 +150,24 @@
 | **影响** | 窄屏不再直接隐藏操作区，而以可切换区域保留完整能力；批注 id、锚点和降级原因成为 Host 到 Client 的显式数据；第二波集成只消费已验证的两项基础。 |
 | **何时重新评估** | DSH 提供统一的文档批注组件与稳定选择协议，或 `docx-preview` 原生暴露可直接消费的双向批注导航接口时。 |
 
+## Q42：专属 Agent 的分析上下文由 Host 注入（2026-09-05）
+
+| 字段 | 内容 |
+|---|---|
+| **结论** | 工作台在派发分析前由 Host 从业务 session 的合同路径提取 OOXML 可见正文，并把有界正文与最小审查指导注入专属 Agent 回合；不要求 DSH Web profile 开放通用文件、shell 或 skill 工具。 |
+| **理由** | 真实 DSH Web 验证表明专属 Agent 只有 7 个合同领域工具，旧提示要求其自行读取 DOCX 与 skill references，形成无法执行的前置条件。Host 已持有经过路径校验的业务对象，能够在最早可解析点提供确定输入。 |
+| **影响** | 正文放在明确的数据边界内，合同中的伪造边界标记会被隔离；注入上限由 `workbench.analysisContractTextMaxChars` 配置，默认 40000、硬上限 200000；提取失败或正文为空会持久化 failed 并在创建 Agent 前终止。交付回合不重复注入正文。 |
+| **何时重新评估** | 专属 preset 获得可审计且受路径策略约束的文件/skill 能力，或超长合同需要分段检索而不适合有界全文提示时。 |
+
+## Q43：兼容 docx-preview 的两种批注引用 DOM（2026-09-05）
+
+| 字段 | 内容 |
+|---|---|
+| **结论** | 导航保留带批注 id 的原生 `.docx-comment-ref` 路径，同时支持 run-style `.docx_commentreference`：从相邻 `end of comment #id` 注释恢复 id，再增强为可见、可聚焦且支持 Enter/Space 的批注入口。 |
+| **理由** | 真实 DSH Web 渲染的含批注 DOCX 使用 run-style 占位元素，没有早期测试假定的 `.docx-comment-ref`；仅依赖后一选择器会使正文到侧栏的反向导航失效。 |
+| **影响** | 两种 DOM 共用同一选择、滚动和高亮控制器；只有恢复到有效批注 id 的占位元素才会增强，无法解析时保持未命中而不误跳。可见标记和辅助名称由 typed locale 提供。 |
+| **何时重新评估** | 锁定的 `docx-preview` 版本提供稳定、公开且带 id 的批注引用接口时。 |
+
 ---
 
 ## 决策索引（按主题）
@@ -157,13 +175,13 @@
 **产品形态**
 - Q22 / Q23 / Q25 — 范围边界（起草排除、复核组合覆盖、ask 交互首选 userQuestions）
 - Q30 / Q31 / Q35 — localhost 错路径 → DSH 原生 UI → DSH 0.1.2 官方 slot 与认证连接层
-- Q36 / Q37 / Q39 / Q40 / Q41 — 案件与运行状态分层、律师决策门、finding 决策词汇、工作台交互粒度和批注交付分层
+- Q36 / Q37 / Q39 / Q40 / Q41 / Q42 / Q43 — 案件与运行状态分层、律师决策门、finding 决策词汇、工作台交互粒度、批注交付分层、分析上下文和真实批注 DOM
 
 **DSH harness 适配**
 - Q17 / Q18 / Q21 — 状态写盘、异步 spawn、integrity 不自建回滚
 - Q26 / Q27 / Q28 — analyze 必填 summary、re-analyze 状态门、force_edit 授权
 - Q29 — compactUndefinedDeep 适配 lossless JSON
-- Q34 / Q35 / Q38 / Q40 — DSH 会话接线、HMR 边界、0.1.2 工作台迁移、专属 Agent 驱动与可观察运行面
+- Q34 / Q35 / Q38 / Q40 / Q42 — DSH 会话接线、HMR 边界、0.1.2 工作台迁移、专属 Agent 驱动、可观察运行面与分析上下文注入
 
 **作用域与命名**
 - Q1 / Q5 / Q6 / Q7 / Q9 / Q10 / Q11 — 用户、仓库、scope、GitHub 用户名

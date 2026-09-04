@@ -19,9 +19,10 @@ dsh plugin --profile lawyer add ./dsh-contract-copilot
     skillRoot: /path/to/legal-skills/skills/contract-copilot
     workbench:
       enabled: true
+      analysisContractTextMaxChars: 40000
 ```
 
-启动 DSH Web 后，侧栏底部的“合同审查”入口会打开三栏工作台：左侧是审查队列，中间是 Word 修订视图，右侧是“前置信息 → 风险分析 → 律师决策 → 修订交付 → 完成”五阶段进度。律师可逐项选择按建议处理、仅批注、仅意见书或忽略，调整风险等级、填写内部备注，再批准方案并让同一 Agent 继续交付。工作台所有 RPC、实时事件和 DOCX 下载都复用 DSH 的浏览器会话认证；headless profile 不加载界面，但 7 个工具及批准门仍照常工作。
+启动 DSH Web 后，侧栏底部的“合同审查”入口会打开三栏工作台：左侧是审查队列，中间是 Word 修订视图，右侧是“前置信息 → 风险分析 → 律师决策 → 修订交付 → 完成”五阶段进度。律师可逐项选择按建议处理、仅批注、仅意见书或忽略，调整风险等级、填写内部备注，再批准方案并让同一 Agent 继续交付。工作台专属 Agent 不要求 Web profile 开放通用文件或 skill 工具：Host 在分析派发前提取本地 DOCX 正文，并把有界正文和最小审查指导作为数据注入分析回合；`analysisContractTextMaxChars` 默认 40000，可在 1000–200000 之间配置。工作台所有 RPC、实时事件和 DOCX 下载都复用 DSH 的浏览器会话认证；headless profile 不加载界面，但 7 个工具及批准门仍照常工作。
 
 ## 为什么选择 DSH 工作台
 

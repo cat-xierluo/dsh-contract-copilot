@@ -15,9 +15,11 @@
 - 工作台产品文案统一由 typed locale 字典提供；未知或不可用浏览器 locale 确定性回退中文
 - Word 预览启用原生批注渲染；侧栏批注与 Word/简版正文可双向选择、滚动、聚焦和瞬时高亮，未命中时给出本地化状态且不误跳
 - 侧栏渲染全部批注并以作者短名和正文摘录组成辅助名称；切换审查会话时清理旧批注导航状态
+- 同时兼容 `docx-preview` 的原生引用元素和 run-style `.docx_commentreference` 占位元素；后者从相邻范围结束标记恢复批注 id，并增强为可见、可聚焦且支持 Enter/Space 的入口
+- 工作台专属 Agent 的分析回合由 Host 注入有界合同正文与最小审查指导，不再要求 DSH Web profile 开放通用文件或 skill 工具；伪造边界标记会被隔离，提取失败或正文为空时在创建 Agent 前显式失败
 
 ### Testing（2026-09-05，工作台体验基础）
-- client typecheck、15 个测试文件 209 项测试和 Node/Client build 通过；真实 DSH Web 与 GUI GIF 仍由 CC-V4-004 绑定最终候选验收
+- client typecheck、16 个测试文件 256 项测试和 Node/Client build 通过；真实 DSH Web 与 GUI GIF 仍由 CC-V4-004 绑定最终候选验收
 
 ### Planning（2026-09-04，工作台体验收口）
 - 将暗色主题、窄屏操作区和对话框焦点统一划为工作台壳层任务，将 DOCX 批注稳定定位划为独立 Host/协议任务
