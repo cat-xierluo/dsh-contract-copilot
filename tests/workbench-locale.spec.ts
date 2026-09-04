@@ -107,6 +107,8 @@ describe('workbench locale 字典', () => {
     expect(t('en', 'workbench.title')).toBe('📋 Contract Copilot · Review Workbench')
     expect(t('zh', 'decision.approvedBadge')).toBe('✓ 本计划已经律师批准并锁定')
     expect(t('en', 'decision.dispositionPlaceholder')).toBe('Choose')
+    expect(t('zh', 'doc.commentMarker')).toBe('查看这条批注')
+    expect(t('en', 'doc.commentMarker')).toBe('View this comment')
     expect(t('zh', 'list.empty')).toBe('尚无审查任务。可在上方输入合同路径，或直接让 Agent 审查合同。')
   })
 

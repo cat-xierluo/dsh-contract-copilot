@@ -5,12 +5,16 @@ import {
   commentAttributeSelector,
   commentIdFromActivatedElement,
   commentIdFromRefElement,
+  commentIdFromStylePlaceholder,
   createCommentNavigator,
   createDomNavigationEnvironment,
   escapeCssAttributeValue,
   parseCommentMarkerText,
   resolveCommentTarget,
   simpleCommentNavigationInput,
+  WORD_VIEW_ACTIVATABLE_SELECTOR,
+  WORD_VIEW_PLACEHOLDER_SELECTOR,
+  WORD_VIEW_REF_SELECTOR,
   wordCommentNavigationInput,
   type CommentAnchor,
   type NavElement,
@@ -150,6 +154,27 @@ function createFakeEnvironment(rootHolder: { root: FakeElement | null }) {
     throw new Error(`假 DOM 选择器引擎不支持: ${selector}`)
   }
 
+  /**
+   * 顶层逗号拆分（引号内的逗号不拆），与浏览器 querySelectorAll 的
+   * 逗号语义一致：各选择器命中结果按文档序取并集，天然去重。
+   */
+  function splitSelectors(selector: string): string[] {
+    const parts: string[] = []
+    let current = ''
+    let inQuotes = false
+    for (const ch of selector) {
+      if (ch === '"') inQuotes = !inQuotes
+      if (ch === ',' && !inQuotes) {
+        parts.push(current)
+        current = ''
+        continue
+      }
+      current += ch
+    }
+    parts.push(current)
+    return parts.map((part) => part.trim()).filter((part) => part !== '')
+  }
+
   function unescapeCss(value: string): string {
     return value.replace(/\\([0-9a-fA-F]{1,6})\s?|\\(.)/g, (_m, hex: string | undefined, ch: string | undefined) => {
       if (hex !== undefined) return String.fromCodePoint(parseInt(hex, 16))
@@ -166,9 +191,10 @@ function createFakeEnvironment(rootHolder: { root: FakeElement | null }) {
       return found
     },
     querySelectorAll(root, selector) {
+      const parts = splitSelectors(selector)
       const found: NavElement[] = []
       walk(root, (node) => {
-        if (node instanceof FakeElement && node !== root && matches(node, selector)) found.push(node)
+        if (node instanceof FakeElement && node !== root && parts.some((part) => matches(node, part))) found.push(node)
       })
       return found
     },
@@ -215,7 +241,15 @@ function createFakeEnvironment(rootHolder: { root: FakeElement | null }) {
 type FakeHarness = ReturnType<typeof createFakeEnvironment>
 
 // ---------------------------------------------------------------------------
-// docx-preview@0.4.0 真实 DOM 形态构造器（依据 dist 源码，字段与嵌套逐一对齐）
+// docx-preview@0.4.0 真实 DOM 形态构造器（依据 dist 源码 + 真实浏览器验收证据，
+// 字段与嵌套逐一对齐）。0.4.0 实际存在两种批注落 DOM 形态：
+//   1. 引用气泡形态：run 内含 w:commentReference 且 comments part 可查到该 id
+//      时，renderCommentReference 产出 `#fragment`＝引用注释节点 +
+//      span.<class>-comment-ref（💬）+ div.<class>-comment-popover。
+//   2. run 样式占位形态（真实 reviewed DOCX 实测）：锚点 run 只带 Word 内置
+//      「CommentReference」字符样式时，toH/processStyleName 把 styleName 插值为
+//      `${className}_${escapeClassName(styleName)}`，得到空 span.docx_commentreference，
+//      紧跟在 end-of-comment 注释节点之后；没有引用注释节点，也没有气泡 span。
 // ---------------------------------------------------------------------------
 
 interface PreviewDocOptions {
@@ -277,6 +311,33 @@ function buildLegacyDoc(count = 3): { root: FakeElement; spans: FakeElement[] } 
     spans.push(append(p, el('sup', 'cc-comment', { title: `张律师：条款 ${index + 1}` })))
   }
   return { root, spans }
+}
+
+/**
+ * 真实 reviewed DOCX（DSH Python 插入批注）经 renderAsync 后的实测段落形态，
+ * 逐节点对照验收证据：`<span>正文</span><!--start of comment #0--><ins>…</ins>
+ * <!--end of comment #0--><span class="docx_commentreference"></span>`。
+ * 整页 comment nodes 只有 start/end，没有引用注释节点；气泡 span 数量 0。
+ */
+function buildRealReviewedDoc(options: { readonly commentId?: string } = {}): FakeElement {
+  const id = options.commentId ?? '0'
+  const wrapper = el('div', 'docx-wrapper')
+  const section = append(wrapper, el('section', 'docx'))
+  const paragraph = append(section, el('p'))
+  const run = append(paragraph, el('span'))
+  append(run, new FakeTextNode('正文'))
+  append(paragraph, comment(`start of comment #${id}`))
+  const inserted = append(paragraph, el('ins'))
+  append(inserted, new FakeTextNode('修订文本'))
+  append(paragraph, comment(`end of comment #${id}`))
+  append(paragraph, el('span', 'docx_commentreference'))
+  return wrapper
+}
+
+function placeholderOf(root: FakeElement): FakeElement {
+  const span = findFirst(root, (node) => node instanceof FakeElement && node.classList.includes('docx_commentreference'))
+  if (span === null) throw new Error('fixture 缺少 run 样式占位')
+  return span
 }
 
 function refSpanOf(root: FakeElement): FakeElement {
@@ -644,6 +705,114 @@ describe('commentIdFromRefElement', () => {
 
     expect(commentIdFromRefElement(spans[0]!)).toBeNull()
     expect(root.textContent).toContain('第 1 条约定')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// 真实 reviewed DOCX 的 run 样式占位形态（0.4.0 实测第二种形态）
+// ---------------------------------------------------------------------------
+
+describe('commentIdFromStylePlaceholder（run 样式占位）', () => {
+  it('从紧邻的 end marker 注释节点恢复批注 id', () => {
+    const root = buildRealReviewedDoc({ commentId: '0' })
+    expect(commentIdFromStylePlaceholder(placeholderOf(root))).toBe('0')
+  })
+
+  it('end marker id 原样返回（特殊字符 id 不经选择器）', () => {
+    const root = el('div')
+    const p = append(root, el('p'))
+    append(p, comment('end of comment #a"b c\\d'))
+    const placeholder = append(p, el('span', 'docx_commentreference'))
+    expect(commentIdFromStylePlaceholder(placeholder)).toBe('a"b c\\d')
+  })
+
+  it('越界：占位是首个子节点（无 previousSibling）或游离时返回 null', () => {
+    const root = el('div')
+    const p = append(root, el('p'))
+    const orphan = append(p, el('span', 'docx_commentreference'))
+    expect(commentIdFromStylePlaceholder(orphan)).toBeNull()
+
+    const detached = el('span', 'docx_commentreference')
+    expect(commentIdFromStylePlaceholder(detached)).toBeNull()
+  })
+
+  it('错误邻接：相邻是 range-start、正文文本、普通元素或引用标记时返回 null，不臆测 id', () => {
+    const root = el('div')
+
+    const withStart = append(root, el('p'))
+    append(withStart, comment('start of comment #0'))
+    expect(commentIdFromStylePlaceholder(append(withStart, el('span', 'docx_commentreference')))).toBeNull()
+
+    const withText = append(root, el('p'))
+    append(withText, new FakeTextNode('、'))
+    expect(commentIdFromStylePlaceholder(append(withText, el('span', 'docx_commentreference')))).toBeNull()
+
+    const withElement = append(root, el('p'))
+    append(withElement, el('b'))
+    expect(commentIdFromStylePlaceholder(append(withElement, el('span', 'docx_commentreference')))).toBeNull()
+
+    const withReference = append(root, el('p'))
+    append(withReference, comment('comment #7 by 张律师 on 2026/9/4'))
+    expect(commentIdFromStylePlaceholder(append(withReference, el('span', 'docx_commentreference')))).toBeNull()
+  })
+})
+
+describe('commentIdFromActivatedElement：run 样式占位形态', () => {
+  it('真实形态：点击占位 span 经组合选择器最近祖先命中其批注 id', () => {
+    const fake = createFakeEnvironment({ root: null })
+    const root = buildRealReviewedDoc({ commentId: '0' })
+
+    expect(commentIdFromActivatedElement(fake.env, root, placeholderOf(root), 'word')).toBe('0')
+  })
+
+  it('两种形态共存：原生气泡与样式占位各自解析，互不串扰', () => {
+    const fake = createFakeEnvironment({ root: null })
+    const root = el('div', 'docx-wrapper')
+    const section = append(root, el('section', 'docx'))
+    const placeholderParagraph = append(section, el('p'))
+    append(placeholderParagraph, comment('start of comment #0'))
+    append(placeholderParagraph, comment('end of comment #0'))
+    const placeholder = append(placeholderParagraph, el('span', 'docx_commentreference'))
+    const bubbleParagraph = append(section, el('p'))
+    append(bubbleParagraph, comment('comment #7 by 张律师 on 2026/9/4'))
+    const bubble = append(bubbleParagraph, el('span', 'docx-comment-ref'))
+    append(bubbleParagraph, el('div', 'docx-comment-popover'))
+
+    expect(commentIdFromActivatedElement(fake.env, root, placeholder, 'word')).toBe('0')
+    expect(commentIdFromActivatedElement(fake.env, root, bubble, 'word')).toBe('7')
+  })
+
+  it('组合选择器语义与浏览器 querySelectorAll 一致：并集、文档序、去重', () => {
+    const fake = createFakeEnvironment({ root: null })
+    const root = el('div')
+    const both = append(root, el('span', 'docx-comment-ref docx_commentreference'))
+    const placeholderOnly = append(root, el('span', 'docx_commentreference'))
+    const bubbleOnly = append(root, el('span', 'docx-comment-ref'))
+
+    const found = fake.env.querySelectorAll(root, WORD_VIEW_ACTIVATABLE_SELECTOR)
+
+    expect(found).toEqual([both, placeholderOnly, bubbleOnly])
+  })
+
+  it('选择器常量互相咬合：组合式＝原生气泡 + 样式占位', () => {
+    expect(WORD_VIEW_REF_SELECTOR).toBe('.docx-comment-ref')
+    expect(WORD_VIEW_PLACEHOLDER_SELECTOR).toBe('.docx_commentreference')
+    expect(WORD_VIEW_ACTIVATABLE_SELECTOR).toBe('.docx-comment-ref, .docx_commentreference')
+  })
+
+  it('正向导航不回归：真实占位形态（无引用标记）仍经范围标记命中范围段落', () => {
+    const fake = createFakeEnvironment({ root: null })
+    const root = buildRealReviewedDoc({ commentId: '0' })
+    const comment: DocComment = { ...exactWordComment, id: '0', anchor: { status: 'exact', paragraphIndex: 0, quote: '正文' } }
+    const input = wordCommentNavigationInput(comment)
+
+    const result = resolveCommentTarget(fake.env, root, input.anchor, input.options)
+
+    expect(result.ok).toBe(true)
+    if (result.ok) {
+      expect(result.target.kind).toBe('range-marker')
+      expect(result.target.element.tagName).toBe('p')
+    }
   })
 })
 

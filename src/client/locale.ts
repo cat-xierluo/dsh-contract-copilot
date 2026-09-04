@@ -83,6 +83,7 @@ const zh = {
   'doc.simpleView': '简版（修订高亮）',
   'doc.renderFailed': 'Word 渲染失败，已显示简版',
   'doc.selectPrompt': '选择左侧审查任务查看文档。',
+  'doc.commentMarker': '查看这条批注',
   'progress.aria': '合同审查进度',
 
   // 律师逐项决策面板
@@ -219,6 +220,7 @@ const en: WorkbenchMessages = {
   'doc.simpleView': 'Simple (tracked changes)',
   'doc.renderFailed': 'Word rendering failed; showing the simple view',
   'doc.selectPrompt': 'Select a review on the left to view its document.',
+  'doc.commentMarker': 'View this comment',
   'progress.aria': 'Contract review progress',
 
   'decision.panelTitle': 'Lawyer decisions, item by item',

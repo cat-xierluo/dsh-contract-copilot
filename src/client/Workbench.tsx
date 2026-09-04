@@ -21,13 +21,17 @@ import {
 } from './decision-model.ts'
 import {
   commentIdFromActivatedElement,
+  commentIdFromStylePlaceholder,
   createCommentNavigator,
   createDomNavigationEnvironment,
   simpleCommentNavigationInput,
   wordCommentNavigationInput,
+  WORD_VIEW_ACTIVATABLE_SELECTOR,
+  WORD_VIEW_PLACEHOLDER_SELECTOR,
   type CommentNavigator,
   type CommentNavigationInput,
   type CommentMissReason,
+  type CommentViewKind,
   type NavElement,
   type NavNode,
   type NavigationEnvironment,
@@ -251,6 +255,8 @@ export const insDelCss = `
   .ccp-doc sup.cc-comment { color:#2f5aae; cursor:help; margin:0 1px; }
   .ccp-btn:disabled { opacity: 0.45; cursor: default; }
   .ccp-field::placeholder { color: ${token('--dsw-alias-label-tertiary', '#a8a6a1')}; }
+  .ccp-docx-word .docx_commentreference { cursor: pointer; color:var(--dsw-alias-state-business-primary, #2f5aae); margin:0 1px; }
+  .ccp-docx-word .docx_commentreference:focus-visible { outline:2px solid var(--dsw-alias-state-business-primary, #2f5aae); outline-offset:1px; }
 `
 
 // ---------------------------------------------------------------------------
@@ -260,12 +266,16 @@ export const insDelCss = `
 
 /**
  * renderAsync options for the Word view. `renderComments: true` makes
- * docx-preview emit the comment markers the navigator anchors on. `className:
- * 'docx'` is passed explicitly: docx-preview interpolates every document-side
- * class as `${options.className}-…` (`.docx-comment-ref` bubbles, popovers,
- * `.docx-wrapper`), so pinning it here — rather than relying on the library's
- * `defaultOptions` merge — is what keeps `.docx-comment-ref` and the anchors
- * built on it stable across docx-preview upgrades (0.4.0 dist verified).
+ * docx-preview emit the comment markers the navigator anchors on — in either
+ * of the two 0.4.0 forms (native `.docx-comment-ref` bubbles, or the empty
+ * `.docx_commentreference` run-style placeholder that real reviewed DOCXes
+ * produce; see comment-navigation.ts). `className: 'docx'` is passed
+ * explicitly: docx-preview interpolates every document-side class as
+ * `${options.className}-…` (and derives the placeholder from the
+ * CommentReference style name), so pinning it here — rather than relying on
+ * the library's `defaultOptions` merge — is what keeps both marker classes
+ * and the anchors built on them stable across docx-preview upgrades (0.4.0
+ * dist verified).
  */
 export function wordRenderOptions(): {
   className: string
@@ -463,6 +473,78 @@ export function navigationGateFor(
   if (handledKey === navigationRequestKey(sessionId, request.seq)) return 'skip'
   if (view === 'word' && !wordReady) return 'hold'
   return 'execute'
+}
+
+// ---------------------------------------------------------------------------
+// Word-view placeholder entry points: docx-preview's run-style placeholder
+// (`.docx_commentreference`, an empty span) is upgraded after renderAsync into
+// a visible, perceivable, keyboard-operable comment entry. All rules and
+// listeners stay scoped to the Word holder — never document-wide.
+// ---------------------------------------------------------------------------
+
+/** Structural element face: real DOM Elements satisfy it, tests use recording fakes. */
+export interface EnhanceableMarker {
+  getAttribute(name: string): string | null
+  setAttribute(name: string, value: string): void
+  textContent: string
+  /** Adjacent previous node — only its textContent matters for id recovery. */
+  readonly previousSibling: { readonly textContent: string | null } | null
+}
+
+export interface EnhanceableMarkerRoot {
+  querySelectorAll(selector: string): ArrayLike<EnhanceableMarker>
+}
+
+/** Entry glyph; matches docx-preview's native bubble so both forms read the same. */
+export const WORD_COMMENT_MARKER_GLYPH = '💬'
+
+/**
+ * Upgrade every placeholder that resolves to a real comment anchor (id
+ * recovered from the adjacent end marker): button semantics, tab stop,
+ * localized accessible name / hover title, and the entry glyph. Placeholders
+ * that cannot be resolved stay untouched — no dead buttons. Idempotent: the
+ * glyph is only written into an empty span. Returns the upgraded count.
+ */
+export function enhanceWordCommentMarkers(root: EnhanceableMarkerRoot, ariaLabel: string): number {
+  const markers = root.querySelectorAll(WORD_VIEW_PLACEHOLDER_SELECTOR)
+  let enhanced = 0
+  for (let index = 0; index < markers.length; index += 1) {
+    const marker = markers[index]
+    if (marker === undefined) continue
+    if (commentIdFromStylePlaceholder(marker) === null) continue
+    marker.setAttribute('role', 'button')
+    marker.setAttribute('tabindex', '0')
+    marker.setAttribute('aria-label', ariaLabel)
+    marker.setAttribute('title', ariaLabel)
+    if (marker.textContent === '') marker.textContent = WORD_COMMENT_MARKER_GLYPH
+    enhanced += 1
+  }
+  return enhanced
+}
+
+/** Activation keys for the enhanced entry: Enter and Space, exactly as for a native button. */
+export function isCommentActivationKey(key: string): boolean {
+  return key === 'Enter' || key === ' '
+}
+
+/**
+ * One reverse-activation path shared by click and keyboard: resolve the event
+ * target through `commentIdFromActivatedElement` and report whether it hit.
+ * Callers react on `true` (the keyboard caller also preventDefaults, so Space
+ * keeps scrolling everywhere else).
+ */
+export function activateCommentFromTarget(
+  env: NavigationEnvironment,
+  root: NavElement,
+  target: NavNode | null,
+  view: CommentViewKind,
+  onActivated: (view: CommentViewKind, refId: string) => void,
+): boolean {
+  if (target === null) return false
+  const refId = commentIdFromActivatedElement(env, root, target, view)
+  if (refId === null) return false
+  onActivated(view, refId)
+  return true
 }
 
 // ---------------------------------------------------------------------------
@@ -664,6 +746,10 @@ function WordPane(props: {
         if (!alive || container === null) return
         container.innerHTML = ''
         await renderAsync(blob, container, undefined, wordRenderOptions())
+        // Real reviewed DOCXes emit run-style placeholders instead of native
+        // reference bubbles; upgrade them into activatable entry points before
+        // anything can try to click or tab into them.
+        enhanceWordCommentMarkers(container, label('doc.commentMarker'))
         if (alive) setWordReady(true)
       } catch (caught) {
         if (!alive || controller.signal.aborted) return
@@ -699,25 +785,34 @@ function WordPane(props: {
 
   // Reverse navigation (document → sidebar): one delegated click listener on
   // the *current* view root only — never document-wide — so the two id spaces
-  // cannot cross-fire. Detached on session switch, view switch, re-render, and
-  // unmount.
+  // cannot cross-fire. Enter/Space on an enhanced placeholder (or a focused
+  // native bubble) flows through the exact same activateCommentFromTarget call;
+  // preventDefault fires only on a hit, so Space keeps scrolling everywhere
+  // else. Detached on session switch, view switch, re-render, and unmount.
   useEffect(() => {
     if (props.onCommentRefActivated === undefined) return
     const root = mode === 'word' ? wordHolder.current : simpleHolder.current
     if (root === null) return
-    const handler = (event: MouseEvent): void => {
-      const target = event.target
-      if (target === null) return
-      const refId = commentIdFromActivatedElement(
+    const onActivated = props.onCommentRefActivated
+    const activate = (target: EventTarget | null): boolean =>
+      activateCommentFromTarget(
         getEnvironment(),
         root as unknown as NavElement,
-        target as unknown as NavNode,
+        target as unknown as NavNode | null,
         mode,
+        onActivated,
       )
-      if (refId !== null) props.onCommentRefActivated?.(mode, refId)
+    const clickHandler = (event: MouseEvent): void => { activate(event.target) }
+    const keyHandler = (event: KeyboardEvent): void => {
+      if (!isCommentActivationKey(event.key)) return
+      if (activate(event.target)) event.preventDefault()
     }
-    root.addEventListener('click', handler)
-    return () => { root.removeEventListener('click', handler) }
+    root.addEventListener('click', clickHandler)
+    root.addEventListener('keydown', keyHandler)
+    return () => {
+      root.removeEventListener('click', clickHandler)
+      root.removeEventListener('keydown', keyHandler)
+    }
   }, [mode, props.sessionId, renderVersion, props.onCommentRefActivated])
 
   return (

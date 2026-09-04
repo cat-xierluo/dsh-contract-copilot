@@ -48,8 +48,17 @@ import {
   commentBodyExcerpt,
   commentAriaLabel,
   commentOpenUpdate,
+  activateCommentFromTarget,
+  enhanceWordCommentMarkers,
+  isCommentActivationKey,
+  WORD_COMMENT_MARKER_GLYPH,
 } from '../src/client/Workbench.tsx'
-import type { CommentMissReason } from '../src/client/comment-navigation.ts'
+import {
+  WORD_VIEW_PLACEHOLDER_SELECTOR,
+  type NavElement,
+  type NavigationEnvironment,
+  type NavNode,
+} from '../src/client/comment-navigation.ts'
 import { WORKBENCH_RPC_CHANNEL, type DocComment } from '../src/workbench-protocol.ts'
 
 describe('ContractCopilotClient', () => {
@@ -442,5 +451,172 @@ describe('侧栏批注按钮：选中态与 ref/data 注册', () => {
     expect(registry.get('7')).toBe(node)
     upsertCommentButtonRef(registry, '7', null)
     expect(registry.has('7')).toBe(false)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// word 视图 run 样式占位（真实 reviewed DOCX 形态）：可见、可感知、键盘可操作
+// ---------------------------------------------------------------------------
+
+/** 结构化假占位：记录 setAttribute 与文本写入，previousSibling 只暴露 textContent。 */
+function enhanceFakeMarker(prevText: string | null, initialText = ''): {
+  attrs: Record<string, string>
+  textContent: string
+  previousSibling: { readonly textContent: string | null } | null
+  getAttribute(name: string): string | null
+  setAttribute(name: string, value: string): void
+} {
+  const attrs: Record<string, string> = {}
+  return {
+    attrs,
+    textContent: initialText,
+    previousSibling: prevText === null ? null : { textContent: prevText },
+    getAttribute(name) {
+      return Object.hasOwn(attrs, name) ? attrs[name]! : null
+    },
+    setAttribute(name, value) {
+      attrs[name] = value
+    },
+  }
+}
+
+function enhanceFakeRoot(markers: readonly ReturnType<typeof enhanceFakeMarker>[], selectors: string[]): {
+  querySelectorAll(selector: string): ArrayLike<(typeof markers)[number]>
+} {
+  return {
+    querySelectorAll(selector: string) {
+      selectors.push(selector)
+      return markers
+    },
+  }
+}
+
+describe('enhanceWordCommentMarkers：run 样式占位升级为批注入口', () => {
+  it('只按占位选择器查询，可解析的占位获得按钮语义、可达名称与入口字形', () => {
+    const selectors: string[] = []
+    const ariaLabel = '查看这条批注'
+    const marker = enhanceFakeMarker('end of comment #0')
+    const root = enhanceFakeRoot([marker], selectors)
+
+    const enhanced = enhanceWordCommentMarkers(root, ariaLabel)
+
+    expect(selectors).toEqual([WORD_VIEW_PLACEHOLDER_SELECTOR])
+    expect(enhanced).toBe(1)
+    expect(marker.attrs).toEqual({
+      role: 'button',
+      tabindex: '0',
+      'aria-label': ariaLabel,
+      title: ariaLabel,
+    })
+    expect(marker.textContent).toBe(WORD_COMMENT_MARKER_GLYPH)
+  })
+
+  it('不可解析的占位（无相邻节点/错误邻接）保持原样且不计数，不制造死按钮', () => {
+    const selectors: string[] = []
+    const orphan = enhanceFakeMarker(null)
+    const wrongAdjacent = enhanceFakeMarker('start of comment #0')
+    const root = enhanceFakeRoot([orphan, wrongAdjacent], selectors)
+
+    const enhanced = enhanceWordCommentMarkers(root, '查看这条批注')
+
+    expect(enhanced).toBe(0)
+    expect(orphan.attrs).toEqual({})
+    expect(wrongAdjacent.attrs).toEqual({})
+    expect(orphan.textContent).toBe('')
+    expect(wrongAdjacent.textContent).toBe('')
+  })
+
+  it('重复执行幂等：已有字形不重复写入', () => {
+    const selectors: string[] = []
+    const marker = enhanceFakeMarker('end of comment #0', WORD_COMMENT_MARKER_GLYPH)
+    const root = enhanceFakeRoot([marker], selectors)
+
+    enhanceWordCommentMarkers(root, '查看这条批注')
+
+    expect(marker.textContent).toBe(WORD_COMMENT_MARKER_GLYPH)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// 反向激活共用路径：click 与 Enter/Space 走同一个函数
+// ---------------------------------------------------------------------------
+
+/** 反向激活用的最小环境：命中集合静态给定，其余副作用为 no-op。 */
+function staticHitEnv(hits: readonly NavElement[]): NavigationEnvironment {
+  return {
+    commentNodes: () => [],
+    querySelectorAll: () => hits,
+    scrollIntoView: () => {},
+    focus: () => {},
+    addClass: () => {},
+    removeClass: () => {},
+    setTimeout: () => 0,
+    clearTimeout: () => {},
+  }
+}
+
+function fakeWordMarkerNode(className: string, prevText: string | null): NavElement {
+  return {
+    nodeType: 1,
+    tagName: 'span',
+    getAttribute: (name: string) => (name === 'class' ? className : null),
+    textContent: '',
+    parentElement: null,
+    nextElementSibling: null,
+    previousSibling: prevText === null ? null : ({ textContent: prevText } as unknown as NavNode),
+  } as unknown as NavElement
+}
+
+describe('反向激活共用路径（click 与 Enter/Space 共用）', () => {
+  it('激活键只有 Enter 与空格；其余键不拦截', () => {
+    expect(isCommentActivationKey('Enter')).toBe(true)
+    expect(isCommentActivationKey(' ')).toBe(true)
+    expect(isCommentActivationKey('Enter ')).toBe(false)
+    expect(isCommentActivationKey('Spacebar')).toBe(false)
+    expect(isCommentActivationKey('a')).toBe(false)
+    expect(isCommentActivationKey('Escape')).toBe(false)
+  })
+
+  it('click 与键盘共用 activateCommentFromTarget：命中即回调并报告 true', () => {
+    const placeholder = fakeWordMarkerNode('docx_commentreference', 'end of comment #0')
+    const root = { nodeType: 1, tagName: 'div' } as unknown as NavElement
+    const activated: Array<readonly ['word' | 'simple', string]> = []
+
+    const fromClick = activateCommentFromTarget(staticHitEnv([placeholder]), root, placeholder, 'word', (view, refId) => activated.push([view, refId]))
+    const fromKeyboard = activateCommentFromTarget(staticHitEnv([placeholder]), root, placeholder, 'word', (view, refId) => activated.push([view, refId]))
+
+    expect(fromClick).toBe(true)
+    expect(fromKeyboard).toBe(true)
+    expect(activated).toEqual([['word', '0'], ['word', '0']])
+  })
+
+  it('原生气泡与占位两条路径都可用；未命中返回 false 且不回调', () => {
+    const bubble = fakeWordMarkerNode('docx-comment-ref', 'comment #7 by 张律师 on 2026/9/4')
+    const root = { nodeType: 1, tagName: 'div' } as unknown as NavElement
+    const activated: string[] = []
+
+    expect(activateCommentFromTarget(staticHitEnv([bubble]), root, bubble, 'word', (_view, refId) => activated.push(refId))).toBe(true)
+    expect(activated).toEqual(['7'])
+    expect(activateCommentFromTarget(staticHitEnv([bubble]), root, { nodeType: 1, parentElement: null } as unknown as NavNode, 'word', () => activated.push('miss'))).toBe(false)
+    expect(activateCommentFromTarget(staticHitEnv([bubble]), root, null, 'word', () => activated.push('miss'))).toBe(false)
+    expect(activated).toEqual(['7'])
+  })
+})
+
+describe('word 占位入口样式：限定在 Word 视图容器内', () => {
+  it('占位相关规则全部以 .ccp-docx-word 开头，不污染全局', () => {
+    const placeholderRules = [...insDelCss.matchAll(/([^{}]+)\{([^{}]*)\}/g)]
+      .map((match) => match[1].trim())
+      .filter((selector) => selector.includes(WORD_VIEW_PLACEHOLDER_SELECTOR))
+    expect(placeholderRules.length).toBeGreaterThanOrEqual(2)
+    for (const selector of placeholderRules) {
+      expect(selector.startsWith(`.${WORD_VIEW_HOLDER_CLASS}`), `选择器未限定容器：${selector}`).toBe(true)
+    }
+  })
+
+  it('提供键盘焦点环与指针反馈，颜色走 DSH 主题 token', () => {
+    expect(insDelCss).toContain('.ccp-docx-word .docx_commentreference:focus-visible')
+    expect(insDelCss).toContain('cursor: pointer')
+    expect(insDelCss).toContain('var(--dsw-alias-state-business-primary')
   })
 })

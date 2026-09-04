@@ -10,8 +10,16 @@
  *   - renderComments 开启时，批注范围/引用以 XML 注释节点落 DOM：
  *       `start of comment #<id>`、`end of comment #<id>`、
  *       `comment #<id> by <author> on <date>`（date 经 toLocaleString，不可依赖）。
- *   - 引用气泡 span.<className>-comment-ref 与气泡 div.<className>-comment-popover
- *     是引用注释节点的相邻后续兄弟（h("#fragment") 展开进段落）。
+ *   - 批注锚点在真实文档里有两种形态（同页可共存）：
+ *       ① 引用气泡形态：comment 出现在 commentsPart.commentMap 时，
+ *          renderCommentReference 输出引用注释节点 + 气泡
+ *          span.<className>-comment-ref（'💬'）+ div.<className>-comment-popover。
+ *       ② run 样式占位形态：锚点 run 只带 Word 内置「CommentReference」字符
+ *          样式时，comment 不在 commentMap 里则 renderCommentReference 返回
+ *          null（无引用注释节点、无气泡），仅剩 toH 按 processStyleName 生成的
+ *          空 span.docx_commentreference，紧跟 end-of-comment 注释节点——真实
+ *          reviewed DOCX 验收实测即此形态，反向定位由
+ *          commentIdFromStylePlaceholder 从紧邻 end marker 恢复 id。
  *   - 范围高亮走 CSS Custom Highlight API（Range 存于 renderer 私有 commentMap，
  *     不对外暴露），Highlight 不可用时仅失去范围底色，导航不受影响。
  *   - ref/popover/wrapper class 全部是 `${options.className}-…` 插值；0.4.0 的
@@ -83,6 +91,22 @@ export function parseCommentMarkerText(text: string | null): CommentMarker | nul
 export function commentIdFromRefElement(element: NavElement): string | null {
   const marker = parseCommentMarkerText(element.previousSibling?.textContent ?? null)
   return marker?.kind === 'reference' ? marker.commentId : null
+}
+
+/** 仅依赖 previousSibling.textContent 的最小结构；真实 Element 与假元素都满足。 */
+export interface AdjacentMarkerSibling {
+  readonly previousSibling: { readonly textContent: string | null } | null
+}
+
+/**
+ * 反向定位（run 样式占位形态）：锚点 run 只带「CommentReference」字符样式时，
+ * 占位 span 紧跟在 end-of-comment 注释节点之后，从 previousSibling 恢复批注 id。
+ * 越界（无相邻节点）或错误邻接（range-start/正文文本/引用标记等）返回 null，
+ * 不臆测 id。
+ */
+export function commentIdFromStylePlaceholder(element: AdjacentMarkerSibling): string | null {
+  const marker = parseCommentMarkerText(element.previousSibling?.textContent ?? null)
+  return marker?.kind === 'range-end' ? marker.commentId : null
 }
 
 // ---------------------------------------------------------------------------
@@ -357,6 +381,21 @@ export function resolveCommentTarget(
 
 /** docx-preview（Word 视图）引用气泡 class。 */
 export const WORD_VIEW_REF_SELECTOR = '.docx-comment-ref'
+/** 引用气泡 class token（WORD_VIEW_REF_SELECTOR 去掉前导点，供 class 精确匹配）。 */
+export const WORD_VIEW_BUBBLE_CLASS = 'docx-comment-ref'
+/**
+ * run 样式占位选择器（0.4.0 第二种实测形态）：锚点 run 只带 Word 内置
+ * 「CommentReference」字符样式、没有 w:commentReference 时，docx-preview 经
+ * toH/processStyleName 把 styleName 插值为 `${className}_${escapeClassName(styleName)}`
+ * 的空 span（className 'docx' → `.docx_commentreference`）。它紧跟 end-of-comment
+ * 注释节点，页面上没有引用注释节点，也没有原生气泡。
+ */
+export const WORD_VIEW_PLACEHOLDER_SELECTOR = '.docx_commentreference'
+/**
+ * 反向激活的组合选择器：原生气泡或 run 样式占位。逗号并集与浏览器
+ * querySelectorAll 语义一致（文档序、去重），最近祖先命中后按 class 分派解析。
+ */
+export const WORD_VIEW_ACTIVATABLE_SELECTOR = `${WORD_VIEW_REF_SELECTOR}, ${WORD_VIEW_PLACEHOLDER_SELECTOR}`
 /** 简版视图（docx-view.ts）引用气泡 class 与正文/气泡打点属性。 */
 export const SIMPLE_VIEW_REF_SELECTOR = '.cc-comment'
 export const SIMPLE_VIEW_ATTRIBUTE_NAME = 'data-cc-anchor'
@@ -412,9 +451,28 @@ function closestWithinRoot(
   return chain.find((candidate) => matches.includes(candidate)) ?? null
 }
 
+/** 判断元素是否带指定 class token（class 属性按空白拆分精确匹配）。 */
+function hasClassToken(element: NavElement, token: string): boolean {
+  const className = element.getAttribute('class')
+  return className !== null && className.split(/\s+/).includes(token)
+}
+
+/**
+ * 从 word 视图的反向激活目标解析批注 id，按命中元素的实际形态分派：
+ * - 原生气泡（.docx-comment-ref）：previousSibling 是引用注释节点；
+ * - run 样式占位（.docx_commentreference）：previousSibling 是 end 注释节点。
+ * 两者都携带 OOXML w:id；越界或错误邻接返回 null，不臆测 id。
+ */
+export function commentIdFromWordMarker(element: NavElement): string | null {
+  return hasClassToken(element, WORD_VIEW_BUBBLE_CLASS)
+    ? commentIdFromRefElement(element)
+    : commentIdFromStylePlaceholder(element)
+}
+
 /**
  * 从正文点击目标解析所属批注 id，供工作台选中对应侧栏条目：
- * - word：root 内最近的 `.docx-comment-ref`，经相邻引用注释节点解析
+ * - word：root 内最近的批注入口（原生气泡 `.docx-comment-ref` 或 run 样式
+ *   占位 `.docx_commentreference`，组合选择器并集语义），按形态分派解析
  *   OOXML w:id（匹配 DocComment.id）。
  * - simple：root 内最近的 `.cc-comment`，读取打点属性 data-cc-anchor
  *   （匹配 DocComment.anchorId）。
@@ -427,10 +485,10 @@ export function commentIdFromActivatedElement(
   target: NavNode | null,
   view: CommentViewKind,
 ): string | null {
-  const selector = view === 'word' ? WORD_VIEW_REF_SELECTOR : SIMPLE_VIEW_REF_SELECTOR
+  const selector = view === 'word' ? WORD_VIEW_ACTIVATABLE_SELECTOR : SIMPLE_VIEW_REF_SELECTOR
   const ref = closestWithinRoot(env, root, target, selector)
   if (ref === null) return null
-  if (view === 'word') return commentIdFromRefElement(ref)
+  if (view === 'word') return commentIdFromWordMarker(ref)
   const anchorId = ref.getAttribute(SIMPLE_VIEW_ATTRIBUTE_NAME)
   return anchorId === null || anchorId === '' ? null : anchorId
 }
