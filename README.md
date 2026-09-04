@@ -5,7 +5,7 @@
 - 设计稿：`docs/2026-08-18-dsh-plugin-design.md`
 - 原 skill：`legal-skills/skills/contract-copilot/SKILL.md`（**Python 一行不动**，插件只做外壳）
 - 安装：`dsh plugin --profile lawyer add ./dsh-contract-copilot`
-- 当前阶段：**v0.2 已适配 DSH 0.1.2-rc.1，v0.3 律师决策工作台开发中**；7 个 Agent tool 与 Python CLI 保持不变，工作台将直接驱动案件专属 Agent，并在修订前执行逐 finding 律师批准
+- 当前阶段：**v0.2 已适配 DSH 0.1.2-rc.1，v0.3 律师决策工作台进入候选验收**；7 个 Agent tool 与 Python CLI 保持不变，工作台可直接驱动案件专属 Agent，并在修订前执行逐 finding 律师批准
 
 ## 快速开始
 
@@ -21,7 +21,7 @@ dsh plugin --profile lawyer add ./dsh-contract-copilot
       enabled: true
 ```
 
-启动 DSH Web 后，侧栏底部的“合同审查”入口会打开三栏工作台：左侧是审查队列，中间是 Word 修订视图，右侧是四阶段进度、确认表单、交付产物和最近操作记录。工作台所有 RPC、实时事件和 DOCX 下载都复用 DSH 的浏览器会话认证；headless profile 不加载界面，但 7 个工具照常工作。
+启动 DSH Web 后，侧栏底部的“合同审查”入口会打开三栏工作台：左侧是审查队列，中间是 Word 修订视图，右侧是“前置信息 → 风险分析 → 律师决策 → 修订交付 → 完成”五阶段进度。律师可逐项选择按建议处理、仅批注、仅意见书或忽略，调整风险等级、填写内部备注，再批准方案并让同一 Agent 继续交付。工作台所有 RPC、实时事件和 DOCX 下载都复用 DSH 的浏览器会话认证；headless profile 不加载界面，但 7 个工具及批准门仍照常工作。
 
 ## 项目协议
 

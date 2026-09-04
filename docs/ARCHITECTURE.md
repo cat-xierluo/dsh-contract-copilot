@@ -52,7 +52,8 @@ src/
 ├── client/
 │   ├── index.tsx            # 官方 sidebar.footer.action 注册
 │   ├── api.ts               # 浏览器侧认证传输适配器
-│   └── Workbench.tsx        # 队列、Word、四阶段、表单、产物与历史
+│   ├── decision-model.ts    # 五阶段与律师决定请求的纯浏览器投影
+│   └── Workbench.tsx        # 队列、Word、逐项决策、Agent 控制、产物与历史
 └── tools/
     ├── intake.ts            # §3.2.1 前置澄清（必填 summary 合并来源：args > pendingAnswers > memory > profile）
     ├── analyze.ts           # §3.2.2 分层扫描（plan 必填 summary + findings）
