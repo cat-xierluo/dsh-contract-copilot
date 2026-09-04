@@ -35,11 +35,19 @@ import {
   commentNavigationInputFor,
   wordRenderOptions,
   navigationGateFor,
+  navigationRequestKey,
   findDocCommentByRefId,
   commentRowStyle,
   COMMENT_ENTRY_DATA_ATTRIBUTE,
   commentEntryAttributes,
   upsertCommentButtonRef,
+  sessionNavigationReset,
+  SESSION_NAVIGATION_RESET_KEYS,
+  sidebarCommentEntries,
+  authorShortName,
+  commentBodyExcerpt,
+  commentAriaLabel,
+  commentOpenUpdate,
 } from '../src/client/Workbench.tsx'
 import type { CommentMissReason } from '../src/client/comment-navigation.ts'
 import { WORKBENCH_RPC_CHANNEL, type DocComment } from '../src/workbench-protocol.ts'
@@ -318,15 +326,87 @@ describe('workbench comment navigation', () => {
 
 describe('navigationGateFor 渲染就绪门控', () => {
   it('word 视图未就绪时 hold，就绪后 execute；simple 视图无需等待渲染', () => {
-    expect(navigationGateFor(undefined, 'word', false, 0)).toBe('skip')
-    expect(navigationGateFor({ seq: 1 }, 'word', false, 0)).toBe('hold')
-    expect(navigationGateFor({ seq: 1 }, 'word', true, 0)).toBe('execute')
-    expect(navigationGateFor({ seq: 1 }, 'simple', false, 0)).toBe('execute')
+    expect(navigationGateFor(undefined, 'word', false, null, 's1')).toBe('skip')
+    expect(navigationGateFor({ seq: 1 }, 'word', false, null, 's1')).toBe('hold')
+    expect(navigationGateFor({ seq: 1 }, 'word', true, null, 's1')).toBe('execute')
+    expect(navigationGateFor({ seq: 1 }, 'simple', false, null, 's1')).toBe('execute')
   })
 
-  it('同一 seq 至多执行一次；重复点击产生新 seq 仍然执行', () => {
-    expect(navigationGateFor({ seq: 3 }, 'word', true, 3)).toBe('skip')
-    expect(navigationGateFor({ seq: 4 }, 'word', true, 3)).toBe('execute')
+  it('同 session 同 seq 至多执行一次；重复点击产生新 seq 仍然执行', () => {
+    expect(navigationGateFor({ seq: 3 }, 'word', true, navigationRequestKey('s1', 3), 's1')).toBe('skip')
+    expect(navigationGateFor({ seq: 4 }, 'word', true, navigationRequestKey('s1', 3), 's1')).toBe('execute')
+  })
+
+  it('session 切换后 seq 从 1 重新计数，旧 session 的水位不得吞掉新 session 的首击', () => {
+    // WordPane 在 session 切换时复用实例（无 remount），水位必须以 session 为键
+    expect(navigationRequestKey('s1', 1)).not.toBe(navigationRequestKey('s2', 1))
+    expect(navigationGateFor({ seq: 1 }, 'word', true, navigationRequestKey('s1', 1), 's2')).toBe('execute')
+    expect(navigationGateFor({ seq: 1 }, 'simple', true, navigationRequestKey('s1', 1), 's2')).toBe('execute')
+  })
+})
+
+describe('session 激活的导航状态清理', () => {
+  it('统一激活路径的重置补丁覆盖请求、选中与聚焦序号；按钮 registry 一并清空', () => {
+    expect(SESSION_NAVIGATION_RESET_KEYS).toEqual([
+      'navigationRequest', 'selectedCommentId', 'commentFocusSeq', 'commentButtonRegistry',
+    ])
+    expect(sessionNavigationReset()).toEqual({ navigationRequest: undefined, selectedCommentId: undefined, commentFocusSeq: 0 })
+  })
+})
+
+describe('侧栏批注条目：全量渲染与可访问名称', () => {
+  const many: DocComment[] = Array.from({ length: 13 }, (_, index) => ({
+    id: String(index + 1),
+    author: index === 0 ? '张三｜法务' : '李四',
+    text: `第 ${String(index + 1)} 条批注正文`,
+    anchorId: `ccm-${String(index).padStart(8, '0')}`,
+    anchor: { status: 'exact', paragraphIndex: index, quote: '引文' },
+  }))
+
+  it('每一条 DocComment 都有条目，第 13 条不再被截断（否则正文→侧栏命中无按钮可聚焦）', () => {
+    const entries = sidebarCommentEntries(many, '13')
+    expect(entries).toHaveLength(13)
+    expect(entries[12]?.attributes).toEqual({ 'data-cc-comment-entry': '13' })
+    expect(entries[12]?.selected).toBe(true)
+    expect(entries[0]?.selected).toBe(false)
+    expect(entries.map(entry => entry.comment)).toEqual(many)
+  })
+
+  it('作者短名去掉角色后缀，与侧栏可见行同一约定', () => {
+    expect(authorShortName('张三｜法务')).toBe('张三')
+    expect(authorShortName('李四')).toBe('李四')
+    expect(authorShortName('')).toBe('')
+  })
+
+  it('正文摘录按 120 字截断并带省略号，短文原样', () => {
+    expect(commentBodyExcerpt('短文本')).toBe('短文本')
+    expect(commentBodyExcerpt('长'.repeat(121))).toBe(`${'长'.repeat(120)}…`)
+  })
+
+  it('aria-label 由作者短名 + 正文摘录组合，而非仅正文', () => {
+    const comment: DocComment = { ...exactComment, author: '张三｜法务' }
+    expect(commentAriaLabel(comment)).toBe(`张三｜${comment.text}`)
+    expect(commentAriaLabel({ ...comment, author: '' })).toBe(comment.text)
+    const long: DocComment = { ...comment, author: '王五', text: 'x'.repeat(121) }
+    expect(commentAriaLabel(long)).toBe(`王五｜${'x'.repeat(120)}…`)
+  })
+})
+
+describe('侧栏打开批注：选中与导航请求同帧更新', () => {
+  it('打开即选中该条目，并生成 seq 递增的导航请求以支持重复点击', () => {
+    const first = commentOpenUpdate({}, exactComment)
+    expect(first.selectedCommentId).toBe('7')
+    expect(first.navigationRequest).toEqual({ comment: exactComment, seq: 1 })
+    const second = commentOpenUpdate({ navigationRequest: first.navigationRequest }, exactComment)
+    expect(second.selectedCommentId).toBe('7')
+    expect(second.navigationRequest.seq).toBe(2)
+  })
+
+  it('改点另一条批注时选中态跟随点击目标', () => {
+    const next = commentOpenUpdate({ navigationRequest: { comment: exactComment, seq: 5 } }, fallbackComment)
+    expect(next.selectedCommentId).toBe('9')
+    expect(next.navigationRequest.comment).toBe(fallbackComment)
+    expect(next.navigationRequest.seq).toBe(6)
   })
 })
 

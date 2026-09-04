@@ -366,16 +366,89 @@ export function findDocCommentByRefId(
     : comments.find(comment => comment.anchorId === refId)
 }
 
+/** Body length after which the sidebar excerpt is cut (visible row and aria name share it). */
+export const COMMENT_TEXT_LIMIT = 120
+
+/** Sidebar body excerpt: cut at the limit with an ellipsis, shorter text verbatim. */
+export function commentBodyExcerpt(text: string): string {
+  return text.length > COMMENT_TEXT_LIMIT ? `${text.slice(0, COMMENT_TEXT_LIMIT)}…` : text
+}
+
+/** Author without the role suffix — the same convention as the sidebar's visible row (`张三｜法务` → `张三`). */
+export function authorShortName(author: string): string {
+  return author.split('｜')[0] ?? author
+}
+
+/** Stable accessible name: author short name + body excerpt — never the body alone. */
+export function commentAriaLabel(comment: DocComment): string {
+  const name = authorShortName(comment.author)
+  const excerpt = commentBodyExcerpt(comment.text)
+  return name === '' ? excerpt : `${name}｜${excerpt}`
+}
+
+/** One sidebar comment entry button, fully derived from data (no JSX needed to test it). */
+export interface SidebarCommentEntry {
+  readonly comment: DocComment
+  readonly attributes: CommentEntryAttributes
+  readonly ariaLabel: string
+  readonly selected: boolean
+}
+
+/**
+ * One entry per DocComment — deliberately untruncated. An earlier
+ * `slice(0, 12)` broke the reverse direction: a document hit for comment 13+
+ * found no sidebar button to select or focus, dead-ending the loop.
+ */
+export function sidebarCommentEntries(comments: readonly DocComment[], selectedCommentId: string | undefined): readonly SidebarCommentEntry[] {
+  return comments.map(comment => ({
+    comment,
+    attributes: commentEntryAttributes(comment.id),
+    ariaLabel: commentAriaLabel(comment),
+    selected: comment.id === selectedCommentId,
+  }))
+}
+
+/** Pure transition for a sidebar comment click: select the entry, queue a fresh request (re-clicks re-run). */
+export function commentOpenUpdate(
+  previous: { readonly navigationRequest?: { readonly comment: DocComment; readonly seq: number } },
+  comment: DocComment,
+): { navigationRequest: { comment: DocComment; seq: number }; selectedCommentId: string } {
+  return {
+    navigationRequest: { comment, seq: (previous.navigationRequest?.seq ?? 0) + 1 },
+    selectedCommentId: comment.id,
+  }
+}
+
+/** Navigation state owned by exactly one selected session; the button registry is a ref, cleared alongside. */
+export const SESSION_NAVIGATION_RESET_KEYS = ['navigationRequest', 'selectedCommentId', 'commentFocusSeq', 'commentButtonRegistry'] as const
+
+/** Settable half of the session-activation reset (`commentButtonRefs.current.clear()` covers the registry). */
+export function sessionNavigationReset(): { navigationRequest: undefined; selectedCommentId: undefined; commentFocusSeq: 0 } {
+  return { navigationRequest: undefined, selectedCommentId: undefined, commentFocusSeq: 0 }
+}
+
 /** Decision of the render-ready gate for one pending navigation request. */
 export type NavigationGateDecision = 'skip' | 'hold' | 'execute'
 
 /**
+ * Handled watermark for one navigation request, keyed by its session. Seq
+ * restarts at 1 whenever the parent clears the request on session switch, so
+ * an unkeyed seq watermark could swallow the new session's first click
+ * (WordPane is reused across session switches, not remounted).
+ */
+export function navigationRequestKey(sessionId: string, seq: number): string {
+  return `${sessionId}::${String(seq)}`
+}
+
+/**
  * Gate for sidebar-driven navigation (CC-V4-003). A request runs at most once
- * per WordPane mount (its `seq` vs. the last handled seq — repeated clicks on
- * the same comment get a fresh seq and still run), and in the word view only
- * after renderAsync has committed the document DOM: `hold` keeps the request
- * pending and the owning effect re-runs when rendering completes. That is what
- * stops a narrow-layout click from operations (which mounts a fresh WordPane
+ * per (session, seq): the handled watermark is session-keyed (see
+ * `navigationRequestKey`), so repeated clicks get a fresh seq and still run,
+ * and a switch to another session can never be swallowed by the previous
+ * session's watermark. In the word view a request additionally waits until
+ * renderAsync has committed the document DOM: `hold` keeps it pending and the
+ * owning effect re-runs when rendering completes. That is what stops a
+ * narrow-layout click from operations (which mounts a fresh WordPane
  * mid-render) from missing against an empty document. The simple view commits
  * its DOM synchronously with the mode switch, so it never holds.
  */
@@ -383,9 +456,11 @@ export function navigationGateFor(
   request: { readonly seq: number } | undefined,
   view: 'word' | 'simple',
   wordReady: boolean,
-  lastHandledSeq: number,
+  handledKey: string | null,
+  sessionId: string,
 ): NavigationGateDecision {
-  if (request === undefined || request.seq === lastHandledSeq) return 'skip'
+  if (request === undefined) return 'skip'
+  if (handledKey === navigationRequestKey(sessionId, request.seq)) return 'skip'
   if (view === 'word' && !wordReady) return 'hold'
   return 'execute'
 }
@@ -556,7 +631,7 @@ function WordPane(props: {
   const simpleHolder = useRef<HTMLDivElement | null>(null)
   const envRef = useRef<NavigationEnvironment | null>(null)
   const navigatorRef = useRef<CommentNavigator | null>(null)
-  const handledSeqRef = useRef(0)
+  const handledKeyRef = useRef<string | null>(null)
   const [mode, setMode] = useState<'word' | 'simple'>('word')
   const [error, setError] = useState<string | undefined>(undefined)
   const [renderVersion, setRenderVersion] = useState(0)
@@ -608,18 +683,19 @@ function WordPane(props: {
 
   // Sidebar-driven navigation against the currently displayed view, executed
   // only after that view's DOM is actually present (see navigationGateFor).
+  // The handled watermark is session-keyed, so this effect also re-runs on
+  // session switch without the previous session's watermark lingering.
   useEffect(() => {
-    const gate = navigationGateFor(props.navigationRequest, mode, wordReady, handledSeqRef.current)
-    if (gate !== 'execute') return
     const request = props.navigationRequest
-    if (request === undefined) return
+    const gate = navigationGateFor(request, mode, wordReady, handledKeyRef.current, props.sessionId)
+    if (gate !== 'execute' || request === undefined) return
     const root = mode === 'word' ? wordHolder.current : simpleHolder.current
     if (root === null) return
-    handledSeqRef.current = request.seq
+    handledKeyRef.current = navigationRequestKey(props.sessionId, request.seq)
     const input = commentNavigationInputFor(request.comment, mode)
     const result = getNavigator().navigate(root as unknown as NavElement, input.anchor)
     if (!result.ok) props.onNavigationMiss?.(commentMissStatusText(result.reason))
-  }, [props.navigationRequest, mode, wordReady, props.onNavigationMiss])
+  }, [props.navigationRequest, mode, wordReady, props.sessionId, props.onNavigationMiss])
 
   // Reverse navigation (document → sidebar): one delegated click listener on
   // the *current* view root only — never document-wide — so the two id spaces
@@ -800,6 +876,33 @@ function Workbench({ client, onClose }: { readonly client: ContractCopilotClient
   const commentButtonRefs = useRef<CommentButtonRegistry>(new Map())
   const panelRef = useRef<HTMLDivElement | null>(null)
   const decisionPlanHash = useRef<string | undefined>(undefined)
+  // Latest selected id for the list/snapshot callbacks (registered once per
+  // client): first-session adoption must not override an existing selection.
+  const selectedRef = useRef<string | undefined>(undefined)
+  selectedRef.current = selected
+
+  /**
+   * Single activation path for every way a session becomes selected — user
+   * click, startReview, first-load/event adoption — so request, selection,
+   * focus and button-registry state from one session never leaks into the
+   * next (see sessionNavigationReset / SESSION_NAVIGATION_RESET_KEYS).
+   */
+  const activateSession = (id: string): void => {
+    setSelected(id)
+    const reset = sessionNavigationReset()
+    setNavigationRequest(reset.navigationRequest)
+    setSelectedCommentId(reset.selectedCommentId)
+    setCommentFocusSeq(reset.commentFocusSeq)
+    commentButtonRefs.current.clear()
+  }
+
+  /** List/snapshot refresh: adopt the first session only while nothing is selected. */
+  const adoptFirstSession = (briefs: SessionBrief[]): void => {
+    setSessions(briefs)
+    if (selectedRef.current !== undefined) return
+    const first = briefs[0]?.id
+    if (first !== undefined) activateSession(first)
+  }
 
   useEffect(() => {
     if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return
@@ -842,8 +945,7 @@ function Workbench({ client, onClose }: { readonly client: ContractCopilotClient
       try {
         const data = await client.state()
         if (!alive) return
-        setSessions(data.sessions)
-        setSelected(current => current ?? data.sessions[0]?.id)
+        adoptFirstSession(data.sessions)
         setLoadError(undefined)
       } catch (caught) {
         if (alive) setLoadError(label('notice.connectionFailed',{ message: errorMessage(caught) }))
@@ -854,8 +956,7 @@ function Workbench({ client, onClose }: { readonly client: ContractCopilotClient
     events.addEventListener('snapshot', (event) => {
       const data = JSON.parse((event as MessageEvent<string>).data) as { sessions: SessionBrief[] }
       if (!alive) return
-      setSessions(data.sessions)
-      setSelected(current => current ?? data.sessions[0]?.id)
+      adoptFirstSession(data.sessions)
     })
     events.addEventListener('session', (event) => {
       const session = JSON.parse((event as MessageEvent<string>).data) as SessionBrief
@@ -976,10 +1077,7 @@ function Workbench({ client, onClose }: { readonly client: ContractCopilotClient
     if (newContractPath.trim() === '') return
     try {
       const result = await client.startReview(newContractPath.trim())
-      setSelected(result.sessionId)
-      setAnswers({})
-      setDecisionDrafts({})
-      decisionPlanHash.current = undefined
+      selectSession(result.sessionId)
       setNewContractPath('')
       setNotice(result.nextStep)
     } catch (caught) {
@@ -1003,18 +1101,18 @@ function Workbench({ client, onClose }: { readonly client: ContractCopilotClient
   const comments: DocComment[] = doc?.comments ?? []
 
   const selectSession = (id: string): void => {
-    setSelected(id)
+    activateSession(id)
     setAnswers({})
     setDecisionDrafts({})
     decisionPlanHash.current = undefined
-    setNavigationRequest(undefined)
-    setSelectedCommentId(undefined)
   }
 
-  /** Sidebar comment click: show the document pane, then locate the comment in it. */
+  /** Sidebar comment click: show the document pane, select the entry, then locate the comment in it. */
   const openComment = (comment: DocComment): void => {
     setNarrowPane('document')
-    setNavigationRequest(previous => ({ comment, seq: (previous?.seq ?? 0) + 1 }))
+    const next = commentOpenUpdate({ navigationRequest }, comment)
+    setNavigationRequest(next.navigationRequest)
+    setSelectedCommentId(next.selectedCommentId)
   }
 
   /** Document marker click: select the matching sidebar entry, surface it on narrow, then focus it. */
@@ -1127,18 +1225,18 @@ function Workbench({ client, onClose }: { readonly client: ContractCopilotClient
         return (
           <div key={id} style={S.card}>
             <div style={{ ...S.muted, marginBottom: 6 }}>{label('comments.title', { count: comments.length })}</div>
-            {comments.slice(0, 12).map(comment => (
+            {sidebarCommentEntries(comments, selectedCommentId).map(entry => (
               <button
-                key={comment.id}
+                key={entry.comment.id}
                 type="button"
-                ref={node => upsertCommentButtonRef(commentButtonRefs.current, comment.id, node)}
-                {...commentEntryAttributes(comment.id)}
-                style={commentRowStyle(comment.id === selectedCommentId)}
-                aria-label={comment.text.slice(0, 120)}
-                onClick={() => openComment(comment)}
+                ref={node => upsertCommentButtonRef(commentButtonRefs.current, entry.comment.id, node)}
+                {...entry.attributes}
+                style={commentRowStyle(entry.selected)}
+                aria-label={entry.ariaLabel}
+                onClick={() => openComment(entry.comment)}
               >
-                <div style={{ color: token('--dsw-alias-state-business-primary', '#2f5aae'), fontWeight: 550 }}>{comment.author.split('｜')[0] ?? comment.author}</div>
-                <div style={{ color: token('--dsw-alias-label-secondary', '#5c5b59') }}>{comment.text.slice(0, 120)}{comment.text.length > 120 ? '…' : ''}</div>
+                <div style={{ color: token('--dsw-alias-state-business-primary', '#2f5aae'), fontWeight: 550 }}>{authorShortName(entry.comment.author)}</div>
+                <div style={{ color: token('--dsw-alias-label-secondary', '#5c5b59') }}>{commentBodyExcerpt(entry.comment.text)}</div>
               </button>
             ))}
           </div>
