@@ -7,7 +7,7 @@
 - 目标：修复简单视图点击侧栏批注必未命中的缺陷——Workbench 的导航效果把 `CommentNavigationInput.options`（简单视图 `data-cc-anchor` 打点属性）丢在共享 navigator 之外，属性策略按默认 `data-cc-comment-id` 寻址必然落空，每次跳转都报 `id-not-found`；同时补齐 `.cc-comment-flash` 高亮 CSS（控制器一直输出该 class，但从未有规则渲染，两套视图的高亮均不可见）。
 - 文件边界：`src/client/comment-navigation.ts`、`src/client/Workbench.tsx`、`tests/comment-navigation.spec.ts`、`tests/workbench-client.spec.ts`；不修改 Host、协议、DOCX 解析或 Python。
 - 验收：`CommentNavigator.navigate` 支持逐次视图绑定选项（逐键覆盖创建时选项）并由 Workbench 经 `executeNavigationRequest` 接缝传递；高亮规则覆盖 simple 与 word 两个文档容器且限定在文档画布内；client typecheck、全量测试与 build 通过；dsh-plugin-lint 机械层 0 FAIL。
-- 证据：`2172280`；新增 6 项测试（navigator 逐次选项契约含旧缺陷回归对照、executeNavigationRequest 接线契约、flash CSS 覆盖与可见性），262/262 通过，typecheck/build 通过，dsh-plugin-lint 0 FAIL / 0 WARN；真实浏览器复验归 CC-V4-004。
+- 证据：集成提交 `9f65ed7`；新增 6 项测试（navigator 逐次选项契约含旧缺陷回归对照、executeNavigationRequest 接线契约、flash CSS 覆盖与可见性），262/262 通过，typecheck/build 通过；Worker 的独立机械 lint 为 0 FAIL / 0 WARN，最终 DSH 基线 lint 与真实浏览器复验归 CC-V4-004。
 
 ## CC-V4-R01：`docx-preview` 批注 DOM 与导航策略验证
 
@@ -30,7 +30,7 @@
 - 目标：让工作台在 DSH 明暗主题与桌面/窄屏布局中保持一致、可读、可操作，并补齐对话框键盘焦点管理。
 - 文件边界：`src/client/Workbench.tsx`、`src/client/index.tsx` 与现有 client 测试；typed locale 模块由 CC-V4-006 单独交付；不修改 Host、协议、DOCX 解析或 Python。
 - 验收：夜间模式不再出现浅色孤岛或低对比文本；窄屏不隐藏案件操作入口；对话框具备初始焦点、Tab 环与关闭后焦点归还；UI 文案由 typed locale 字典拥有；client typecheck、聚焦测试与 build 通过。
-- 证据：`420c73a` 实现壳层，`acea9f7` 修复 typed locale 集成后通过；最终集成分支的 client typecheck、完整测试 256/256 和 build 通过。
+- 证据：`420c73a` 实现壳层，`acea9f7` 修复 typed locale 集成后通过；最终集成分支的 client typecheck、完整测试 262/262 和 build 通过。
 
 ## CC-V4-002：批注定位锚点模型
 
@@ -39,7 +39,7 @@
 - 目标：Host/协议层为 DOCX 批注和简版文档渲染提供稳定、可持久传输的定位信息，供工作台执行双向跳转与高亮。
 - 文件边界：`src/docx-view.ts`、`src/workbench-protocol.ts`、`src/host-api.ts` 及其对应测试；不修改 `src/client/Workbench.tsx`、共享文档或 Python。
 - 验收：每条批注具有稳定 id 和可解析锚点；正文输出存在可选择的对应标记；无法精确定位时保留可解释降级信息；协议/RPC 兼容简单视图与 Word 预览；聚焦测试与 build 通过。
-- 证据：`35a342e`、`b48ba5d`、`1d2868a`、`d1c909d`；最终集成分支 docx-view、host-api、完整测试 256/256 和 build 通过。
+- 证据：`35a342e`、`b48ba5d`、`1d2868a`、`d1c909d`；最终集成分支 docx-view、host-api、完整测试 262/262 和 build 通过。
 
 ## CC-V4-005：客户端批注导航控制器
 
@@ -48,7 +48,7 @@
 - 目标：在独立纯客户端模块中实现稳定选择器、正文定位、滚动/聚焦、短暂高亮清理和未命中结果，供 CC-V4-003 接入工作台。
 - 文件边界：只新增 `src/client/comment-navigation.ts` 与 `tests/comment-navigation.spec.ts`；不修改 Workbench、Host、协议、依赖或共享文档。
 - 验收：无需真实浏览器即可确定性验证找到/未找到锚点、特殊 id 转义、滚动与高亮生命周期；client typecheck、聚焦测试与 build 通过。
-- 证据：`e30efb8` 与 `d1c909d`；最终集成分支导航控制器、client typecheck、完整测试 256/256 和 build 通过。
+- 证据：`e30efb8` 与 `d1c909d`；最终集成分支导航控制器、client typecheck、完整测试 262/262 和 build 通过。
 
 ## CC-V4-006：typed locale 工作台词典
 
@@ -57,21 +57,21 @@
 - 目标：把当前工作台产品文案整理为类型完整的中英文 locale 字典与取值 API，为 CC-V4-001/003 的最终接线提供单一来源。
 - 文件边界：只新增 `src/client/locale.ts` 与 `tests/workbench-locale.spec.ts`；不修改 Workbench、Host、协议、依赖或共享文档。
 - 验收：两种 locale 的键集合编译期/运行时一致，无空翻译，未知 locale 确定性回退；client typecheck、聚焦测试与 build 通过。
-- 证据：`574b56d`、`acea9f7` 与 `b48ba5d`；最终集成分支 locale、client typecheck、完整测试 256/256 和 build 通过。
+- 证据：`574b56d`、`acea9f7` 与 `b48ba5d`；最终集成分支 locale、client typecheck、完整测试 262/262 和 build 通过。
 
 ## CC-V4-003：批注双向导航与 Word 原生观感
 
 - 状态：实现完成并进入集成分支；待 CC-V4-004 真实浏览器验收
 - 目标：工作台启用 `docx-preview` 批注渲染，将侧栏批注与正文锚点连接；点击批注滚动到正文并短暂高亮，正文批注标记反向选中侧栏条目，同时兼顾键盘与降级路径。
 - 验收：真实含批注 DOCX 在简单视图和 Word 预览中均可完成可见的定位反馈；未找到锚点时不误跳且给出状态；浏览器实操与截图/GIF 绑定候选提交。
-- 证据：`b48ba5d`、`1d2868a`、`d1c909d`、`a6ba439`、`21bbc8a`；真实浏览器发现 run-style `.docx_commentreference` 后补齐相邻范围标记恢复 id、可见键盘入口与双向导航；最终集成分支完整测试 256/256、client typecheck 和 build 通过。
+- 证据：`b48ba5d`、`1d2868a`、`d1c909d`、`a6ba439`、`21bbc8a`、`9f65ed7`；真实浏览器发现 run-style `.docx_commentreference` 后补齐相邻范围标记恢复 id、可见键盘入口与双向导航，并在验收退回后补齐简版前向选项接线与可见高亮；最终集成分支完整测试 262/262、client typecheck 和 build 通过。
 
 ## CC-V4-007：专属 Agent 分析上下文闭环
 
-- 状态：实现完成并进入集成分支；待 CC-V4-004 真实模型浏览器验收
+- 状态：真实模型浏览器验收通过；已从工作台进入 plan_ready，待 CC-V4-004 最终候选绑定
 - 目标：使只装载 7 个合同领域工具的 DSH Web 专属 Agent 获得确定的合同正文和最小审查指导，不依赖未装载的文件、shell 或 skill 工具。
 - 验收：Host 从受信任的 session 合同路径抽取可见正文并有界注入；合同伪造数据边界被隔离；提取失败、空正文和无效配置 fail loud；交付提示不携带正文；真实模型能够从工作台进入 plan_ready。
-- 证据：`ed6233a`、`47272ed`；新增 OOXML 正文抽取、提示边界与截断、失败状态、配置范围和 analyze 工具说明测试；最终集成分支完整测试 256/256、typecheck 和 build 通过。
+- 证据：`ed6233a`、`47272ed`；新增 OOXML 正文抽取、提示边界与截断、失败状态、配置范围和 analyze 工具说明测试；隔离 DSH 0.1.2-rc.1 Web profile 使用真实 `deepseek-v4-flash` 从合成合同生成 8 项 finding，并停在 plan_ready / waiting-decisions；最终集成分支完整测试 262/262、typecheck 和 build 通过。
 
 ## CC-V4-004：独立验收与项目收口
 
