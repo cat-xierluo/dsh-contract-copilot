@@ -2,14 +2,14 @@
 
 ## CC-V4-R01：`docx-preview` 批注 DOM 与导航策略验证
 
-- 状态：进行中（并行研究，GLM-5.3-Flash worker）
+- 状态：已并入 CC-V4-005（派发前收敛）
 - 目标：针对当前锁定的 `docx-preview@0.4.0` 和真实 DOCX fixture，确认 `renderComments` 输出、批注正文关联、稳定选择器、滚动/高亮方案与无法定位时的降级策略。
 - 边界：只读源码、依赖和 fixture；结果写入 worker Session Context，不修改产品代码或共享文档。
 - 验收：给 CC-V4-003 提供可直接执行的 DOM 断言、交互步骤、风险清单和推荐实现，不以记忆推断第三方库行为。
 
 ## CC-V4-R02：工作台独立浏览器验收合同
 
-- 状态：进行中（并行研究，GLM-5.3-Flash worker）
+- 状态：已并入 CC-V4-006 与 CC-V4-004（派发前收敛）
 - 目标：基于现有 DSH Web 验收入口和样例，定义明暗主题、桌面/窄屏、对话框焦点、批注双向导航的候选绑定验收合同。
 - 边界：只读 DSH 与插件现状；结果写入 worker Session Context，不启动长期服务、不修改产品代码或共享文档。
 - 验收：列出可机械断言的 DOM/尺寸/焦点条件、真实用户路径、证据文件命名与清理要求，供 CC-V4-004 reviewer 使用。
@@ -19,7 +19,7 @@
 - 状态：进行中（Wave 1，GLM-5.3-Flash worker）
 - 基线：`6c52c76`（律师决策工作台已验收）
 - 目标：让工作台在 DSH 明暗主题与桌面/窄屏布局中保持一致、可读、可操作，并补齐对话框键盘焦点管理。
-- 文件边界：`src/client/Workbench.tsx`、必要的 `src/client/` 本地化/样式辅助模块，以及对应 client 测试；不修改 Host、协议、DOCX 解析或 Python。
+- 文件边界：`src/client/Workbench.tsx`、`src/client/index.tsx` 与现有 client 测试；typed locale 模块由 CC-V4-006 单独交付；不修改 Host、协议、DOCX 解析或 Python。
 - 验收：夜间模式不再出现浅色孤岛或低对比文本；窄屏不隐藏案件操作入口；对话框具备初始焦点、Tab 环与关闭后焦点归还；UI 文案由 typed locale 字典拥有；client typecheck、聚焦测试与 build 通过。
 
 ## CC-V4-002：批注定位锚点模型
@@ -29,6 +29,22 @@
 - 目标：Host/协议层为 DOCX 批注和简版文档渲染提供稳定、可持久传输的定位信息，供工作台执行双向跳转与高亮。
 - 文件边界：`src/docx-view.ts`、`src/workbench-protocol.ts`、`src/host-api.ts` 及其对应测试；不修改 `src/client/Workbench.tsx`、共享文档或 Python。
 - 验收：每条批注具有稳定 id 和可解析锚点；正文输出存在可选择的对应标记；无法精确定位时保留可解释降级信息；协议/RPC 兼容简单视图与 Word 预览；聚焦测试与 build 通过。
+
+## CC-V4-005：客户端批注导航控制器
+
+- 状态：进行中（新增并行实现，GLM-5.3-Flash worker）
+- 基线：`6434e82`
+- 目标：在独立纯客户端模块中实现稳定选择器、正文定位、滚动/聚焦、短暂高亮清理和未命中结果，供 CC-V4-003 接入工作台。
+- 文件边界：只新增 `src/client/comment-navigation.ts` 与 `tests/comment-navigation.spec.ts`；不修改 Workbench、Host、协议、依赖或共享文档。
+- 验收：无需真实浏览器即可确定性验证找到/未找到锚点、特殊 id 转义、滚动与高亮生命周期；client typecheck、聚焦测试与 build 通过。
+
+## CC-V4-006：typed locale 工作台词典
+
+- 状态：进行中（新增并行实现，GLM-5.3-Flash worker）
+- 基线：`6434e82`
+- 目标：把当前工作台产品文案整理为类型完整的中英文 locale 字典与取值 API，为 CC-V4-001/003 的最终接线提供单一来源。
+- 文件边界：只新增 `src/client/locale.ts` 与 `tests/workbench-locale.spec.ts`；不修改 Workbench、Host、协议、依赖或共享文档。
+- 验收：两种 locale 的键集合编译期/运行时一致，无空翻译，未知 locale 确定性回退；client typecheck、聚焦测试与 build 通过。
 
 ## CC-V4-003：批注双向导航与 Word 原生观感
 
