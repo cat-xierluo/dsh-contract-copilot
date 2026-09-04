@@ -31,6 +31,7 @@ import {
   type CommentNavigator,
   type CommentNavigationInput,
   type CommentMissReason,
+  type CommentResolveResult,
   type CommentViewKind,
   type NavElement,
   type NavNode,
@@ -246,8 +247,10 @@ export function downloadLinkStyle(kind: 'reviewed' | 'report'): React.CSSPropert
 /**
  * Document-scoped styles. All colors here sit on the paper canvas
  * (S.docFrame), which is intentionally mode-independent, so these stay static
- * like the tracked-change marks in Word. The narrow-viewport media query is
- * gone: narrow layouts are driven by the explicit pane control instead.
+ * like the tracked-change marks in Word — including the comment-navigation
+ * flash, which must read on the light page in both themes. The
+ * narrow-viewport media query is gone: narrow layouts are driven by the
+ * explicit pane control instead.
  */
 export const insDelCss = `
   .ccp-doc ins.cc-ins { color:#1d8348; background:#e6f3ec; text-decoration:underline; }
@@ -257,6 +260,7 @@ export const insDelCss = `
   .ccp-field::placeholder { color: ${token('--dsw-alias-label-tertiary', '#a8a6a1')}; }
   .ccp-docx-word .docx_commentreference { cursor: pointer; color:var(--dsw-alias-state-business-primary, #2f5aae); margin:0 1px; }
   .ccp-docx-word .docx_commentreference:focus-visible { outline:2px solid var(--dsw-alias-state-business-primary, #2f5aae); outline-offset:1px; }
+  .ccp-doc .cc-comment-flash, .ccp-docx-word .cc-comment-flash { background:#fdf2cc; outline:2px solid #d7b766; outline-offset:1px; }
 `
 
 // ---------------------------------------------------------------------------
@@ -303,6 +307,23 @@ export const SIMPLE_VIEW_HOLDER_CLASS = 'ccp-doc ccp-docx-simple'
 /** Pick the navigation input that matches the currently displayed view. */
 export function commentNavigationInputFor(comment: DocComment, view: 'word' | 'simple'): CommentNavigationInput {
   return view === 'word' ? wordCommentNavigationInput(comment) : simpleCommentNavigationInput(comment)
+}
+
+/**
+ * One sidebar-driven forward navigation against the displayed view root. The
+ * view-bound options must ride along with the call — the navigator is shared
+ * by both views and viewless, while the simple view addresses elements stamped
+ * `data-cc-anchor` (not the navigator's default attribute name). Dropping
+ * `input.options` here is what silently broke every simple-view jump once.
+ */
+export function executeNavigationRequest(
+  navigator: CommentNavigator,
+  root: NavElement,
+  comment: DocComment,
+  view: 'word' | 'simple',
+): CommentResolveResult {
+  const input = commentNavigationInputFor(comment, view)
+  return navigator.navigate(root, input.anchor, input.options)
 }
 
 /** Localized miss status text for a structured navigation miss reason. */
@@ -778,8 +799,7 @@ function WordPane(props: {
     const root = mode === 'word' ? wordHolder.current : simpleHolder.current
     if (root === null) return
     handledKeyRef.current = navigationRequestKey(props.sessionId, request.seq)
-    const input = commentNavigationInputFor(request.comment, mode)
-    const result = getNavigator().navigate(root as unknown as NavElement, input.anchor)
+    const result = executeNavigationRequest(getNavigator(), root as unknown as NavElement, request.comment, mode)
     if (!result.ok) props.onNavigationMiss?.(commentMissStatusText(result.reason))
   }, [props.navigationRequest, mode, wordReady, props.sessionId, props.onNavigationMiss])
 

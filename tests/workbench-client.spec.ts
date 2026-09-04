@@ -50,11 +50,13 @@ import {
   commentOpenUpdate,
   activateCommentFromTarget,
   enhanceWordCommentMarkers,
+  executeNavigationRequest,
   isCommentActivationKey,
   WORD_COMMENT_MARKER_GLYPH,
 } from '../src/client/Workbench.tsx'
 import {
   WORD_VIEW_PLACEHOLDER_SELECTOR,
+  type CommentNavigator,
   type NavElement,
   type NavigationEnvironment,
   type NavNode,
@@ -618,5 +620,51 @@ describe('word 占位入口样式：限定在 Word 视图容器内', () => {
     expect(insDelCss).toContain('.ccp-docx-word .docx_commentreference:focus-visible')
     expect(insDelCss).toContain('cursor: pointer')
     expect(insDelCss).toContain('var(--dsw-alias-state-business-primary')
+  })
+})
+
+describe('前向导航接线：视图绑定 options 随 navigate 传递', () => {
+  it('simple/word 请求各自把打点属性与气泡选择器传给 navigator（丢弃它曾让 simple 每次跳转都未命中）', () => {
+    const calls: Array<{ anchorId: string; callOptions: unknown }> = []
+    const navigator: CommentNavigator = {
+      navigate(_root, anchor, callOptions) {
+        calls.push({ anchorId: anchor.commentId, callOptions })
+        return { ok: false, reason: 'root-empty', message: 'recording navigator' }
+      },
+      cleanup() {},
+      get activeFlashElement() {
+        return null
+      },
+    }
+    const root = { nodeType: 1, tagName: 'div' } as unknown as NavElement
+
+    executeNavigationRequest(navigator, root, fallbackComment, 'simple')
+    executeNavigationRequest(navigator, root, exactComment, 'word')
+
+    expect(calls).toEqual([
+      { anchorId: 'ccm-ef56ab78', callOptions: { attributeName: 'data-cc-anchor', defaultRefSelector: '.cc-comment' } },
+      { anchorId: '7', callOptions: { defaultRefSelector: '.docx-comment-ref' } },
+    ])
+  })
+})
+
+describe('批注导航短暂高亮：跳转目标在两个视图上都可见', () => {
+  const flashRules = [...insDelCss.matchAll(/([^{}]+)\{([^{}]*)\}/g)]
+    .filter((match) => match[1].includes('cc-comment-flash'))
+    .map((match) => ({ selector: match[1].trim(), body: match[2] }))
+
+  it('flash 规则同时覆盖 simple 与 word 两个文档容器', () => {
+    const joined = flashRules.map((rule) => rule.selector).join('\n')
+    expect(joined).toContain('.ccp-doc .cc-comment-flash')
+    expect(joined).toContain(`.${WORD_VIEW_HOLDER_CLASS} .cc-comment-flash`)
+  })
+
+  it('flash 规则限定在文档画布内，并带可见的背景与描边（纸面静态色，两种主题都可读）', () => {
+    expect(flashRules.length).toBeGreaterThanOrEqual(1)
+    for (const rule of flashRules) {
+      expect(rule.selector.startsWith('.ccp-doc'), `flash 规则未限定文档容器：${rule.selector}`).toBe(true)
+      expect(rule.body).toContain('background:')
+      expect(rule.body).toContain('outline:')
+    }
   })
 })

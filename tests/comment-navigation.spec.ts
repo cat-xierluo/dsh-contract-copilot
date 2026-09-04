@@ -688,6 +688,67 @@ describe('协议 DocComment 导航输入适配', () => {
 })
 
 // ---------------------------------------------------------------------------
+// navigator × 视图绑定接线契约：同一个 navigator 服务两套视图时，视图绑定
+// options（打点属性名等）只能随 navigate 逐次传递。Workbench 曾把它们丢在
+// 创建时（创建时无 options → 默认 data-cc-comment-id），简单视图前向导航
+// 因此必未命中——本组测试钉死逐次传递的契约。
+// ---------------------------------------------------------------------------
+
+/** docx-view.ts 打点形态（exact 范围包裹 + 气泡，均带 data-cc-anchor）。 */
+function buildSimpleAnchoredDoc(): { root: FakeElement; wrap: FakeElement } {
+  const root = el('div', 'ccp-doc ccp-docx-simple')
+  const p = append(root, el('p'))
+  append(p, new FakeTextNode('甲方应当'))
+  const wrap = append(p, el('span', 'cc-comment-anchor', { 'data-cc-anchor': 'ccm-1a2b3c' }))
+  append(p, new FakeTextNode('按期支付。'))
+  append(p, el('sup', 'cc-comment', { 'data-cc-anchor': 'ccm-1a2b3c' }))
+  return { root, wrap }
+}
+
+describe('createCommentNavigator 逐次视图绑定选项', () => {
+  it('Workbench 接线契约：创建时不传 options，input.options 随 navigate 传递即命中 data-cc-anchor 打点', () => {
+    const fake = createFakeEnvironment({ root: null })
+    const { root, wrap } = buildSimpleAnchoredDoc()
+    const navigator = createCommentNavigator(fake.env)
+    const input = simpleCommentNavigationInput(exactWordComment)
+
+    const result = navigator.navigate(root, input.anchor, input.options)
+
+    expect(result.ok).toBe(true)
+    if (result.ok) {
+      expect(result.target.kind).toBe('attribute')
+      expect(result.target.element).toBe(wrap)
+    }
+    expect(fake.ops.map((entry) => entry.op)).toEqual(['scroll:center', 'class+cc-comment-flash'])
+  })
+
+  it('回归对照：丢弃 input.options（旧缺陷形态）时同一输入未命中且无副作用', () => {
+    const fake = createFakeEnvironment({ root: null })
+    const { root } = buildSimpleAnchoredDoc()
+    const navigator = createCommentNavigator(fake.env)
+    const input = simpleCommentNavigationInput(exactWordComment)
+
+    const result = navigator.navigate(root, input.anchor)
+
+    expect(result.ok).toBe(false)
+    if (!result.ok) expect(result.reason).toBe('id-not-found')
+    expect(fake.ops).toEqual([])
+    expect(fake.timers).toEqual([])
+  })
+
+  it('逐键覆盖：navigate 传入的 attributeName 优先于创建时的', () => {
+    const fake = createFakeEnvironment({ root: null })
+    const { root, wrap } = buildSimpleAnchoredDoc()
+    const navigator = createCommentNavigator(fake.env, { attributeName: 'data-cc-comment-id' })
+
+    const result = navigator.navigate(root, { commentId: 'ccm-1a2b3c' }, { attributeName: 'data-cc-anchor' })
+
+    expect(result.ok).toBe(true)
+    if (result.ok) expect(result.target.element).toBe(wrap)
+  })
+})
+
+// ---------------------------------------------------------------------------
 // 反向导航：正文气泡 → 批注 id
 // ---------------------------------------------------------------------------
 

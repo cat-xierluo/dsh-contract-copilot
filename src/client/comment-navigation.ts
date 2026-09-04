@@ -400,7 +400,11 @@ export const WORD_VIEW_ACTIVATABLE_SELECTOR = `${WORD_VIEW_REF_SELECTOR}, ${WORD
 export const SIMPLE_VIEW_REF_SELECTOR = '.cc-comment'
 export const SIMPLE_VIEW_ATTRIBUTE_NAME = 'data-cc-anchor'
 
-/** 一次批注导航的完整输入：anchor 传 navigate，options 传 createCommentNavigator。 */
+/**
+ * 一次批注导航的完整输入：anchor 与视图绑定 options 都传给 navigate。
+ * 同一个 navigator 服务 word/simple 两套渲染器时，打点属性等视图事实
+ * 只能按次给出，不能钉死在 createCommentNavigator。
+ */
 export interface CommentNavigationInput {
   readonly anchor: CommentAnchor
   readonly options: CommentNavigatorOptions
@@ -504,8 +508,12 @@ interface ActiveFlash {
 }
 
 export interface CommentNavigator {
-  /** 解析并跳转：命中则滚动（可选聚焦）+ 短暂高亮；未命中不做任何副作用。 */
-  navigate(root: NavElement, anchor: CommentAnchor): CommentResolveResult
+  /**
+   * 解析并跳转：命中则滚动（可选聚焦）+ 短暂高亮；未命中不做任何副作用。
+   * callOptions 是本次调用的视图绑定选项（如简单视图的打点属性名），
+   * 逐键覆盖创建时选项；省略时完全沿用创建时选项。
+   */
+  navigate(root: NavElement, anchor: CommentAnchor, callOptions?: CommentNavigatorOptions): CommentResolveResult
   /** 清理在途高亮（取消定时器并摘除 class），供重渲染/卸载时调用。 */
   cleanup(): void
   /** 当前在途高亮的目标元素；无在途高亮时为 null。 */
@@ -516,7 +524,6 @@ export function createCommentNavigator(
   env: NavigationEnvironment,
   options?: CommentNavigatorOptions,
 ): CommentNavigator {
-  const normalized = normalizeOptions(options)
   let active: ActiveFlash | null = null
 
   function clearActiveFlash(): void {
@@ -527,8 +534,10 @@ export function createCommentNavigator(
   }
 
   return {
-    navigate(root, anchor) {
-      const result = resolveCommentTarget(env, root, anchor, options)
+    navigate(root, anchor, callOptions) {
+      const merged = callOptions === undefined ? options : { ...options, ...callOptions }
+      const normalized = normalizeOptions(merged)
+      const result = resolveCommentTarget(env, root, anchor, merged)
       if (!result.ok) return result
       clearActiveFlash()
       env.scrollIntoView(result.target.element, { block: normalized.scrollBlock })
