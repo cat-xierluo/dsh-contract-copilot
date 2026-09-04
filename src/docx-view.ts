@@ -504,6 +504,22 @@ function extractAllText(inner: string): string {
   return text
 }
 
+/**
+ * 把 document.xml 投影成合同可见文本（纯函数，供分析回合提示注入）。
+ *
+ * 复用与渲染器完全一致的切段与文本抽取（splitParagraphInners + extractAllText），
+ * 段落/表格单元格按文档顺序一段一行——避免"渲染 HTML 再剥标签"的语义漂移，
+ * 也保证 Agent 看到的正文与工作台预览同源。空行丢弃、行首尾空白裁剪。
+ */
+export function extractContractText(documentXml: string): string {
+  const lines: string[] = []
+  for (const inner of splitParagraphInners(documentXml)) {
+    const text = decodeEntities(extractAllText(inner)).trim()
+    if (text !== '') lines.push(text)
+  }
+  return lines.join('\n')
+}
+
 /** 输出批注引用气泡；anchorId 已知时附带 data-cc-anchor 供正文寻址。 */
 function emitCommentBubble(
   chunks: string[],

@@ -30,7 +30,10 @@ export { Config }
 export function apply(ctx: Context, raw: PluginConfig): void {
   const config = resolveConfig(raw)
   const store = new SessionStore(config.sessionsDir)
-  const coordinator = new ContractAgentCoordinator(ctx, store)
+  const coordinator = new ContractAgentCoordinator(ctx, store, {
+    pythonExecutable: config.pythonExecutable,
+    analysisContractTextMaxChars: config.workbench.analysisContractTextMaxChars,
+  })
   ctx.effect(() => () => coordinator.dispose())
 
   registerIntakeTool(ctx, config, store)

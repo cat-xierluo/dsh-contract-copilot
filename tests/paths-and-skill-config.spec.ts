@@ -8,8 +8,9 @@
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
+import { mkdirSync, writeFileSync } from 'node:fs'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { resolveConfig } from '../src/config.ts'
+import { ANALYSIS_CONTRACT_TEXT_DEFAULT_CHARS, ANALYSIS_CONTRACT_TEXT_HARD_MAX_CHARS, resolveConfig } from '../src/config.ts'
 import { expandHome, normalizeContractKey } from '../src/paths.ts'
 
 describe('normalizeContractKey', () => {
@@ -108,4 +109,46 @@ describe('resolveConfig', () => {
       rmSync(skill, { recursive: true, force: true })
     }
   })
+
+  // workbench.analysisContractTextMaxChars：分析回合合同正文注入上限，
+  // 属于部署相关配置 → 在加载边界（resolveConfig）校验，非法即抛错。
+  function fakeSkill(): string {
+    const skill = mkdtempSync(path.join(tmpdir(), 'cc-fake-skill3-'))
+    const scriptsReview = path.join(skill, 'scripts', 'review')
+    mkdirSync(scriptsReview, { recursive: true })
+    writeFileSync(path.join(scriptsReview, 'apply_review_plan.py'), '', 'utf8')
+    return skill
+  }
+
+  function resolveWithLimit(rawLimit: unknown) {
+    const skill = fakeSkill()
+    try {
+      return resolveConfig({
+        skillRoot: skill,
+        pythonExecutable: 'python3',
+        sessionsDir: skill,
+        injectProgress: true,
+        workbench: { analysisContractTextMaxChars: rawLimit } as never,
+      })
+    } finally {
+      rmSync(skill, { recursive: true, force: true })
+    }
+  }
+
+  it('analysisContractTextMaxChars 缺省走协议默认值', () => {
+    const cfg = resolveWithLimit(undefined)
+    expect(cfg.workbench.analysisContractTextMaxChars).toBe(ANALYSIS_CONTRACT_TEXT_DEFAULT_CHARS)
+  })
+
+  it('analysisContractTextMaxChars 合法自定义值透传', () => {
+    const cfg = resolveWithLimit(12_345)
+    expect(cfg.workbench.analysisContractTextMaxChars).toBe(12_345)
+  })
+
+  it.each([0, -100, 1.5, Number.NaN, ANALYSIS_CONTRACT_TEXT_HARD_MAX_CHARS + 1])(
+    'analysisContractTextMaxChars 非法值 %p 在加载边界抛错',
+    (rawLimit) => {
+      expect(() => resolveWithLimit(rawLimit)).toThrow(/analysisContractTextMaxChars/)
+    },
+  )
 })

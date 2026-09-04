@@ -23,7 +23,16 @@ export interface PluginConfig {
 
 export interface WorkbenchConfig {
   readonly enabled: boolean
+  /** 分析回合注入提示的合同正文字符上限（部署相关；加载边界校验）。 */
+  readonly analysisContractTextMaxChars: number
 }
+
+/** 分析回合合同正文注入上限的默认值（覆盖绝大多数中文合同全文）。 */
+export const ANALYSIS_CONTRACT_TEXT_DEFAULT_CHARS = 40_000
+/** 协议硬顶：配置不得超过（防止单回合提示被配置撑爆；协议安全常量）。 */
+export const ANALYSIS_CONTRACT_TEXT_HARD_MAX_CHARS = 200_000
+/** 下限：低于该值装不下有意义的合同片段。 */
+const ANALYSIS_CONTRACT_TEXT_MIN_CHARS = 1_000
 
 export const Config: z<PluginConfig> = z.object({
   skillRoot: z.string().required().description(
@@ -36,6 +45,9 @@ export const Config: z<PluginConfig> = z.object({
   injectProgress: z.boolean().default(true).description('是否每步注入审查进度上下文'),
   workbench: z.object({
     enabled: z.boolean().default(true).description('是否在 DSH Web 界面启用内嵌合同审查工作台'),
+    analysisContractTextMaxChars: z.number().default(ANALYSIS_CONTRACT_TEXT_DEFAULT_CHARS).description(
+      `分析回合注入提示的合同正文字符上限（${ANALYSIS_CONTRACT_TEXT_MIN_CHARS}–${ANALYSIS_CONTRACT_TEXT_HARD_MAX_CHARS}）`,
+    ),
   }).description('复用 DSH Connection 鉴权、侧栏插槽与 Web 地址的内嵌工作台'),
 })
 
@@ -49,6 +61,16 @@ export function resolveConfig(raw: PluginConfig): PluginConfig {
       + '请把 skillRoot 指向 contract-copilot skill 的根目录',
     )
   }
+  const analysisContractTextMaxChars =
+    raw.workbench?.analysisContractTextMaxChars ?? ANALYSIS_CONTRACT_TEXT_DEFAULT_CHARS
+  if (!Number.isInteger(analysisContractTextMaxChars)
+    || analysisContractTextMaxChars < ANALYSIS_CONTRACT_TEXT_MIN_CHARS
+    || analysisContractTextMaxChars > ANALYSIS_CONTRACT_TEXT_HARD_MAX_CHARS) {
+    throw new Error(
+      `contract-copilot: workbench.analysisContractTextMaxChars 必须是 `
+      + `${ANALYSIS_CONTRACT_TEXT_MIN_CHARS}–${ANALYSIS_CONTRACT_TEXT_HARD_MAX_CHARS} 之间的整数，收到 ${String(analysisContractTextMaxChars)}`,
+    )
+  }
   return {
     skillRoot,
     pythonExecutable: raw.pythonExecutable || 'python3',
@@ -56,6 +78,7 @@ export function resolveConfig(raw: PluginConfig): PluginConfig {
     injectProgress: raw.injectProgress !== false,
     workbench: {
       enabled: raw.workbench?.enabled !== false,
+      analysisContractTextMaxChars,
     },
   }
 }

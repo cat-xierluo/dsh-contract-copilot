@@ -8,6 +8,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { AgentCoordinatorError, ContractAgentCoordinator } from '../src/agent-coordinator.ts'
 import { approvePlan, beginPlanReview } from '../src/plan-review.ts'
 import { SessionStore } from '../src/session.ts'
+import { writeContractDocx } from './docx-fixture.ts'
 
 interface AgentFixture {
   readonly agent: Agent
@@ -24,6 +25,9 @@ let store: SessionStore
 beforeEach(() => {
   root = mkdtempSync(path.join(tmpdir(), 'cc-agent-coordinator-'))
   store = new SessionStore(path.join(root, 'sessions'))
+  // 分析回合派发前 Host 会从 contractPath 提取合同可见文本（fail loud），
+  // 所以每个用例的 contract.docx 都必须是可读且非空的 DOCX。
+  writeContractDocx(path.join(root, 'contract.docx'), ['第一条 甲方：测试主体。', '第二条 乙方应按约交付。'])
 })
 
 afterEach(() => {
