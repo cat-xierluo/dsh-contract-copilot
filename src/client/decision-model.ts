@@ -1,12 +1,17 @@
 /** Pure client projections for lawyer decisions and workbench progress. */
 
-import type { FindingDisposition } from '../session-types.ts'
+import type { AutomationStatus, FindingDisposition } from '../session-types.ts'
 import type { FindingDecisionRequest, SessionDetail } from '../workbench-protocol.ts'
 
 export interface FindingDecisionDraft {
   readonly disposition?: FindingDisposition
   readonly severity?: string
   readonly note?: string
+}
+
+/** Return whether persisted automation state supersedes an in-flight notice. */
+export function automationNoticeSettled(status: AutomationStatus | undefined): boolean {
+  return status === 'waiting-decisions' || status === 'delivered'
 }
 
 /** Return the zero-based workbench phase, or the phase count after delivery. */

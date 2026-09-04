@@ -12,6 +12,7 @@ import type {
 } from '../workbench-protocol.ts'
 import { ContractCopilotClient } from './api.ts'
 import {
+  automationNoticeSettled,
   decisionRequests,
   findingId,
   findingText,
@@ -402,6 +403,10 @@ function Workbench({ client, onClose }: { readonly client: ContractCopilotClient
     const timer = setInterval(() => { void load() }, 5_000)
     return () => { alive = false; clearInterval(timer); controller.abort() }
   }, [client, selected])
+
+  useEffect(() => {
+    if (automationNoticeSettled(detail?.session.automation?.status)) setNotice(undefined)
+  }, [detail?.session.automation?.status])
 
   const runAnalysis = async (): Promise<void> => {
     if (selected === undefined) return

@@ -2,7 +2,7 @@
 
 ## CC-V3-001：律师决策工作台闭环
 
-- 状态：进行中
+- 状态：已完成
 - 分支：`feat/lawyer-decision-workbench`
 - 基线：`69e1886`（DSH 0.1.2 工作台迁移已验收）
 - 目标：工作台直接驱动专属 DSH Agent 完成风险分析，在生成修订版前强制暂停，由律师逐项决定处理方式，确认后恢复同一 Agent 完成修订与交付。
@@ -24,14 +24,14 @@
 
 ### 验收
 
-- [ ] 设计、决策、架构、README、CHANGELOG 与任务状态一致。
-- [ ] 工作台建案后能够直接启动专属 Agent，并在 `plan_ready` 后停在“等待律师决策”。
-- [ ] 任一 finding 未决定时，批准操作失败；计划未批准时，Agent 或手工 tool 调用 `apply` 均失败。
-- [ ] 四种决定及风险等级调整能确定性投影到最终 `review-plan.json`，并保留追加式审计记录。
-- [ ] 计划变化后旧批准失效；批准后文件被外部改写时 `apply` 拒绝执行。
-- [ ] 刷新工作台和重启 DSH 后能够从业务 session 与 DSH session 恢复。
-- [ ] 单元测试、真实 Python 集成测试、build、dsh-plugin-lint 和 tarball 安装通过。
-- [ ] 从真实候选启动 DSH Web，完成建案、分析、逐项决策、修订、交付的浏览器验收并保留 GIF 或截图证据。
+- [x] 设计、决策、架构、README、CHANGELOG 与任务状态一致。
+- [x] 工作台建案后能够直接启动专属 Agent，并在 `plan_ready` 后停在“等待律师决策”。
+- [x] 任一 finding 未决定时，批准操作失败；计划未批准时，Agent 或手工 tool 调用 `apply` 均失败。
+- [x] 四种决定及风险等级调整能确定性投影到最终 `review-plan.json`，并保留追加式审计记录。
+- [x] 计划变化后旧批准失效；批准后文件被外部改写时 `apply` 拒绝执行。
+- [x] 刷新工作台和重启 DSH 后能够从业务 session 与 DSH session 恢复。
+- [x] 单元测试、真实 Python 集成测试、build、dsh-plugin-lint 和 tarball 安装通过。
+- [x] 从真实候选启动 DSH Web，完成建案、分析、逐项决策、修订、交付的浏览器验收并保留截图证据。
 
 ### 执行证据
 
@@ -41,4 +41,8 @@
 - 2026-09-04：案件专属 Agent 编排完成；25 项聚焦测试通过，覆盖 create/resume、当前默认模型选择、重复命令、首次创建失败重试、取消、真实 idle、Host RPC 和 Client 命令。
 - 2026-09-04：客户端 typecheck、Node build、完整客户端 bundle 与 `pnpm peers check` 通过；DSH 依赖族统一为 `0.1.2-rc.1`。
 - 2026-09-04：五阶段律师决策界面完成；13 个文件 102 项完整测试、真实 Python spawn、Node/Client build 和 peer 校验通过，新增空计划、漏项、字段规范化、工作台 session 精确复用和直接 apply fail-closed 覆盖。
-- 2026-09-04：真实 DSH Web 建案验收发现前置信息自由文本框缺少辅助标签；已用问题正文补齐 `aria-label`，待随候选重建复验。
+- 2026-09-04：真实 DSH Web 建案验收发现前置信息自由文本框缺少辅助标签；已用问题正文补齐 `aria-label`，随后随候选重建复验通过。
+- 2026-09-04：候选 `a0eb0aa` 从 tarball 安装进隔离 DSH Web profile；自由文本框辅助标签复验通过。
+- 2026-09-04：脱敏合成合同经本地 replay provider 跑通专属 Agent 分析、律师逐项批准、真实 Python apply、finalize 与双 DOCX 交付；批准前按钮禁用，决定后解锁。
+- 2026-09-04：DSH 重启后恢复 `delivered`、R001 决定、批准锁、修订预览和两个下载入口；验收截图及正式 dsh-plugin-lint 报告见 `docs/acceptance/2026-09-04-lawyer-decision-workbench.md`。
+- 2026-09-04：浏览器发现交付完成后临时运行提示未清除；已按持久 automation 稳定状态收敛提示并补纯投影测试，待最终候选复验。

@@ -2,7 +2,7 @@
 
 import { describe, expect, it } from 'vitest'
 import type { SessionDetail } from '../src/workbench-protocol.ts'
-import { decisionRequests, findingId, findingText, phaseIndex } from '../src/client/decision-model.ts'
+import { automationNoticeSettled, decisionRequests, findingId, findingText, phaseIndex } from '../src/client/decision-model.ts'
 
 function session(state: SessionDetail['session']['state'], approved = false): SessionDetail['session'] {
   return {
@@ -54,5 +54,13 @@ describe('workbench decision model', () => {
     expect(findingId({}, 8)).toBe('R009')
     expect(findingText({ legal_basis: ['民法典第五百零九条', '第五百七十七条'] }, 'legal_basis'))
       .toBe('民法典第五百零九条；第五百七十七条')
+  })
+
+  it('clears transient notices when automation reaches a lawyer or delivery stop', () => {
+    expect(automationNoticeSettled('running-analysis')).toBe(false)
+    expect(automationNoticeSettled('running-delivery')).toBe(false)
+    expect(automationNoticeSettled('failed')).toBe(false)
+    expect(automationNoticeSettled('waiting-decisions')).toBe(true)
+    expect(automationNoticeSettled('delivered')).toBe(true)
   })
 })
