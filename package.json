@@ -1,6 +1,6 @@
 {
   "name": "@yangweixin/dsh-contract-copilot",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Contract Copilot —— 合同审查四步流程的 DeepSeek Harness 插件（Python CLI 外壳，不改动原 skill 脚本）",
   "type": "module",
   "main": "lib/index.js",

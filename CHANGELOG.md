@@ -53,6 +53,7 @@
 - 浏览器验收通过：官方侧栏入口、四阶段、最近操作、Word 正文、批注、发现、表单与下载入口均可见；证据见 `docs/acceptance/2026-09-04-dsh-0.1.2-workbench.md`
 
 ### Build（2026-09-04）
+- 候选版本升级为 `0.3.0`，用于绑定 tarball、DSH profile 与浏览器验收证据
 - 客户端 tsdown 配置改用 DSH 0.1.2 的 `deps.neverBundle/alwaysBundle` 与 `outputOptions`，并把 React 类型对齐到 React 18
 - 新增受版本控制的 pnpm 锁文件，并仅允许 `esbuild` 执行安装脚本
 - 完整构建先清理本包 `lib/`，防止已删除源码的旧 JavaScript 混入发布 tarball
