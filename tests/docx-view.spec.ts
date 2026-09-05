@@ -244,6 +244,24 @@ describe('renderDocumentWithAnchors', () => {
     expect(html).not.toContain('cc-comment-anchor')
   })
 
+  it('异常 OOXML 使渲染器在计划终点前停止 → 段尾补闭合 span 不得谎报 exact', () => {
+    // </w:r> 缺失：计划起点已输出（openWrap），渲染器在 <w:r> 处提前 break，
+    // 计划终点标记未被消费；段尾为 HTML 合法性补闭合了 span，但锚点必须稳定降级。
+    const xml = `<w:p><w:commentRangeStart w:id="0"/><w:r><w:t>被批注无闭合</w:t><w:commentRangeEnd w:id="0"/><w:commentReference w:id="0"/></w:p>`
+    const { html, comments: projected } = renderDocumentWithAnchors(xml, commentsOf([['0', comment]]))
+    expect(projected[0].anchor).toEqual({ status: 'fallback', reason: 'range-unclosed', paragraphIndex: 0 })
+    // 补闭合的 span 仍在（HTML 合法），但只是空壳，不承载 exact 语义
+    expect(html).toBe(`<p><span class="cc-comment-anchor" data-cc-anchor="${projected[0].anchorId}"></span></p>`)
+  })
+
+  it('计划终点在未闭合 w:t 之后（run 内提前停止）同样不得谎报 exact', () => {
+    // <w:t> 未闭合：renderRunBody 提前 break，终点标记被当作字面文本吞掉，未被消费。
+    const xml = `<w:p><w:r><w:commentRangeStart w:id="0"/><w:t>范围文本未闭合<w:commentRangeEnd w:id="0"/><w:t>尾</w:t></w:r></w:p>`
+    const { html, comments: projected } = renderDocumentWithAnchors(xml, commentsOf([['0', comment]]))
+    expect(projected[0].anchor).toEqual({ status: 'fallback', reason: 'range-unclosed', paragraphIndex: 0 })
+    expect(html).toContain(`data-cc-anchor="${projected[0].anchorId}"`)
+  })
+
   it('范围跨段 → range-crosses-paragraph，段落指向可见气泡所在段', () => {
     const xml = `<w:p><w:commentRangeStart w:id="0"/><w:r><w:t>前段</w:t></w:r></w:p>`
       + `<w:p><w:r><w:t>后段</w:t></w:r><w:commentRangeEnd w:id="0"/><w:r><w:commentReference w:id="0"/></w:r></w:p>`
