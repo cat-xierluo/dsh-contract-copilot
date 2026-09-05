@@ -5,7 +5,8 @@
 - 产品实现候选：`cfcfb7790c927919fcb5222e6ba87f3cc35bbbfe`
 - DSH：`0.1.2-rc.1`，源码提交 `76fda729799fe9b3848dbe2c211d4b231032b81e`
 - 插件包：`@yangweixin/dsh-contract-copilot@0.3.0`
-- tarball SHA-256：`6b96c0f6d7334b13934c339959e030ab48c3684f9e29b5c6062aa27d9f87a198`
+- 浏览器验收 tarball SHA-256：`6b96c0f6d7334b13934c339959e030ab48c3684f9e29b5c6062aa27d9f87a198`
+- 收口重打包 tarball SHA-256：`713d73025ac3e243e7fc29df6e9a34e499926a9dd15ec2c3d29457c98a8835d1`；只因 README 状态由“复核中”改为“已通过验收”而变化，排除 README 后与浏览器验收包逐文件一致，`lib/client.js` 与 `lib/index.js` SHA-256 分别仍为 `c576c8762b92fd29e91a57a6d87c0bf000f16ade718a3bd51e0f98df1994d784`、`3b79ec2bbaa280e56fc3c33d0c0dfae0f079f4d6db3f884afd2d3cc88a68408e`
 - profile：独立临时 DSH home 与 Web profile；插件从上述 tarball 安装，不使用源码链接
 - 数据：脱敏合成软件开发服务合同；不含真实客户、案号或身份材料
 
@@ -51,7 +52,7 @@
 2. `comment-navigation.ts` 的中文文本是内部诊断；用户可见未命中状态由 typed locale 的 `commentMissStatusText` 提供。
 3. `docs/DECISIONS.md` 中的 `dsh-client-runtime` 是记录迁移删除原因的历史决策，不是当前依赖或架构声明。
 
-lint 运行绑定 PR 代码与打包头；后续收口提交只更新项目状态文档，不改变插件运行代码、构建工件或上述 WARN 处置。
+lint 运行绑定 PR 代码与打包头；后续收口提交只更新项目状态文档和 README 状态，不改变插件运行代码、构建工件或上述 WARN 处置。收口重打包已通过排除 README 的逐文件比较确认运行载荷一致。
 
 ## GUI GIF 与独立合并门
 
