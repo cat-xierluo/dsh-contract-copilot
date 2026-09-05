@@ -17,11 +17,11 @@
  * 验证 exit 2 且 finally 真实清理了已建目录。
  */
 
-import { execSync, spawnSync } from 'node:child_process'
-import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
+import { execFileSync, spawnSync } from 'node:child_process'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest'
 import { decodeEntities, extractDocxParts } from '../src/docx-view.ts'
 import { handleWorkbenchRpc } from '../src/host-api.ts'
 import { runApplyCli } from '../src/python-bridge.ts'
@@ -72,6 +72,40 @@ async function expectPidGone(pid: number, label: string): Promise<void> {
       return // ESRCH：不存在（本用例中唯一的预期结局）
     }
     if (Date.now() > deadline) throw new Error(`${label} pid=${pid} 取消后仍存活`)
+    await new Promise((resolve) => setTimeout(resolve, 25))
+  }
+}
+
+function markerPids(marker: string): number[] {
+  const listed = execFileSync('ps', ['-axo', 'pid=,command='], { encoding: 'utf8' })
+  return listed.split('\n').flatMap((line) => {
+    if (!line.includes(marker)) return []
+    const match = line.match(/^\s*(\d+)\s+/)
+    if (!match) return []
+    const pid = Number(match[1])
+    return pid !== process.pid ? [pid] : []
+  })
+}
+
+async function expectNoMarker(marker: string, label: string): Promise<void> {
+  const deadline = Date.now() + 5_000
+  for (;;) {
+    const pids = markerPids(marker)
+    if (pids.length === 0) return
+    if (Date.now() > deadline) throw new Error(`${label} marker 残留 pid=${pids.join(',')}`)
+    await new Promise((resolve) => setTimeout(resolve, 25))
+  }
+}
+
+async function forceKillMarker(marker: string, label: string): Promise<void> {
+  const deadline = Date.now() + 5_000
+  for (;;) {
+    const pids = markerPids(marker)
+    if (pids.length === 0) return
+    for (const pid of pids) {
+      try { process.kill(pid, 'SIGKILL') } catch { /* 已退出 */ }
+    }
+    if (Date.now() > deadline) throw new Error(`${label} SIGKILL 后仍有 marker 残留 pid=${pids.join(',')}`)
     await new Promise((resolve) => setTimeout(resolve, 25))
   }
 }
@@ -155,16 +189,19 @@ describe.skipIf(deps.missing.length > 0)('force_edit 修订产物验收（真实
     })
   }, 180_000)
 
-  afterAll(() => {
+  afterAll(async () => {
     // 临时目录与子进程由本测试全权清理：runApplyCli 的子进程已 await close
     //（超时时经整组 TERM→grace→KILL 升级链确认消亡），extractDocxParts 的临时
     // 脚本自清理，这里负责工作目录与负控私有根。另含负控后代卫生兜底：只精确
     // 匹配 wrapper 负控注入的 marker（回归红路径的逃逸后代）。
+    await forceKillMarker(processMarker, 'afterAll')
     rmSync(dir, { recursive: true, force: true })
     for (const extra of negctlDirs) rmSync(extra, { recursive: true, force: true })
-    if (process.platform !== 'win32') {
-      try { execSync('pkill -f cc-r4-red-cleanup-marker', { stdio: 'pipe' }) } catch { /* 无匹配进程 */ }
-    }
+  })
+
+  let processMarker = ''
+  afterEach(async () => {
+    if (processMarker) await forceKillMarker(processMarker, '失败路径')
   })
 
   it('真实 CLI success：exit 0 且 force_edit finding 落为 applied', () => {
@@ -270,13 +307,16 @@ describe.skipIf(deps.missing.length > 0)('force_edit 修订产物验收（真实
     negctlDirs.push(wrapperRoot)
     const wrapper = path.join(wrapperRoot, 'python-wrapper-exit.py')
     const pidFile = path.join(wrapperRoot, 'descendant.pid')
+    const readyFile = path.join(wrapperRoot, 'descendant.ready')
+    processMarker = path.basename(wrapperRoot)
     const descendantCode = [
       'import signal, time',
       'def on_term(signum, frame):',
       '    pass',
       'signal.signal(signal.SIGTERM, on_term)',
+      `open(${JSON.stringify(readyFile)}, "w").close()`,
       'while True:',
-      "    time.sleep(0.05)  # cc-r4-red-cleanup-marker",
+      `    time.sleep(0.05)  # ${processMarker}`,
     ].join('\n')
     writeFileSync(wrapper, [
       '#!/usr/bin/env python3',
@@ -291,6 +331,10 @@ describe.skipIf(deps.missing.length > 0)('force_edit 修订产物验收（真实
       '        stdout=sys.stdout, stderr=sys.stderr,',
       '    )',
       '    open(' + JSON.stringify(pidFile) + ', "w").write(str(descendant.pid))',
+      '    import time as _time',
+      '    for _ in range(500):',
+      '        if os.path.exists(' + JSON.stringify(readyFile) + '): break',
+      '        _time.sleep(0.01)',
       "os.execvp('python3', ['python3'] + args)",
     ].join('\n'), { encoding: 'utf8', mode: 0o755 })
     const privateRoot = makePrivateTmpRoot('exited-parent')
@@ -303,6 +347,7 @@ describe.skipIf(deps.missing.length > 0)('force_edit 修订产物验收（真实
     })
     const elapsed = Date.now() - startedAt
     expect(run.error?.code === 'ETIMEDOUT' ? 'script 悬挂超时（isAlive 早退缺陷未修复）' : null).toBeNull()
+    expect(existsSync(readyFile)).toBe(true)
     // gen settle（透出父的 exit 0）后脚本继续真实 CLI/抽取 → PASS exit 0
     expect(run.status, `stdout: ${run.stdout}\nstderr: ${run.stderr}`).toBe(0)
     expect(run.stdout).toContain('[force-edit-acceptance] PASS')
@@ -312,6 +357,7 @@ describe.skipIf(deps.missing.length > 0)('force_edit 修订产物验收（真实
     const descendantPid = Number.parseInt(readFileSync(pidFile, 'utf8').trim(), 10)
     expect(Number.isInteger(descendantPid)).toBe(true)
     await expectPidGone(descendantPid, 'gen 永久后代')
+    await expectNoMarker(processMarker, '父先退出脚本负控')
     expect(readdirSync(privateRoot)).toEqual([])
   })
 
