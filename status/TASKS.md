@@ -28,11 +28,11 @@
 
 ### CC-V5-003：`force_edit` 修订产物可重复验收
 
-- 状态：PR #3 待独立审查；提交 `3af1e20` 已 safe-push，交付价值门通过
+- 状态：R1–R5 已收束；`8871747` 为行为/代码验证候选，后续提交仅补随行文档且不改变已验证代码与测试结果；PR #3 `OPEN / MERGEABLE / CLEAN`
 - 目标：提供可重复工程验收资产，用合成合同和带 `force_edit: true` 的计划生成真实修订 DOCX，并证明工作台数据面输出可见的 `cc-ins`/`cc-del` 修订标记，为后续真实浏览器样例提供固定输入。
 - 文件边界：新增独立 fixture/集成测试或验收脚本，优先位于 `tests/` 与 `scripts/acceptance/`；不修改 Python 脚本、DOCX 渲染器、Host 生产代码、Client 生产代码或共享文档。
 - 验收：真实 Python CLI 生成物同时含 OOXML `w:ins`/`w:del`，再经现有工作台 document 路径投影为 `cc-ins`/`cc-del`；缺少依赖时明确 skip 原因，不能假绿；聚焦测试与完整测试通过。
-- 当前证据：真实 CLI 与 document RPC 集成测试 6/6、完整测试 272/272、build 通过；验收脚本支持保留生成物作为后续真实浏览器样例输入。
+- 当前证据：真实 CLI 与 document RPC 集成测试 16/16、完整测试 309/309、build 与 `git diff --check` 通过；父存活与父先退出负控均在后代独立 ready marker 后触发 abort/timeout，唯一 marker 枚举确认零残留；正常绿色路径同样零残留。Windows process-tree 语义 `NOT_VERIFIED`；全局 safe-push 身份门对历史混合作者 fail-closed（未改写既有提交）。验收脚本支持保留生成物作为后续真实浏览器样例输入。
 
 ### CC-V5-004：DOCX 抽取异步化
 
