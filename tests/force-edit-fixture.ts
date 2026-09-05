@@ -8,12 +8,15 @@
  */
 
 import { execSync } from 'node:child_process'
-import { writeFileSync } from 'node:fs'
+import { accessSync, constants as fsConstants, statSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 
 /** 真实 skill 根目录；环境变量可覆盖（CI / 其他机器可重复）。 */
 export const FORCE_EDIT_SKILL_ROOT = process.env.CONTRACT_COPILOT_SKILL_ROOT
   ?? '/Users/maoking/Library/Application Support/maoscripts/skills/legal-skills/skills/contract-copilot'
+
+/** 真实 CLI 入口（apply_review_plan.py）；probe 必须确认可读，否则整组具名 skip。 */
+export const FORCE_EDIT_CLI_ENTRY = path.join(FORCE_EDIT_SKILL_ROOT, 'scripts', 'review', 'apply_review_plan.py')
 
 /** 合同名与输出文件名（同时是 SessionStore 里的 contractName）。 */
 export const CONTRACT_NAME = '合成验收采购合同'
@@ -77,6 +80,8 @@ export type ForceEditDeps = {
   readonly python3: boolean
   readonly defusedxml: boolean
   readonly pythonDocx: boolean
+  readonly skillRootReadable: boolean
+  readonly cliEntryReadable: boolean
 }
 
 function canRun(command: string): boolean {
@@ -88,16 +93,42 @@ function canRun(command: string): boolean {
   }
 }
 
-/** 逐项探测 CLI 链路依赖，缺哪项都给具名结论（skip 不假绿）。 */
+function isReadableFile(target: string): boolean {
+  try {
+    return statSync(target).isFile() && (accessSync(target, fsConstants.R_OK), true)
+  } catch {
+    return false
+  }
+}
+
+function isReadableDir(target: string): boolean {
+  try {
+    return statSync(target).isDirectory() && (accessSync(target, fsConstants.R_OK), true)
+  } catch {
+    return false
+  }
+}
+
+/**
+ * 逐项探测 CLI 链路依赖：python3 可执行、defusedxml / python-docx 可导入、
+ * skill root 与 apply_review_plan.py 入口可读。缺哪项都给具名结论（skip 不假绿）。
+ */
 export function probeForceEditDeps(): ForceEditDeps {
   const python3 = canRun('python3 -c "pass"')
   const defusedxml = python3 && canRun('python3 -c "import defusedxml"')
   const pythonDocx = python3 && canRun('python3 -c "import docx"')
+  const skillRootReadable = isReadableDir(FORCE_EDIT_SKILL_ROOT)
+  const cliEntryReadable = skillRootReadable && isReadableFile(FORCE_EDIT_CLI_ENTRY)
   const missing: string[] = []
   if (!python3) missing.push('python3（可执行文件不存在）')
   if (python3 && !defusedxml) missing.push('defusedxml（pip install -r scripts/requirements.txt）')
   if (python3 && !pythonDocx) missing.push('python-docx（fixture 生成与 CLI 读写 DOCX 必需）')
-  return { missing, python3, defusedxml, pythonDocx }
+  if (!skillRootReadable) {
+    missing.push(`skill root 不可读：${FORCE_EDIT_SKILL_ROOT}（可用 CONTRACT_COPILOT_SKILL_ROOT 覆盖）`)
+  } else if (!cliEntryReadable) {
+    missing.push(`CLI 入口不可读：${FORCE_EDIT_CLI_ENTRY}`)
+  }
+  return { missing, python3, defusedxml, pythonDocx, skillRootReadable, cliEntryReadable }
 }
 
 /**

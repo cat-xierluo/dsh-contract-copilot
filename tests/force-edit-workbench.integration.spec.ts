@@ -3,17 +3,18 @@
  *
  * 验收链路（TASKS.md CC-V5-003）：
  *   脱敏合成 DOCX + force_edit:true plan
- *   → runApplyCli 调真实 apply_review_plan.py（当前配置）
+ *   → runApplyCli 调真实 apply_review_plan.py（当前配置，AbortSignal 超时早于 hook）
  *   → 修订 DOCX 的 word/document.xml 同时含 w:ins 与 w:del
  *   → handleWorkbenchRpc('document')（生产入口，走 session.outputs.reviewedDocx
  *     → extractDocxParts → renderDocumentWithAnchors）的 HTML 同时含 cc-ins 与 cc-del。
  *
- * 依赖缺失时整组具名 skip（缺什么打印什么），核心断言绝不假绿：
+ * 依赖缺失时整组具名 skip（缺什么打印什么，含 CLI 入口可读性），核心断言绝不假绿：
  * CLI 能跑但断言不满足 = 测试失败，与 skip 不同。
+ * 另含负控：独立脚本 BLOCKED 退出码契约（exit 2）与临时目录零残留（可重复）。
  */
 
 import { spawnSync } from 'node:child_process'
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
@@ -41,6 +42,14 @@ if (deps.missing.length > 0) {
   console.warn(`[force-edit-acceptance] SKIP：真实 CLI 链路依赖缺失 → ${deps.missing.join('；')}`)
 }
 
+/** 独立验收脚本路径与它使用的临时目录前缀（负控扫描对象）。 */
+const ACCEPTANCE_SCRIPT = path.resolve(import.meta.dirname, '../scripts/acceptance/force-edit-acceptance.mjs')
+const SCRIPT_TMP_PREFIX = 'cc-force-edit-acceptance-'
+
+function countScriptTmpDirs(): number {
+  return readdirSync(tmpdir()).filter((name) => name.startsWith(SCRIPT_TMP_PREFIX)).length
+}
+
 describe.skipIf(deps.missing.length > 0)('force_edit 修订产物验收（真实 CLI + document RPC）', () => {
   let dir: string
   let sourceDocx: string
@@ -51,6 +60,13 @@ describe.skipIf(deps.missing.length > 0)('force_edit 修订产物验收（真实
   let config: PluginConfig
   let session: ContractSession
   let view: DocumentView
+  // 负控取样：脚本运行前后的临时目录快照
+  let scriptRun: { status: number | null; stdout: string; stderr: string }
+  let scriptTmpBefore = 0
+  let scriptTmpAfter = 0
+  let blockedRun: { status: number | null; stdout: string; stderr: string }
+  let blockedTmpBefore = 0
+  let blockedTmpAfter = 0
 
   beforeAll(() => {
     dir = mkdtempSync(path.join(tmpdir(), 'cc-force-edit-'))
@@ -80,6 +96,9 @@ describe.skipIf(deps.missing.length > 0)('force_edit 修订产物验收（真实
       organization: '合成验收律所',
       archiveDir: path.join(dir, 'archive'),
       environment: { CONTRACT_COPILOT_CONFIG_DIR: configDir },
+      // CLI 超时早于 hook 超时（150s < 180s）：挂起时 AbortSignal 杀子进程 →
+      // close 触发 → kind=error → 断言失败 fail loud，测试绝不悬挂。
+      signal: AbortSignal.timeout(150_000),
     }).then((cliResult) => {
       result = cliResult
       revisedDocx = cliResult.parsed.reviewedDocx ?? outputDocx
@@ -111,8 +130,9 @@ describe.skipIf(deps.missing.length > 0)('force_edit 修订产物验收（真实
   }, 180_000)
 
   afterAll(() => {
-    // 临时目录与子进程由本测试全权清理：runApplyCli 的子进程已 await close，
-    // extractDocxParts 的临时脚本自清理，这里只负责目录。
+    // 临时目录与子进程由本测试全权清理：runApplyCli 的子进程已 await close
+    //（AbortSignal 超时时由 spawn signal kill），extractDocxParts 的临时脚本自清理，
+    // 这里只负责目录。
     rmSync(dir, { recursive: true, force: true })
   })
 
@@ -160,11 +180,34 @@ describe.skipIf(deps.missing.length > 0)('force_edit 修订产物验收（真实
 
   it('独立验收脚本端到端 exit 0（scripts/acceptance/force-edit-acceptance.mjs）', { timeout: 120_000 }, () => {
     // 让 vitest 进程代跑脚本（相同 node），覆盖其独立 CLI spawn 与断言链路；
-    // 脚本内部依赖 src/lib 渲染入口退化顺序，BLOCKED(2)/FAIL(1) 都不允许假绿。
-    const scriptPath = path.resolve(import.meta.dirname, '../scripts/acceptance/force-edit-acceptance.mjs')
-    const run = spawnSync(process.execPath, [scriptPath], { encoding: 'utf-8', timeout: 110_000 })
-    expect(run.error ?? null).toBeNull()
-    expect(run.status, `stdout: ${run.stdout}\nstderr: ${run.stderr}`).toBe(0)
-    expect(run.stdout).toContain('[force-edit-acceptance] PASS')
+    // BLOCKED(2)/FAIL(1) 都不允许假绿。
+    scriptTmpBefore = countScriptTmpDirs()
+    scriptRun = spawnSync(process.execPath, [ACCEPTANCE_SCRIPT], {
+      encoding: 'utf-8',
+      timeout: 110_000, // 早于本 it 的 120s：脚本挂起时先被杀并暴露
+    })
+    scriptTmpAfter = countScriptTmpDirs()
+    expect(scriptRun.error?.code === 'ETIMEDOUT' ? 'script 超时' : null).toBeNull()
+    expect(scriptRun.status, `stdout: ${scriptRun.stdout}\nstderr: ${scriptRun.stderr}`).toBe(0)
+    expect(scriptRun.stdout).toContain('[force-edit-acceptance] PASS')
+  })
+
+  it('负控：脚本运行后无 cc-force-edit-acceptance-* 临时目录残留（可重复）', () => {
+    expect(scriptTmpAfter).toBe(scriptTmpBefore)
+  })
+
+  it('负控：依赖缺失时脚本 BLOCKED exit 2 且同样零残留', { timeout: 60_000 }, () => {
+    // 用不存在的 python 可执行文件触发依赖探测 BLOCKED，验证退出码契约与清理
+    blockedTmpBefore = countScriptTmpDirs()
+    blockedRun = spawnSync(process.execPath, [ACCEPTANCE_SCRIPT], {
+      encoding: 'utf-8',
+      timeout: 50_000,
+      env: { ...process.env, CONTRACT_COPILOT_PYTHON: 'cc-definitely-missing-python3-negative-control' },
+    })
+    blockedTmpAfter = countScriptTmpDirs()
+    expect(blockedRun.status, `stdout: ${blockedRun.stdout}\nstderr: ${blockedRun.stderr}`).toBe(2)
+    expect(blockedRun.stderr).toContain('[force-edit-acceptance] BLOCKED')
+    expect(blockedRun.stderr).toContain('python3')
+    expect(blockedTmpAfter).toBe(blockedTmpBefore)
   })
 })
