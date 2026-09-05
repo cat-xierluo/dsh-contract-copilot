@@ -1,4 +1,8 @@
-/** DSH 主题 token 漂移门禁测试：校验器只认两个事实源——锁定已发布工件与 Workbench 源码。 */
+/**
+ * DSH 主题 token 漂移门禁测试：校验器只认两个事实源——锁定已发布工件与 Workbench 源码。
+ * 正例用真实安装的 @deepseek-ai/dsh-client-ui-* 发布工件（含宿主主题包 ui-theme），
+ * 不读取 DSH 源仓源码；负例覆盖未知 token 注入与包/工件不可达。
+ */
 
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -44,7 +48,7 @@ describe('主题 token 门禁：当前锁定的已发布工件（正例）', () 
 
   it('已安装 ui-* 包全部可达且带锁定版本，工件宇宙非空', () => {
     expect(result.errors).toEqual([])
-    expect(result.universeSize).toBeGreaterThan(10)
+    expect(result.universeSize).toBeGreaterThan(100)
     const direct = result.packages.filter(pkg => pkg.origin === 'direct')
     expect(direct.length).toBeGreaterThanOrEqual(3)
     for (const pkg of result.packages) {
@@ -53,18 +57,38 @@ describe('主题 token 门禁：当前锁定的已发布工件（正例）', () 
     }
   })
 
-  it('covered ∪ missing 恰好划分 DSH_THEME_TOKENS，且两者都有真实内容', () => {
-    expect([...result.covered, ...result.missing].sort()).toEqual([...DSH_THEME_TOKENS].sort())
-    expect(result.covered.length).toBeGreaterThan(0)
+  it('宿主主题包 dsh-client-ui-theme 已作为锁定 devDependency 进入证据基座', () => {
+    const theme = result.packages.find(pkg => pkg.name === '@deepseek-ai/dsh-client-ui-theme')
+    expect(theme, 'ui-theme 未安装：pnpm add -D @deepseek-ai/dsh-client-ui-theme@0.1.2-rc.1 --save-exact').toBeDefined()
+    expect(theme!.version).toBe('0.1.2-rc.1')
+    expect(theme!.origin).toBe('direct')
   })
 
-  it('covered token 的出处都指向已发布的 dsh-client-ui-* 工件文件', () => {
+  it('默认核对端到端 PASS：24 项全部有真实工件出处，缺失为空', () => {
+    expect(result.ok).toBe(true)
+    expect(result.missing).toEqual([])
+    expect(result.covered).toEqual([...DSH_THEME_TOKENS])
+    expect(result.themeTokens.length).toBe(24)
+  })
+
+  it('每项 DSH_THEME_TOKENS 的出处都包含宿主主题包 ui-theme 的已发布工件', () => {
+    for (const token of result.covered) {
+      const sources = result.provenance[token]
+      expect(sources.length, token).toBeGreaterThan(0)
+      expect(
+        sources.some(source => source.includes('@deepseek-ai/dsh-client-ui-theme')),
+        token,
+      ).toBe(true)
+    }
+  })
+
+  it('covered token 的出处都指向已发布的 dsh-client-ui-* 工件文件（CSS 或 JS）', () => {
     for (const token of result.covered) {
       const sources = result.provenance[token]
       expect(sources.length, token).toBeGreaterThan(0)
       for (const source of sources) {
         expect(source, token).toContain('@deepseek-ai/dsh-client-ui-')
-        expect(source, token).toMatch(/node_modules\/.+\.m?js$/)
+        expect(source, token).toMatch(/node_modules\/.+\.(m?js|css)$/)
       }
     }
   })
@@ -101,6 +125,8 @@ describe('主题 token 门禁：当前锁定的已发布工件（正例）', () 
 describe('主题 token 门禁：负例一律 fail closed', () => {
   it('注入不存在 token：ok=false，缺失清单在真实缺口语义外恰好多出虚构项', () => {
     const base = verifyThemeTokens({ root: repoRoot })
+    expect(base.ok).toBe(true)
+    expect(base.missing).toEqual([])
     const withFabricated = verifyThemeTokens({ root: repoRoot, tokens: [...DSH_THEME_TOKENS, FABRICATED_TOKEN] })
     expect(withFabricated.ok).toBe(false)
     expect(withFabricated.covered).toEqual(base.covered)
@@ -111,6 +137,28 @@ describe('主题 token 门禁：负例一律 fail closed', () => {
     expect(onlyFabricated.ok).toBe(false)
     expect(onlyFabricated.missing).toEqual([FABRICATED_TOKEN])
     expect(onlyFabricated.covered).toEqual([])
+  })
+
+  it('宿主主题包缺席时（CC-V5-002 原始缺口）alias token 无出处，fail closed', () => {
+    const root = makeTempRoot()
+    try {
+      const packageRoot = join(root, 'node_modules', '@deepseek-ai', 'dsh-client-ui-slots')
+      mkdirSync(join(packageRoot, 'lib'), { recursive: true })
+      writeFileSync(join(packageRoot, 'package.json'), JSON.stringify({
+        name: '@deepseek-ai/dsh-client-ui-slots',
+        version: '0.1.2-rc.1',
+      }))
+      writeFileSync(join(packageRoot, 'lib', 'index.js'), ':root{--dsw-slot-local-token:#fff}')
+
+      const withoutTheme = verifyThemeTokens({ root, tokens: [...DSH_THEME_TOKENS] })
+      expect(withoutTheme.ok).toBe(false)
+      expect(withoutTheme.errors).toEqual([])
+      expect(withoutTheme.missing).toContain('--dsw-alias-bg-base')
+      expect(withoutTheme.missing).toContain('--dsw-mask-blur')
+      expect(withoutTheme.covered).toEqual([])
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
   })
 
   it('工件不可达（无 node_modules）与包清单缺失都拒绝通过', () => {
