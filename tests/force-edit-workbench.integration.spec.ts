@@ -10,7 +10,11 @@
  *
  * 依赖缺失时整组具名 skip（缺什么打印什么，含 CLI 入口可读性），核心断言绝不假绿：
  * CLI 能跑但断言不满足 = 测试失败，与 skip 不同。
- * 另含负控：独立脚本 BLOCKED 退出码契约（exit 2）与临时目录零残留（可重复）。
+ *
+ * 脚本负控（CC-V5-003-R2）：每次子脚本运行注入测试独占 TMPDIR，只断言该私有根
+ * 最终为空（不扫描共享 /tmp 全局计数）；BLOCKED 负控走真实生产路径——依赖探测
+ * 放行、工作目录已建之后在生成步骤故障挂起，脚本内部超时先于外层 backstop 触发，
+ * 验证 exit 2 且 finally 真实清理了已建目录。
  */
 
 import { spawnSync } from 'node:child_process'
@@ -42,12 +46,20 @@ if (deps.missing.length > 0) {
   console.warn(`[force-edit-acceptance] SKIP：真实 CLI 链路依赖缺失 → ${deps.missing.join('；')}`)
 }
 
-/** 独立验收脚本路径与它使用的临时目录前缀（负控扫描对象）。 */
+/** 独立验收脚本路径。 */
 const ACCEPTANCE_SCRIPT = path.resolve(import.meta.dirname, '../scripts/acceptance/force-edit-acceptance.mjs')
-const SCRIPT_TMP_PREFIX = 'cc-force-edit-acceptance-'
 
-function countScriptTmpDirs(): number {
-  return readdirSync(tmpdir()).filter((name) => name.startsWith(SCRIPT_TMP_PREFIX)).length
+/**
+ * 为一次子脚本运行建立测试独占的临时根：脚本的 mkdtemp 与 Python tempfile 都
+ * 落在里面（os.tmpdir/tempfile 均尊重 TMPDIR；TMP/TEMP 兼容 Windows）。
+ * 断言"该根最终为空"即零残留，与其他并行测试/机器上其他进程完全隔离。
+ */
+function makePrivateTmpRoot(label: string): string {
+  return mkdtempSync(path.join(tmpdir(), `cc-force-edit-root-${label}-`))
+}
+
+function privateTmpEnv(root: string, extra: NodeJS.ProcessEnv = {}): NodeJS.ProcessEnv {
+  return { ...process.env, ...extra, TMPDIR: root, TMP: root, TEMP: root }
 }
 
 describe.skipIf(deps.missing.length > 0)('force_edit 修订产物验收（真实 CLI + document RPC）', () => {
@@ -60,13 +72,13 @@ describe.skipIf(deps.missing.length > 0)('force_edit 修订产物验收（真实
   let config: PluginConfig
   let session: ContractSession
   let view: DocumentView
-  // 负控取样：脚本运行前后的临时目录快照
+  // 负控取样：每次子脚本运行各自的私有 TMPDIR 根与运行结果
   let scriptRun: { status: number | null; stdout: string; stderr: string }
-  let scriptTmpBefore = 0
-  let scriptTmpAfter = 0
+  let scriptRoot: string
   let blockedRun: { status: number | null; stdout: string; stderr: string }
-  let blockedTmpBefore = 0
-  let blockedTmpAfter = 0
+  let blockedRoot: string
+  /** 负控自建目录（wrapper 所在根等），afterAll 统一清理。 */
+  const negctlDirs: string[] = []
 
   beforeAll(() => {
     dir = mkdtempSync(path.join(tmpdir(), 'cc-force-edit-'))
@@ -131,9 +143,10 @@ describe.skipIf(deps.missing.length > 0)('force_edit 修订产物验收（真实
 
   afterAll(() => {
     // 临时目录与子进程由本测试全权清理：runApplyCli 的子进程已 await close
-    //（AbortSignal 超时时由 spawn signal kill），extractDocxParts 的临时脚本自清理，
-    // 这里只负责目录。
+    //（超时时经 TERM→grace→KILL 升级链确认消亡），extractDocxParts 的临时脚本自清理，
+    // 这里负责工作目录与负控私有根。
     rmSync(dir, { recursive: true, force: true })
+    for (const extra of negctlDirs) rmSync(extra, { recursive: true, force: true })
   })
 
   it('真实 CLI success：exit 0 且 force_edit finding 落为 applied', () => {
@@ -178,36 +191,72 @@ describe.skipIf(deps.missing.length > 0)('force_edit 修订产物验收（真实
     expect(documentXml).toContain(TARGET_TEXT)
   })
 
-  it('独立验收脚本端到端 exit 0（scripts/acceptance/force-edit-acceptance.mjs）', { timeout: 120_000 }, () => {
-    // 让 vitest 进程代跑脚本（相同 node），覆盖其独立 CLI spawn 与断言链路；
+  it('独立验收脚本端到端 exit 0（scripts/acceptance/force-edit-acceptance.mjs）', { timeout: 150_000 }, () => {
+    // 让 vitest 进程代跑脚本（相同 node），覆盖其独立异步 CLI spawn 与断言链路；
     // BLOCKED(2)/FAIL(1) 都不允许假绿。
-    scriptTmpBefore = countScriptTmpDirs()
+    // 外层 backstop(140s) 必须晚于脚本内部 CLI 超时(60s)：内部超时先触发，
+    // 脚本自己走 TERM→KILL→close 与 finally 清理，外层永不先杀 Node 绕过 finally。
+    scriptRoot = makePrivateTmpRoot('success')
     scriptRun = spawnSync(process.execPath, [ACCEPTANCE_SCRIPT], {
       encoding: 'utf-8',
-      timeout: 110_000, // 早于本 it 的 120s：脚本挂起时先被杀并暴露
+      timeout: 140_000,
+      env: privateTmpEnv(scriptRoot),
     })
-    scriptTmpAfter = countScriptTmpDirs()
     expect(scriptRun.error?.code === 'ETIMEDOUT' ? 'script 超时' : null).toBeNull()
     expect(scriptRun.status, `stdout: ${scriptRun.stdout}\nstderr: ${scriptRun.stderr}`).toBe(0)
     expect(scriptRun.stdout).toContain('[force-edit-acceptance] PASS')
   })
 
-  it('负控：脚本运行后无 cc-force-edit-acceptance-* 临时目录残留（可重复）', () => {
-    expect(scriptTmpAfter).toBe(scriptTmpBefore)
+  it('负控：脚本 PASS 后其私有 TMPDIR 根为空（真实零残留，不扫共享 /tmp）', () => {
+    expect(readdirSync(scriptRoot)).toEqual([])
   })
 
-  it('负控：依赖缺失时脚本 BLOCKED exit 2 且同样零残留', { timeout: 60_000 }, () => {
-    // 用不存在的 python 可执行文件触发依赖探测 BLOCKED，验证退出码契约与清理
-    blockedTmpBefore = countScriptTmpDirs()
+  it('负控：工作目录已建后 BLOCKED（生成步骤挂起）→ exit 2 且私有 TMPDIR 根为空', { timeout: 60_000 }, () => {
+    // 走真实生产清理路径，不用测试钩子：依赖探测正常放行 → 脚本已 mkdtemp 工作
+    // 目录 → 生成步骤对"挂起 wrapper"超时（脚本内部 20s < 外层 50s），BLOCKED
+    // 必须发生在目录已建之后，finally 真正执行 rmSync。
+    const wrapperRoot = mkdtempSync(path.join(tmpdir(), 'cc-force-edit-wrapper-'))
+    negctlDirs.push(wrapperRoot)
+    const wrapper = path.join(wrapperRoot, 'python-wrapper.py')
+    writeFileSync(wrapper, [
+      '#!/usr/bin/env python3',
+      '"""负控专用透传：依赖探测正常放行，合成 DOCX 生成步骤挂起（等待被 TERM/KILL）。"""',
+      'import os',
+      'import sys',
+      'import time',
+      'args = sys.argv[1:]',
+      "if args and args[0].endswith('gen-force-edit-fixture.py'):",
+      '    time.sleep(3600)',
+      "os.execvp('python3', ['python3'] + args)",
+    ].join('\n'), { encoding: 'utf8', mode: 0o755 })
+    blockedRoot = makePrivateTmpRoot('blocked-after-mkdir')
     blockedRun = spawnSync(process.execPath, [ACCEPTANCE_SCRIPT], {
       encoding: 'utf-8',
       timeout: 50_000,
-      env: { ...process.env, CONTRACT_COPILOT_PYTHON: 'cc-definitely-missing-python3-negative-control' },
+      env: privateTmpEnv(blockedRoot, { CONTRACT_COPILOT_PYTHON: wrapper }),
     })
-    blockedTmpAfter = countScriptTmpDirs()
     expect(blockedRun.status, `stdout: ${blockedRun.stdout}\nstderr: ${blockedRun.stderr}`).toBe(2)
     expect(blockedRun.stderr).toContain('[force-edit-acceptance] BLOCKED')
-    expect(blockedRun.stderr).toContain('python3')
-    expect(blockedTmpAfter).toBe(blockedTmpBefore)
+    // BLOCKED 原因证明挂在生成步骤（目录已建之后），不是依赖探测提前返回
+    expect(blockedRun.stderr).toContain('合成 DOCX 生成')
+    expect(readdirSync(blockedRoot)).toEqual([])
+  })
+
+  it('负控：依赖缺失时脚本 BLOCKED exit 2（此时未建工作目录，语义保留）', { timeout: 30_000 }, () => {
+    // 用不存在的 python 可执行文件触发依赖探测 BLOCKED；此路径发生在建目录前，
+    // 私有根同样必须为空。
+    const missingRoot = makePrivateTmpRoot('blocked-dep-missing')
+    negctlDirs.push(missingRoot)
+    const missingRun = spawnSync(process.execPath, [ACCEPTANCE_SCRIPT], {
+      encoding: 'utf-8',
+      timeout: 25_000,
+      env: privateTmpEnv(missingRoot, {
+        CONTRACT_COPILOT_PYTHON: 'cc-definitely-missing-python3-negative-control',
+      }),
+    })
+    expect(missingRun.status, `stdout: ${missingRun.stdout}\nstderr: ${missingRun.stderr}`).toBe(2)
+    expect(missingRun.stderr).toContain('[force-edit-acceptance] BLOCKED')
+    expect(missingRun.stderr).toContain('python3')
+    expect(readdirSync(missingRoot)).toEqual([])
   })
 })

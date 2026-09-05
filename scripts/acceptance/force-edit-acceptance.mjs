@@ -16,12 +16,19 @@
  *   2 = BLOCKED（环境不具备验收条件：依赖缺失、依赖探测超时、fixture 生成或
  *       抽取工具超时、生产渲染入口不可用；具名原因输出到 stderr）
  *
+ * 进程所有权（与 src/python-bridge.ts runApplyCli 同一模型）：所有 Python
+ * 子进程一律异步 spawn，不使用 spawnSync——超时先 SIGTERM，短暂 grace 仍存活
+ * 则 SIGKILL，Promise 仅在 child close（或明确 spawn 失败）后 settle；计时器与
+ * 输出监听在 settle 时统一清理，无孤儿进程、无双重 settle。内部 CLI 超时
+ * （CLI_TIMEOUT_MS=60s）必须早于调用方外层超时（集成测试 backstop 140s），
+ * 保证外层永不先杀本脚本而绕过 finally 清理。
+ *
  * 任何退出路径都不直接 process.exit：BLOCKED/FAIL 一律具名异常 → main 的
  * finally 保证临时目录清理（--keep 目录除外）。
  * --keep <dir> 保留产物（修订 DOCX / plan / 归档）供后续真实浏览器样例固定输入。
  */
 
-import { spawnSync } from 'node:child_process'
+import { spawn } from 'node:child_process'
 import { accessSync, constants as fsConstants, mkdirSync, mkdtempSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
@@ -31,10 +38,12 @@ const SKILL_ROOT = process.env.CONTRACT_COPILOT_SKILL_ROOT
 const CLI_ENTRY = path.join(SKILL_ROOT, 'scripts', 'review', 'apply_review_plan.py')
 const PYTHON = process.env.CONTRACT_COPILOT_PYTHON ?? 'python3'
 
-const PROBE_TIMEOUT_MS = 15_000
-const GEN_TIMEOUT_MS = 30_000
-const CLI_TIMEOUT_MS = 180_000
-const EXTRACT_TIMEOUT_MS = 30_000
+const PROBE_TIMEOUT_MS = 10_000
+const GEN_TIMEOUT_MS = 20_000
+const CLI_TIMEOUT_MS = 60_000
+const EXTRACT_TIMEOUT_MS = 20_000
+/** SIGTERM → SIGKILL 升级宽限期：TERM 响应即无需 KILL，未响应也只多等这一段。 */
+const KILL_GRACE_MS = 2_000
 
 /** 具名阻塞：环境不具备验收条件 → 退出码 2，必须与断言失败(1)可区分。 */
 class BlockedError extends Error {
@@ -66,23 +75,89 @@ function isReadableFile(target) {
   }
 }
 
-/** spawnSync 是否因超时被杀（error.code=ETIMEDOUT 或 status=null+SIGTERM）。 */
-function timedOut(result) {
-  return result.error?.code === 'ETIMEDOUT'
-    || (result.error === undefined && result.status === null && result.signal === 'SIGTERM')
+const isAlive = (child) => child.exitCode === null && child.signalCode === null
+
+/**
+ * 异步运行一个有界子进程（runApplyCli 同款所有权模型）：
+ * timeoutMs 到点先 SIGTERM，KILL_GRACE_MS 后仍存活才 SIGKILL；
+ * 结果只在 close（或明确 spawn 失败）后返回，计时器与输出监听 settle 时清理。
+ */
+function ownedSpawn(file, args, timeoutMs) {
+  return new Promise((resolve) => {
+    const child = spawn(file, args, { stdio: ['ignore', 'pipe', 'pipe'] })
+    let stdout = ''
+    let stderr = ''
+    let settled = false
+    let timeoutTimer = null
+    let graceTimer = null
+    let spawnError
+    const cleanup = () => {
+      if (timeoutTimer !== null) clearTimeout(timeoutTimer)
+      if (graceTimer !== null) clearTimeout(graceTimer)
+      child.removeAllListeners()
+      child.stdout?.removeAllListeners()
+      child.stderr?.removeAllListeners()
+    }
+    const settle = (result) => {
+      if (settled) return
+      settled = true
+      cleanup()
+      resolve(result)
+    }
+    child.stdout?.setEncoding('utf8')
+    child.stderr?.setEncoding('utf8')
+    child.stdout?.on('data', (chunk) => { stdout += chunk })
+    child.stderr?.on('data', (chunk) => { stderr += chunk })
+    // 仅 spawn 本身失败（如 ENOENT）进入这里；TERM/KILL 不产生 error 事件。
+    // 个别平台 spawn 失败后可能没有 close，这里即"明确 spawn 失败"settle 出口。
+    child.on('error', (error) => {
+      spawnError = error
+      settle({ status: null, signal: null, stdout, stderr, spawnError })
+    })
+    child.on('close', (code, signal) => {
+      settle({ status: code, signal, stdout, stderr, spawnError })
+    })
+    timeoutTimer = setTimeout(() => {
+      if (settled || !isAlive(child)) return
+      child.kill('SIGTERM')
+      graceTimer = setTimeout(() => {
+        if (!settled && isAlive(child)) child.kill('SIGKILL')
+      }, KILL_GRACE_MS)
+    }, timeoutMs)
+  })
 }
 
-function probeDeps() {
+/**
+ * 异步运行 Python 并按旧契约归类：spawn 失败以 error 字段透出（依赖探测据此
+ * 报"可执行文件不存在"）；本函数发起的 TERM/KILL 致死（status=null 且有 signal）
+ * 归类为超时——blockedOnTimeout 为 BLOCKED(2)，否则 FAIL(1)。
+ */
+async function runPython(args, { timeout, label, blockedOnTimeout }) {
+  const result = await ownedSpawn(PYTHON, args, timeout)
+  if (result.spawnError !== undefined) {
+    return { status: null, signal: null, stdout: result.stdout, stderr: result.stderr, error: result.spawnError }
+  }
+  if (result.status === null && result.signal !== null) {
+    const escalation = result.signal === 'SIGKILL' ? 'TERM 未响应已升级 SIGKILL' : 'SIGTERM 终止'
+    const reason = `${label} 超时（>${timeout}ms，${escalation}）`
+    if (blockedOnTimeout) throw new BlockedError(reason)
+    fail(reason)
+  }
+  return result
+}
+
+async function probeDeps() {
   const missing = []
   for (const [name, code] of [
     ['python3', 'pass'],
     ['defusedxml', 'import defusedxml'],
     ['python-docx', 'import docx'],
   ]) {
-    const probe = spawnSync(PYTHON, ['-c', code], { stdio: 'pipe', timeout: PROBE_TIMEOUT_MS })
-    if (timedOut(probe)) {
-      throw new BlockedError(`依赖探测超时（>${PROBE_TIMEOUT_MS}ms，SIGTERM）：${name}`)
-    }
+    const probe = await runPython(['-c', code], {
+      timeout: PROBE_TIMEOUT_MS,
+      label: `依赖探测（${name}）`,
+      blockedOnTimeout: true,
+    })
     if (probe.status !== 0 || probe.error !== undefined) {
       missing.push(name === 'python3' ? 'python3（可执行文件不存在）'
         : `${name}（pip install -r scripts/requirements.txt）`)
@@ -94,21 +169,6 @@ function probeDeps() {
     missing.push(`CLI 入口不可读：${CLI_ENTRY}`)
   }
   if (missing.length > 0) throw new BlockedError(`真实 CLI 链路依赖缺失 → ${missing.join('；')}`)
-}
-
-/** spawn python 的公共封装：超时按 blockedOnTimeout 归类为 BLOCKED 或 FAIL。 */
-function runPython(args, { timeout, label, blockedOnTimeout }) {
-  const result = spawnSync(PYTHON, args, {
-    encoding: 'utf8',
-    stdio: ['ignore', 'pipe', 'pipe'],
-    timeout,
-  })
-  if (timedOut(result)) {
-    const reason = `${label} 超时（>${timeout}ms，SIGTERM）`
-    if (blockedOnTimeout) throw new BlockedError(reason)
-    fail(reason)
-  }
-  return result
 }
 
 /**
@@ -153,14 +213,14 @@ function parseArgs(argv) {
   return options
 }
 
-function extractDocumentXml(docxPath) {
+async function extractDocumentXml(docxPath) {
   // 与 src/docx-view.ts extractDocxParts 相同的抽取方式：python3 zipfile 读 word/document.xml
   const script = [
     'import sys, zipfile',
     'z = zipfile.ZipFile(sys.argv[1])',
     "sys.stdout.write(z.read('word/document.xml').decode('utf-8'))",
   ].join('\n')
-  const result = runPython(['-c', script, docxPath], {
+  const result = await runPython(['-c', script, docxPath], {
     timeout: EXTRACT_TIMEOUT_MS,
     label: 'word/document.xml 抽取',
     blockedOnTimeout: true,
@@ -177,12 +237,12 @@ async function main() {
   let dir
   try {
     // 0) 环境与 CLI 入口探测（BLOCKED → 2；此时未建目录，finally 幂等）
-    probeDeps()
+    await probeDeps()
 
     dir = options.keep ?? mkdtempSync(path.join(tmpdir(), 'cc-force-edit-acceptance-'))
     mkdirSync(path.join(dir, 'config'), { recursive: true })
 
-    // 1) 脱敏合成 DOCX
+    // 1) 脱敏合成 DOCX（自此处起 BLOCKED 都发生在工作目录已建后，验证 finally 真实清理）
     const genScript = path.join(dir, 'gen-force-edit-fixture.py')
     writeFileSync(genScript, [
       'from docx import Document',
@@ -197,7 +257,7 @@ async function main() {
       ].map((text) => `d.add_paragraph(${JSON.stringify(text)})`),
       `d.save(${JSON.stringify(path.join(dir, '合成验收采购合同.docx'))})`,
     ].join('\n'), 'utf8')
-    const gen = runPython([genScript], {
+    const gen = await runPython([genScript], {
       timeout: GEN_TIMEOUT_MS,
       label: '合成 DOCX 生成',
       blockedOnTimeout: true,
@@ -240,11 +300,11 @@ async function main() {
       }],
     }, null, 2)}\n`, 'utf8')
 
-    // 3) 真实 Python CLI（argv 与 src/python-bridge.ts buildArgv 一致；带超时）
+    // 3) 真实 Python CLI（argv 与 src/python-bridge.ts buildArgv 一致；超时先于外层 backstop）
     const outputDocx = path.join(dir, 'output', '合成验收采购合同_reviewed.docx')
     mkdirSync(path.dirname(outputDocx), { recursive: true })
     const reportDocx = path.join(dir, 'output', '合成验收采购合同_审查报告.docx')
-    const cli = runPython([
+    const cli = await runPython([
       CLI_ENTRY,
       '--input', sourceDocx,
       '--plan', planPath,
@@ -266,7 +326,7 @@ async function main() {
       fail(`apply_review_plan.py exit=${cli.status}\n${cli.stderr ?? ''}`)
     }
     const reviewedDocx = /^输出 DOCX: (.+)$/mu.exec(stdout)?.[1]?.trim() ?? outputDocx
-    const documentXml = extractDocumentXml(reviewedDocx)
+    const documentXml = await extractDocumentXml(reviewedDocx)
     const hasIns = documentXml.includes('<w:ins ')
     const hasDel = documentXml.includes('<w:del ')
     console.log(`修订 DOCX: ${reviewedDocx}`)
