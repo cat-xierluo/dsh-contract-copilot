@@ -1,12 +1,13 @@
 /**
  * runApplyCli 集成测试：真实 python3 spawn 跑 apply_review_plan.py 的 success 路径。
  * 依赖本机 defusedxml（skill 的 requirements.txt 已装则通过；未装则跳过——CI 无 Python 环境时用 describe.skipIf）。
- * 另含取消所有权确定性测试：SIGTERM 被忽略的子进程经 TERM→grace→KILL 升级，
- * Promise 在 close 后才 settle（grace 可注入，不依赖长 sleep）。
+ * 另含取消所有权确定性测试（CC-V5-003-R3）：整组 TERM→grace→KILL→最终 settle
+ * 上界，含"父忽略 SIGTERM + 永久后代继承 stdout/stderr"的进程树负控——
+ * 取消在硬上界内返回且父/后代均消亡（grace/上界可注入，不依赖长 sleep）。
  */
 
 import { execSync } from 'node:child_process'
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
@@ -102,25 +103,50 @@ it('spawn 失败（pythonExecutable 不存在）→ 明确 reject，不悬挂', 
   })).rejects.toThrow()
 })
 
-describe.skipIf(!hasPython3 || process.platform === 'win32')('runApplyCli 取消所有权（TERM→grace→KILL→close）', () => {
+describe.skipIf(!hasPython3 || process.platform === 'win32')('runApplyCli 取消所有权（整组 TERM→grace→KILL→最终上界）', () => {
   /**
-   * 确定性验证（CC-V5-003-R2 blocker 1）：子进程捕获并忽略 SIGTERM 后，
-   * abort 必须先 TERM、grace 期满仍存活才升级 KILL，且 Promise 仅在 close 后
-   * settle——exitCode=null + stderr 的"TERM 已被忽略"证据共同推出"死因只能是
-   * SIGKILL"，不靠时长猜测，也不依赖长 sleep（grace 注入 300ms）。
+   * 确定性验证（CC-V5-003-R2/R3）：abort 先整组 TERM，grace 期满仍存活升级整组
+   * KILL，并在 grace+killSettle 的硬上界内 settle；R3 负控证明继承 stdout/stderr
+   * 的永久后代与父一起消亡——只杀直接子进程的实现会让后代存活、close 永不到达。
+   * 不靠时长猜测，也不依赖长 sleep（grace/上界注入 300ms）。
    */
-  let root: string
   const GRACE_MS = 300
+  const KILL_SETTLE_MS = 300
+  let root: string
 
-  /** Python：装好忽略 SIGTERM 的 handler → 写 ready marker → 常驻循环。 */
-  const IGNORE_TERM_SCRIPT = [
+  /** 常驻后代：自带忽略 SIGTERM 的 handler，继承父的 stdout/stderr（R3 负控核心）。 */
+  const DESCENDANT_CODE = [
+    'import signal, time',
+    'def on_term(signum, frame):',
+    '    pass',
+    'signal.signal(signal.SIGTERM, on_term)',
+    'while True:',
+    '    time.sleep(0.05)',
+  ].join('\n')
+
+  /** 父：忽略 SIGTERM，派生永久后代（继承 pipe），写双 pid 文件，常驻循环。 */
+  const treeScript = (pidsFile: string): string => [
+    'import os, signal, subprocess, sys, time',
+    'def on_term(signum, frame):',
+    '    pass',
+    'signal.signal(signal.SIGTERM, on_term)',
+    'descendant = subprocess.Popen([sys.executable, "-c", ' + JSON.stringify(DESCENDANT_CODE) + '], stdout=sys.stdout, stderr=sys.stderr)',
+    'open(' + JSON.stringify(pidsFile) + ', "w").write("%d %d" % (os.getpid(), descendant.pid))',
+    "sys.stdout.write('READY\\n')",
+    'sys.stdout.flush()',
+    'while True:',
+    '    time.sleep(0.05)',
+  ].join('\n')
+
+  /** R2 场景：仅父进程忽略 SIGTERM（无后代），ready marker 同步。 */
+  const ignoreTermScript = (marker: string): string => [
     'import signal, sys, time',
     'terminated = False',
     'def on_term(signum, frame):',
     '    global terminated',
     '    terminated = True',
-    "signal.signal(signal.SIGTERM, on_term)",
-    'open(__MARKER__, "w").close()  # ready marker：handler 已装好，TERM 可发',
+    'signal.signal(signal.SIGTERM, on_term)',
+    'open(' + JSON.stringify(marker) + ', "w").close()  # ready marker：handler 已装好，TERM 可发',
     "sys.stdout.write('READY\\n')",
     'sys.stdout.flush()',
     'notified = False',
@@ -132,25 +158,48 @@ describe.skipIf(!hasPython3 || process.platform === 'win32')('runApplyCli 取消
     '        sys.stderr.flush()',
   ].join('\n')
 
-  /** 轮询等 ready marker（Python handler 装好前的 TERM 会直接杀死进程，不能赛跑）。 */
-  async function waitForMarker(marker: string, deadlineMs: number): Promise<void> {
+  function writeEntry(script: string): void {
+    // buildArgv 以 ${skillRoot}/scripts/review/apply_review_plan.py 为脚本路径，
+    // 用假 skill root 注入被测脚本，无需生产 API 增设测试钩子。
+    writeFileSync(path.join(root, 'scripts', 'review', 'apply_review_plan.py'), script, 'utf8')
+  }
+
+  function baseArgs() {
+    return {
+      skillRoot: root,
+      pythonExecutable: 'python3',
+      inputDocx: 'unused', planPath: 'unused', outputDocx: 'unused', reportDocx: 'unused',
+      clientName: 'x', partyRole: '甲方', reviewIntensity: '常规',
+      editPolicy: 'revise-first', author: 'x', organization: 'x',
+    }
+  }
+
+  /** 轮询等同步文件出现（handler 装好/后代派生前不能发 TERM，不能赛跑）。 */
+  async function waitForFile(file: string, deadlineMs: number): Promise<void> {
     const deadline = Date.now() + deadlineMs
-    while (!existsSync(marker)) {
-      if (Date.now() > deadline) throw new Error(`ready marker 未出现：${marker}`)
+    while (!existsSync(file)) {
+      if (Date.now() > deadline) throw new Error(`同步文件未出现：${file}`)
       await new Promise((resolve) => setTimeout(resolve, 10))
+    }
+  }
+
+  /** 断言 pid 已消亡（process.kill(pid, 0) 抛错）；有界重试吸收进程收割延迟。 */
+  async function expectPidGone(pid: number, label: string): Promise<void> {
+    const deadline = Date.now() + 5_000
+    for (;;) {
+      try {
+        process.kill(pid, 0)
+      } catch {
+        return // ESRCH：不存在（本用例中唯一的预期结局）
+      }
+      if (Date.now() > deadline) throw new Error(`${label} pid=${pid} 取消后仍存活`)
+      await new Promise((resolve) => setTimeout(resolve, 25))
     }
   }
 
   beforeAll(() => {
     root = mkdtempSync(path.join(tmpdir(), 'cc-bridge-term-'))
-    // buildArgv 以 ${skillRoot}/scripts/review/apply_review_plan.py 为脚本路径，
-    // 用假 skill root 注入"忽略 SIGTERM"的脚本，无需生产 API 增设测试钩子。
     mkdirSync(path.join(root, 'scripts', 'review'), { recursive: true })
-    writeFileSync(
-      path.join(root, 'scripts', 'review', 'apply_review_plan.py'),
-      IGNORE_TERM_SCRIPT.replace('__MARKER__', JSON.stringify(path.join(root, 'ready.marker'))),
-      'utf8',
-    )
   })
 
   afterAll(() => {
@@ -159,17 +208,15 @@ describe.skipIf(!hasPython3 || process.platform === 'win32')('runApplyCli 取消
 
   it('TERM 被忽略 → 升级 KILL，Promise 在 close 后才 settle', { timeout: 30_000 }, async () => {
     const marker = path.join(root, 'ready.marker')
+    writeEntry(ignoreTermScript(marker))
     const controller = new AbortController()
     const pending = runApplyCli({
-      skillRoot: root,
-      pythonExecutable: 'python3',
-      inputDocx: 'unused', planPath: 'unused', outputDocx: 'unused', reportDocx: 'unused',
-      clientName: 'x', partyRole: '甲方', reviewIntensity: '常规',
-      editPolicy: 'revise-first', author: 'x', organization: 'x',
+      ...baseArgs(),
       signal: controller.signal,
       terminateGraceMs: GRACE_MS,
+      killSettleMs: KILL_SETTLE_MS,
     })
-    await waitForMarker(marker, 20_000)
+    await waitForFile(marker, 20_000)
     controller.abort()
     const abortedAt = Date.now()
     const result = await pending
@@ -185,29 +232,47 @@ describe.skipIf(!hasPython3 || process.platform === 'win32')('runApplyCli 取消
     expect(Date.now() - abortedAt).toBeGreaterThanOrEqual(GRACE_MS - 5)
   })
 
+  it('永久后代（继承 stdout/stderr、忽略 TERM）随父在硬上界内被整组消灭', { timeout: 30_000 }, async () => {
+    const pidsFile = path.join(root, 'tree.pids')
+    writeEntry(treeScript(pidsFile))
+    const controller = new AbortController()
+    const pending = runApplyCli({
+      ...baseArgs(),
+      signal: controller.signal,
+      terminateGraceMs: GRACE_MS,
+      killSettleMs: KILL_SETTLE_MS,
+    })
+    await waitForFile(pidsFile, 20_000)
+    const [parentPid, descendantPid] = readFileSync(pidsFile, 'utf8').trim().split(/\s+/).map(Number)
+    expect(Number.isInteger(parentPid)).toBe(true)
+    expect(Number.isInteger(descendantPid)).toBe(true)
+    controller.abort()
+    const abortedAt = Date.now()
+    const result = await pending
+    const elapsed = Date.now() - abortedAt
+
+    // 硬上界：TERM(grace) → 整组 KILL → 最终 settle 上界，Promise 必须在内返回
+    expect(elapsed).toBeGreaterThanOrEqual(GRACE_MS - 5) // 父必忽略 TERM，KILL 只能在 grace 后
+    expect(elapsed).toBeLessThanOrEqual(GRACE_MS + KILL_SETTLE_MS + 500)
+    // exitCode=null：整棵树死于信号
+    expect(result.exitCode).toBeNull()
+    expect(result.kind).toBe('error')
+    // 父与永久后代都不复存在：整组 KILL 的直接证据（非时长推断）
+    await expectPidGone(parentPid, '父 Python')
+    await expectPidGone(descendantPid, '永久后代')
+  })
+
   it('未 abort 的正常 close 不受升级链影响：一次 settle，exitCode 原样透出', { timeout: 30_000 }, async () => {
     // 对照组：不 abort 时升级链完全不介入，正常退出码经由 close 一次 settle。
-    const entry = path.join(root, 'scripts', 'review', 'apply_review_plan.py')
-    writeFileSync(entry, [
+    writeEntry([
       'import sys',
       "sys.stderr.write('EXITING')",
       'sys.stderr.flush()',
       'sys.exit(3)',
-    ].join('\n'), 'utf8')
-    try {
-      const result = await runApplyCli({
-        skillRoot: root,
-        pythonExecutable: 'python3',
-        inputDocx: 'unused', planPath: 'unused', outputDocx: 'unused', reportDocx: 'unused',
-        clientName: 'x', partyRole: '甲方', reviewIntensity: '常规',
-        editPolicy: 'revise-first', author: 'x', organization: 'x',
-      })
-      expect(result.exitCode).toBe(3)
-      expect(result.kind).toBe('error')
-      expect(result.stderr).toContain('EXITING')
-    } finally {
-      // 还原忽略 TERM 入口，保持 beforeAll 建立的固定状态
-      writeFileSync(entry, IGNORE_TERM_SCRIPT.replace('__MARKER__', JSON.stringify(path.join(root, 'ready.marker'))), 'utf8')
-    }
+    ].join('\n'))
+    const result = await runApplyCli(baseArgs())
+    expect(result.exitCode).toBe(3)
+    expect(result.kind).toBe('error')
+    expect(result.stderr).toContain('EXITING')
   })
 })

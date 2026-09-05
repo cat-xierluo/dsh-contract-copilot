@@ -17,11 +17,13 @@
  *       抽取工具超时、生产渲染入口不可用；具名原因输出到 stderr）
  *
  * 进程所有权（与 src/python-bridge.ts runApplyCli 同一模型）：所有 Python
- * 子进程一律异步 spawn，不使用 spawnSync——超时先 SIGTERM，短暂 grace 仍存活
- * 则 SIGKILL，Promise 仅在 child close（或明确 spawn 失败）后 settle；计时器与
- * 输出监听在 settle 时统一清理，无孤儿进程、无双重 settle。内部 CLI 超时
- * （CLI_TIMEOUT_MS=60s）必须早于调用方外层超时（集成测试 backstop 140s），
- * 保证外层永不先杀本脚本而绕过 finally 清理。
+ * 子进程一律异步 spawn，不使用 spawnSync——脚本拥有完整进程组/进程树：
+ * POSIX 上 detached 使 Python 成为独立组长（pgid=pid），超时先整组 SIGTERM，
+ * 短暂 grace 仍存活则整组 SIGKILL，并在 KILL 后的最终上界（KILL_SETTLE_MS）
+ * 内无条件 settle——继承 stdout/stderr 的残留后代不能拖住脚本；计时器与
+ * 输出监听在 settle 时统一清理，无孤儿进程、无双重 settle。内部预算最坏
+ * （3×(5+2) + (20+2) + (60+2) + (20+2) = 127s）必须早于调用方外层超时
+ * （集成测试 backstop 140s），保证外层永不先杀本脚本而绕过 finally 清理。
  *
  * 任何退出路径都不直接 process.exit：BLOCKED/FAIL 一律具名异常 → main 的
  * finally 保证临时目录清理（--keep 目录除外）。
@@ -38,12 +40,14 @@ const SKILL_ROOT = process.env.CONTRACT_COPILOT_SKILL_ROOT
 const CLI_ENTRY = path.join(SKILL_ROOT, 'scripts', 'review', 'apply_review_plan.py')
 const PYTHON = process.env.CONTRACT_COPILOT_PYTHON ?? 'python3'
 
-const PROBE_TIMEOUT_MS = 10_000
+const PROBE_TIMEOUT_MS = 5_000
 const GEN_TIMEOUT_MS = 20_000
 const CLI_TIMEOUT_MS = 60_000
 const EXTRACT_TIMEOUT_MS = 20_000
 /** SIGTERM → SIGKILL 升级宽限期：TERM 响应即无需 KILL，未响应也只多等这一段。 */
-const KILL_GRACE_MS = 2_000
+const KILL_GRACE_MS = 1_000
+/** SIGKILL 后等待 close 的最终上界：残留后代持 pipe 时在此兜底 settle。 */
+const KILL_SETTLE_MS = 1_000
 
 /** 具名阻塞：环境不具备验收条件 → 退出码 2，必须与断言失败(1)可区分。 */
 class BlockedError extends Error {
@@ -78,31 +82,68 @@ function isReadableFile(target) {
 const isAlive = (child) => child.exitCode === null && child.signalCode === null
 
 /**
- * 异步运行一个有界子进程（runApplyCli 同款所有权模型）：
- * timeoutMs 到点先 SIGTERM，KILL_GRACE_MS 后仍存活才 SIGKILL；
- * 结果只在 close（或明确 spawn 失败）后返回，计时器与输出监听 settle 时清理。
+ * 终止整棵进程树（runApplyCli 同款）：POSIX 对 -pid（进程组）发信号；组已空
+ * 等异常回退为直接杀。Windows 无 POSIX 进程组，用 taskkill /T /F 按树强杀
+ * （NOT_VERIFIED：开发与验证均在 darwin，仅作 fail-safe，不假装已验证）。
+ */
+function signalTree(child, sig) {
+  const pid = child.pid
+  if (pid === undefined) return
+  if (process.platform === 'win32') {
+    try {
+      spawn('taskkill', ['/pid', String(pid), '/T', '/F'], { stdio: 'ignore' }).unref()
+    } catch {
+      // fail-safe 尽力而为；最终 settle 上界仍保证返回
+    }
+    return
+  }
+  try {
+    process.kill(-pid, sig)
+  } catch {
+    try { child.kill(sig) } catch { /* 已消亡 */ }
+  }
+}
+
+/**
+ * 异步运行一个有界子进程（runApplyCli 同款所有权模型）：脚本拥有完整进程组，
+ * timeoutMs 到点先整组 SIGTERM，KILL_GRACE_MS 后仍存活才整组 SIGKILL，再等
+ * KILL_SETTLE_MS仍无 close 则用已捕获输出无条件 settle（forced=true）——
+ * 继承 stdout/stderr 的残留后代不能拖住脚本；计时器与输出监听 settle 时清理。
  */
 function ownedSpawn(file, args, timeoutMs) {
   return new Promise((resolve) => {
-    const child = spawn(file, args, { stdio: ['ignore', 'pipe', 'pipe'] })
+    const child = spawn(file, args, {
+      stdio: ['ignore', 'pipe', 'pipe'],
+      detached: process.platform !== 'win32',
+    })
     let stdout = ''
     let stderr = ''
     let settled = false
+    let spawnError
+    let exitInfo
     let timeoutTimer = null
     let graceTimer = null
-    let spawnError
+    let settleTimer = null
     const cleanup = () => {
-      if (timeoutTimer !== null) clearTimeout(timeoutTimer)
-      if (graceTimer !== null) clearTimeout(graceTimer)
+      for (const timer of [timeoutTimer, graceTimer, settleTimer]) {
+        if (timer !== null) clearTimeout(timer)
+      }
       child.removeAllListeners()
       child.stdout?.removeAllListeners()
       child.stderr?.removeAllListeners()
     }
-    const settle = (result) => {
+    const settle = (forced) => {
       if (settled) return
       settled = true
       cleanup()
-      resolve(result)
+      resolve({
+        status: exitInfo?.code ?? null,
+        signal: exitInfo?.signal ?? null,
+        stdout,
+        stderr,
+        spawnError,
+        forced: forced === true,
+      })
     }
     child.stdout?.setEncoding('utf8')
     child.stderr?.setEncoding('utf8')
@@ -112,33 +153,38 @@ function ownedSpawn(file, args, timeoutMs) {
     // 个别平台 spawn 失败后可能没有 close，这里即"明确 spawn 失败"settle 出口。
     child.on('error', (error) => {
       spawnError = error
-      settle({ status: null, signal: null, stdout, stderr, spawnError })
+      settle(false)
     })
-    child.on('close', (code, signal) => {
-      settle({ status: code, signal, stdout, stderr, spawnError })
-    })
+    // exit 先于 close：先记录退码/信号，等 stdio 全部关闭（close）或上界兜底再 settle。
+    child.on('exit', (code, signal) => { exitInfo = { code, signal } })
+    child.on('close', () => { settle(false) })
     timeoutTimer = setTimeout(() => {
       if (settled || !isAlive(child)) return
-      child.kill('SIGTERM')
+      signalTree(child, 'SIGTERM')
       graceTimer = setTimeout(() => {
-        if (!settled && isAlive(child)) child.kill('SIGKILL')
+        if (!settled && isAlive(child)) signalTree(child, 'SIGKILL')
       }, KILL_GRACE_MS)
+      // 最终 settle 上界：close 因残留后代持 pipe 永不到达时在此兜底。
+      settleTimer = setTimeout(() => settle(true), KILL_GRACE_MS + KILL_SETTLE_MS)
     }, timeoutMs)
   })
 }
 
 /**
  * 异步运行 Python 并按旧契约归类：spawn 失败以 error 字段透出（依赖探测据此
- * 报"可执行文件不存在"）；本函数发起的 TERM/KILL 致死（status=null 且有 signal）
- * 归类为超时——blockedOnTimeout 为 BLOCKED(2)，否则 FAIL(1)。
+ * 报"可执行文件不存在"）；本函数发起的 TERM/KILL 致死（status=null 且有 signal，
+ * 或达到最终 settle 上界 forced=true）归类为超时——blockedOnTimeout 为
+ * BLOCKED(2)，否则 FAIL(1)。
  */
 async function runPython(args, { timeout, label, blockedOnTimeout }) {
   const result = await ownedSpawn(PYTHON, args, timeout)
   if (result.spawnError !== undefined) {
     return { status: null, signal: null, stdout: result.stdout, stderr: result.stderr, error: result.spawnError }
   }
-  if (result.status === null && result.signal !== null) {
-    const escalation = result.signal === 'SIGKILL' ? 'TERM 未响应已升级 SIGKILL' : 'SIGTERM 终止'
+  if (result.status === null && (result.signal !== null || result.forced)) {
+    const escalation = result.signal === 'SIGKILL' ? 'TERM 未响应已整组升级 SIGKILL'
+      : result.signal === 'SIGTERM' ? 'SIGTERM 终止'
+        : '达到最终 settle 上界'
     const reason = `${label} 超时（>${timeout}ms，${escalation}）`
     if (blockedOnTimeout) throw new BlockedError(reason)
     fail(reason)

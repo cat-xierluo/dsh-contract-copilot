@@ -5,9 +5,11 @@
  * - 一律显式传参，不依赖 Python 非交互默认值（review_intensity 缺失会静默"强势"）。
  * - 异步 spawn（apply 可能运行数分钟，spawnSync 会冻结整个 harness）。
  * - 退码四分类：success / rejected(integrity) / partial(存在失败项) / error。
- * - 取消/超时的进程所有权：abort 先 SIGTERM，经过可注入的短 grace 仍存活则
- *   SIGKILL；Promise 仅在 child close（或明确 spawn 失败）后 settle——不使用
- *   spawn 内建 signal 选项（其 AbortError 会立即 settle 且子进程可能成为孤儿）。
+ * - 取消/超时的进程所有权（CC-V5-003-R3）：拥有完整进程组/进程树——POSIX 上
+ *   detached 让 Python 成为独立组长（pgid=pid），abort 先整组 SIGTERM，可注入
+ *   grace 后仍存活则整组 SIGKILL，并在 KILL 后的最终上界内无条件 settle（继承
+ *   stdout/stderr 的残留后代可能让 close 永不到达，上界保证 Promise 一定返回）。
+ *   不使用 spawn 内建 signal 选项（其 AbortError 会立即 settle 且子进程可能成为孤儿）。
  */
 
 import { spawn } from 'node:child_process'
@@ -36,6 +38,12 @@ export interface ApplyCliArgs {
    * 确定性验证"TERM 被忽略 → 升级 KILL"路径，不依赖长 sleep。
    */
   readonly terminateGraceMs?: number
+  /**
+   * SIGKILL 之后等待 close 的最终上界（ms）。默认 2s。整组 KILL 后 close 理应
+   * 立即到达；若仍有残留（如逃出进程组的后代继承 stdout/stderr），Promise 在
+   * 该上界内无条件 settle，取消永远不会悬挂。
+   */
+  readonly killSettleMs?: number
 }
 
 /** 退码分类（§6.2）。partial/rejected 是域结果不是异常，进 canonical value。 */
@@ -83,50 +91,101 @@ export function buildArgv(args: ApplyCliArgs): string[] {
 
 /** abort 后 SIGTERM 宽限期默认值：真实 apply 有报告归档等收尾，不轻易 KILL。 */
 const DEFAULT_TERMINATE_GRACE_MS = 5_000
+/** SIGKILL 后等待 close 的最终上界默认值：整组 KILL 后 close 理应立即到达。 */
+const DEFAULT_KILL_SETTLE_MS = 2_000
+
+type TreeSignal = 'SIGTERM' | 'SIGKILL'
 
 /**
  * 异步执行 CLI 并分类。
  *
- * settle 时机只有两种：
- * 1. child close（正常退出或被本函数 TERM/KILL 终止）→ resolve；
- * 2. spawn 本身明确失败（如找不到 python 的 ENOENT error 事件）→ reject。
- * abort 不走 error 事件：先 SIGTERM，宽限期内仍存活则升级 SIGKILL，
- * 但 Promise 一定等到 close 才 settle，保证调用方拿到结果时子进程已消亡、
- * 输出监听与计时器已清理，不会留下静默孤儿进程。
+ * settle 时机（互斥，settled 标志保证只有一次）：
+ * 1. child close（stdio 全部关闭；正常退出或被本函数整组 TERM/KILL 终止）→ resolve；
+ * 2. spawn 本身明确失败（如找不到 python 的 ENOENT error 事件）→ reject；
+ * 3. 取消升级链的最终上界：TERM 后 grace 升级整组 KILL，再等 killSettleMs 仍无
+ *    close 则用已捕获的输出与 exit 信息无条件 settle——继承 stdout/stderr 的
+ *    残留后代不再能拖住 Promise。
  */
 export function runApplyCli(args: ApplyCliArgs): Promise<BridgeResult> {
   return new Promise((resolve, reject) => {
     // 注意：不把 signal 交给 spawn——内建实现收到 abort 会立即发 AbortError
     // 并 destroy 流，子进程若忽略 SIGTERM 就成为孤儿；这里手工实现升级链。
+    // POSIX detached：子进程 setsid 成独立会话/组长（pgid=pid），整组信号覆盖
+    // 全部后代；Windows 无等价进程组，取消走 taskkill 树杀 fail-safe。
     const child = spawn(args.pythonExecutable, buildArgv(args), {
       stdio: ['ignore', 'pipe', 'pipe'],
       env: args.environment === undefined ? process.env : { ...process.env, ...args.environment },
+      detached: process.platform !== 'win32',
     })
     const graceMs = args.terminateGraceMs ?? DEFAULT_TERMINATE_GRACE_MS
+    const killSettleMs = args.killSettleMs ?? DEFAULT_KILL_SETTLE_MS
     let stdout = ''
     let stderr = ''
     let settled = false
+    let exitInfo: { code: number | null; signal: NodeJS.Signals | null } | undefined
     let graceTimer: NodeJS.Timeout | undefined
+    let settleTimer: NodeJS.Timeout | undefined
     let abortListener: (() => void) | undefined
 
     const cleanup = () => {
       if (graceTimer !== undefined) clearTimeout(graceTimer)
+      if (settleTimer !== undefined) clearTimeout(settleTimer)
       if (abortListener !== undefined) args.signal?.removeEventListener('abort', abortListener)
       child.removeAllListeners()
       child.stdout?.removeAllListeners()
       child.stderr?.removeAllListeners()
     }
 
+    /**
+     * 终止整棵进程树：POSIX 对 -pid（进程组）发信号，后代随组长一起收信号；
+     * 组已空（ESRCH）等异常回退为直接杀。Windows 没有 POSIX 进程组，用
+     * taskkill /T /F 按树强杀（NOT_VERIFIED：开发与验证均在 darwin，本路径
+     * 无法本机验证，仅作 fail-safe，不假装已验证）。
+     */
+    const signalTree = (sig: TreeSignal): void => {
+      const pid = child.pid
+      if (pid === undefined) return
+      if (process.platform === 'win32') {
+        try {
+          spawn('taskkill', ['/pid', String(pid), '/T', '/F'], { stdio: 'ignore' }).unref()
+        } catch {
+          // fail-safe 尽力而为；最终 settle 上界仍保证返回
+        }
+        return
+      }
+      try {
+        process.kill(-pid, sig)
+      } catch {
+        try { child.kill(sig) } catch { /* 已消亡 */ }
+      }
+    }
+
     /** 已退出（含被信号终止）则不再发信号；close 即将自然到达。 */
     const isAlive = () => child.exitCode === null && child.signalCode === null
 
+    const finish = () => {
+      if (settled) return
+      settled = true
+      cleanup()
+      const code = exitInfo?.code ?? null
+      resolve({
+        kind: classify(code, stderr),
+        exitCode: code,
+        stdout,
+        stderr,
+        parsed: parseStdout(stdout),
+      })
+    }
+
     const escalate = () => {
       if (settled || !isAlive()) return
-      child.kill('SIGTERM')
+      signalTree('SIGTERM')
       graceTimer = setTimeout(() => {
-        if (!settled && isAlive()) child.kill('SIGKILL')
+        if (!settled && isAlive()) signalTree('SIGKILL')
       }, graceMs)
-      // graceTimer 在 close/error 的 cleanup 统一清除，不泄漏。
+      // 最终 settle 上界：close 因残留后代持 pipe 永不到达时在此兜底，
+      // 计时器在 finish 的 cleanup 统一清除，不泄漏。
+      settleTimer = setTimeout(finish, graceMs + killSettleMs)
     }
 
     if (args.signal !== undefined) {
@@ -151,18 +210,9 @@ export function runApplyCli(args: ApplyCliArgs): Promise<BridgeResult> {
       reject(error)
     })
 
-    child.on('close', (code) => {
-      if (settled) return
-      settled = true
-      cleanup()
-      resolve({
-        kind: classify(code, stderr),
-        exitCode: code,
-        stdout,
-        stderr,
-        parsed: parseStdout(stdout),
-      })
-    })
+    // exit 先于 close：先记录退码/信号，等 stdio 全部关闭（close）或上界兜底再 settle。
+    child.on('exit', (code, signal) => { exitInfo = { code, signal } })
+    child.on('close', () => { finish() })
   })
 }
 
