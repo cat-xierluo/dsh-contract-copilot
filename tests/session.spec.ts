@@ -3,11 +3,11 @@
  * latestByContractKey 索引。文件落盘用 os.tmpdir() 子目录。
  */
 
-import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, readFileSync, readdirSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { SessionStore } from '../src/session.ts'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { SessionStore, type ContractSession } from '../src/session.ts'
 
 let dir: string
 let store: SessionStore
@@ -124,5 +124,85 @@ describe('latestByContractKey', () => {
     store.create('/tmp/Sale.docx', 'Sale.docx')
     const result = store.latestByContractKey('purchasecontractdocx')
     expect(result).toBeUndefined()
+  })
+})
+
+describe('同合同同秒多次建案 id 唯一（CC-V5-007）', () => {
+  // 固定时钟：所有 create 落在同一秒，逼出同秒 id 碰撞路径；不依赖真实计时。
+  const PINNED = new Date('2026-09-05T08:30:00.000Z')
+  // 'Sale.docx' -> 'saledocx'；时间戳是 toISOString 去符号后的前 14 位
+  const BASE = 'saledocx-20260905083000'
+
+  beforeEach(() => {
+    vi.useFakeTimers()
+    vi.setSystemTime(PINNED)
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it('连续 create 同合同 12 次：id、内存对象、磁盘 JSON 逐个唯一，早期内容不被覆盖', () => {
+    const ids = Array.from({ length: 12 }, (_, i) => {
+      const session = store.create('/tmp/Sale.docx', 'Sale.docx')
+      // 每个 session 写入独立标记 + 跃迁；若 id 被后续 create 覆盖，标记即丢失
+      store.transition(session.id, 'contract_copilot_intake', 'intake_done', (target) => {
+        target.pendingAnswers = { marker: `#${i}` }
+      })
+      return session.id
+    })
+
+    // id 确定且唯一：base、base-2 … base-12（首个空位顺序分配）
+    expect(ids).toEqual(Array.from({ length: 12 }, (_, i) => (i === 0 ? BASE : `${BASE}-${i + 1}`)))
+    expect(new Set(ids).size).toBe(12)
+
+    ids.forEach((id, i) => {
+      // 内存对象未被覆盖
+      const fromMem = store.get(id)
+      expect(fromMem?.id).toBe(id)
+      expect(fromMem?.pendingAnswers?.marker).toBe(`#${i}`)
+      expect(fromMem?.progressCounter).toBe(1)
+      // 磁盘 JSON 未被覆盖
+      const parsed = JSON.parse(readFileSync(path.join(dir, `${id}.json`), 'utf8')) as ContractSession
+      expect(parsed.id).toBe(id)
+      expect(parsed.pendingAnswers?.marker).toBe(`#${i}`)
+      expect(parsed.progressCounter).toBe(1)
+    })
+    // 12 个独立落盘文件，而不是少数文件被反复改写
+    const files = readdirSync(dir).filter((name) => name.endsWith('.json'))
+    expect(files).toHaveLength(12)
+  })
+
+  it('冷启动恢复：sessionsDir 已有 base/base-2/base-3 → 下一个 id 跳到 base-4', () => {
+    const warmer = new SessionStore(dir)
+    expect(warmer.create('/tmp/Sale.docx', 'Sale.docx').id).toBe(BASE)
+    expect(warmer.create('/tmp/Sale.docx', 'Sale.docx').id).toBe(`${BASE}-2`)
+    expect(warmer.create('/tmp/Sale.docx', 'Sale.docx').id).toBe(`${BASE}-3`)
+
+    // 模拟重启：新 store 内存为空，仅凭磁盘 JSON 判定占用
+    const cold = new SessionStore(dir)
+    expect(cold.create('/tmp/Sale.docx', 'Sale.docx').id).toBe(`${BASE}-4`)
+  })
+
+  it('磁盘占用有空位：base 与 base-3 已占、base-2 空缺 → 下一个 id 取首个空位 base-2', () => {
+    for (const id of [BASE, `${BASE}-3`]) {
+      const seeded: ContractSession = {
+        version: 1,
+        id,
+        contractPath: '/tmp/Sale.docx',
+        contractKey: 'saledocx',
+        contractName: 'Sale.docx',
+        state: 'created',
+        outputs: {},
+        progressCounter: 0,
+        lastInjectedCounter: 0,
+        history: [],
+        createdAt: PINNED.toISOString(),
+        updatedAt: PINNED.toISOString(),
+      }
+      writeFileSync(path.join(dir, `${id}.json`), `${JSON.stringify(seeded, null, 2)}\n`, 'utf8')
+    }
+    const cold = new SessionStore(dir)
+    expect(cold.create('/tmp/Sale.docx', 'Sale.docx').id).toBe(`${BASE}-2`)
   })
 })

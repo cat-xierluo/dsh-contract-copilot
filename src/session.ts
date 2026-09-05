@@ -151,8 +151,18 @@ export class SessionStore {
   private composeId(contractName: string, now: string): string {
     const stamp = now.replace(/[-:TZ.]/g, '').slice(0, 14)
     const key = normalizeContractKey(contractName).slice(0, 40) || 'contract'
-    const id = `${key}-${stamp}`
-    return this.sessions.has(id) || existsSync(this.sessionFile(id)) ? `${id}-2` : id
+    const base = `${key}-${stamp}`
+    // 同合同同秒多次建案：从 base、base-2、base-3… 找第一个未占用 id。
+    // 占用判定同时看内存 map 与 sessionsDir 既有 JSON（覆盖重启恢复后的条目）；
+    // 先判后写，仅在当前 SessionStore/单进程内保证确定性地唯一分配、不覆盖既有案件；
+    // 跨多进程并发写同一 sessionsDir 的 TOCTOU 不在保证范围内。
+    let id = base
+    let suffix = 2
+    while (this.sessions.has(id) || existsSync(this.sessionFile(id))) {
+      id = `${base}-${suffix}`
+      suffix += 1
+    }
+    return id
   }
 
   private loadFromDisk(id: string): ContractSession | undefined {
