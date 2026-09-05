@@ -7,10 +7,12 @@
 
 import type { Context } from '@deepseek-ai/cordis'
 import type { PreStepDecision } from '@deepseek-ai/dsh-agent'
+import type {} from '@deepseek-ai/dsh-agent-default-model'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import { Config, resolveConfig } from './config.ts'
 import type { PluginConfig } from './config.ts'
 import { registerHostApi } from './host-api.ts'
+import { ContractAgentCoordinator } from './agent-coordinator.ts'
 import { formatProgressMsg, progressChangedSinceLastInjection } from './progress.ts'
 import { registerAnalyzeTool } from './tools/analyze.ts'
 import { registerApplyTool } from './tools/apply.ts'
@@ -22,12 +24,17 @@ import { registerResumeTool } from './tools/resume.ts'
 import { SessionStore } from './session.ts'
 
 export const name = 'contract-copilot'
-export const inject = ['tools', 'agents']
+export const inject = ['tools', 'agents', 'agentDefaultModel']
 export { Config }
 
 export function apply(ctx: Context, raw: PluginConfig): void {
   const config = resolveConfig(raw)
   const store = new SessionStore(config.sessionsDir)
+  const coordinator = new ContractAgentCoordinator(ctx, store, {
+    pythonExecutable: config.pythonExecutable,
+    analysisContractTextMaxChars: config.workbench.analysisContractTextMaxChars,
+  })
+  ctx.effect(() => () => coordinator.dispose())
 
   registerIntakeTool(ctx, config, store)
   registerAnalyzeTool(ctx, config, store)
@@ -37,9 +44,9 @@ export function apply(ctx: Context, raw: PluginConfig): void {
   registerInspectSessionTool(ctx, store)
   registerResumeTool(ctx, store)
 
-  // v2 工作台数据面（可选服务）：web profile 下给浏览器 client half 供数据；
-  // headless 下无 webServer，静默跳过（见 docs/DECISIONS.md Q31）。
-  registerHostApi(ctx, config, store)
+  // Web profile 通过 Connection 提供鉴权 RPC、SSE 与下载；headless profile
+  // 没有 Connection 时只运行工具链（见 docs/DECISIONS.md Q35）。
+  registerHostApi(ctx, config, store, coordinator)
 
   // DSH 的 lossless JSON 校验（packages/core/session/src/json.ts）拒绝任何值为
   // undefined 的属性（递归）。本插件返回的对象里有大量可选字段（reviewer.department

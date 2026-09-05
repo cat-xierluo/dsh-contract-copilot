@@ -1,10 +1,10 @@
 # DSH 插件开发参考（范式与索引）
 
-> **维护源**：通用规范的持续维护在 [dsh-plugin-lint skill](../../../legal-skills/skills/dsh-plugin-lint/references/dsh-plugin-development-standards.md)（legal-skills 仓库）。本文件是本仓库落地时的快照 + 本仓库专属实例；DSH 升级后以 skill 侧为准。
+> **维护说明**：通用审计入口在 [dsh-plugin-lint skill](../../../legal-skills/skills/dsh-plugin-lint/SKILL.md)（legal-skills 仓库）。其开发规范仍以 rc.7 为快照；本文件已按 DSH 0.1.2-rc.1 源码重新核对工作台相关事实。
 
 本仓库是 **DeepSeek Harness（DSH）的 out-of-tree 插件**。本文件沉淀本仓库实测验证过的 DSH 插件技术范式，供开发其他 DSH 插件项目复用。DSH 主仓库位于 `参考项目/deepseek-harness/`（下称 harness 仓库）。
 
-> 事实核对于 2026-08-19，对应 harness 版本 0.1.0-rc.7。升级 DSH 后请按"参考文件"逐条复核。
+> 事实核对于 2026-09-04，对应 harness 版本 `0.1.2-rc.1`、commit `76fda72979`。升级 DSH 后请按“参考文件”逐条复核。
 
 ## 1. 插件形态与分发
 
@@ -50,35 +50,31 @@ ctx.tools.register(defineTool({
 
 1. **声明**：`package.json` 加
    ```json
-   "dsh": { "client": { "platform": "web", "inject": ["@deepseek-ai/dsh-client-runtime", …] } }
+   "dsh": { "client": { "platform": "web", "inject": ["@deepseek-ai/dsh-client-connection", "@deepseek-ai/dsh-client-ui-renderer", "@deepseek-ai/dsh-client-ui-sidebar"] } }
    ```
    + `exports["./client"]` 指向 `./lib/client.js`
 2. **扫描与服务**：`packages/client/modules`（`ClientModuleRegistry`）扫 loader 全部 entries（**out-of-tree link 的包同样命中**，`createRequire(ctx.baseUrl).resolve`），写入 `window.__DSH_BOOT__`，按 `/plugins/<id>/client.js` serve 磁盘路径
 3. **client half**：`src/client/index.ts` 是浏览器端 cordis function plugin，`ctx.slots.inject('<slot>', () => ctx.slots.register({...}, ReactComponent))` 注册组件
-4. **host↔client 数据**：host half 用 `ctx.webServer.register({kind:'prefix', path, handler})` 注册同源路由，client 直接 fetch（session-log-export 的下载按钮就是这个模式）；可选服务取值用 `ctx.get('webServer')`（避免硬 inject 导致无 web 的 profile 不激活）
+4. **host↔client JSON**：Host 用 `ctx.inject(['connection'], …)` 等待 Web profile 的 Connection，再以 `connection.rpc.handle(channel, handler)` 注册独占 channel；Client 通过 `ctx.connection.rpc.call(...)` 调用。物理 HTTP 层统一执行 Host/Origin 校验和浏览器 Cookie 认证。
+5. **流与文件**：SSE、下载等不能走 JSON RPC 的响应，用 `connection.fetch.register({path:'/api/...', methods:['GET','HEAD'], fetch})` 注册精确 Fetch 路由，同样位于认证 `/api` 数据面。
+6. **headless 降级**：不要把 `connection` 写入 Host 插件的硬 `inject`。`ctx.inject(['connection'], callback)` 只在服务出现时注册 Web 接口，7 个 tool 可在没有 Connection 的 profile 正常激活。
 
-### 真实 slot 名（harness 0.1.0-rc.7 实测枚举）
+### 本工作台使用的 slot（harness 0.1.2-rc.1）
 
 | slot | 用途 | 先例 |
 |---|---|---|
-| `settings.general.item` / `settings.section` | 设置页行/区 | ui-theme、ui-agent-preset |
-| `conversation.session.header.utilities` / `.actions` | 会话头部按钮区 | session-log-export |
-| `conversation.input.dock` | 输入区 dock 面板 | TodoPanel、QueueDock、ui-goal |
-| `conversation.chat.node` | 聊天消息节点渲染 | ui-conversation、ui-goal |
-| `conversation.chat.turnTail` / `assistant-actions` | 消息尾部动作 | ui-conversation |
-| `conversation.view` | 会话主视图（chain） | ui-conversation |
-| `conversation.details.tool` | 详情面板 tool 区 | ui-conversation |
-| `sidebar` / `sidebar.workspaces.directoryFlow` | 侧栏 | ui-layout、directory-picker |
-| `conversation.hero.workspace` / `.agentPreset` | 空态 hero | ConversationRoot |
+| `sidebar.footer.action` | 侧栏底部附加动作；owner prop 为 `{wide}`，支持展开行与折叠 rail | `packages/client/ui-sidebar/src/client/contract/slots.ts`、`packages/extensions/ui-cordis/src/client/index.ts` |
+
+Slot 由 owner 插件声明后才存在，因此外部插件同时需要对应 client package 的 type-only 导入/devDependency，以及 `dsh.client.inject` 中的加载顺序声明。不得把组件直接追加到 owner 的 DOM。
 
 ### client bundle 构建契约（out-of-tree 必须复刻）
 
-harness 的共享预设 `packages/client/tsdown.client.ts` 不对外发布，自行用 tsdown 复刻。**两处实测坑**：(a) banner 必须构造 `var module = { exports: {} }; var exports = module.exports;`（否则浏览器端 `exports is not defined`）；(b) `"type":"module"` 包内 cjs 产物默认 `.cjs` 后缀，需 `outExtensions: () => ({ js: '.js' })` 强制（registry 只认 `exports["./client"]` 指向的路径）。**HMR 限制**：out-of-tree 插件重建 bundle 后 `__DSH_BOOT__` rev 不变（`rebuilt()` 只被 harness 仓库 `dev:web` watcher 触发）——插件更新需重启 dsh web。
+harness 的共享预设 `packages/client/tsdown.client.ts` 不对外发布，自行用 tsdown 复刻。`outputOptions.entryFileNames: 'client.js'` 固定 ESM 包内的 CJS 工件路径；banner/intro/footer共同构造 `window.__ModuleLoader__.load` factory 与 `module.exports`。**HMR 限制**：out-of-tree 插件更新后仍需重启 DSH Web。
 
 - `format: 'cjs'`，`platform: 'browser'`，entry `src/client/index.ts` → 产物 `lib/client.js`
-- **banner**：`window.__ModuleLoader__.load({ id: <JSON包名>, factory: (require) => {`
-- **footer**：`return module.exports; } });`
-- **externals**（由冻结模块表提供，不打包）：`react`、`react/jsx-runtime`、`react-dom`、`react-dom/client`、`@deepseek-ai/cordis`、`@deepseek-ai/dsh-client-ui-slots`、`@deepseek-ai/dsh-client-web-react`、`@deepseek-ai/dsh-client-ui-primitives`、`@deepseek-ai/dsh-client-ui-attachment`、`@deepseek-ai/dsh-client-schema-form`、`@deepseek-ai/dsh-client-runtime/client`；**其余依赖全部 inline**
+- **outputOptions**：banner `window.__ModuleLoader__.load(...)`，intro 构造 `module/exports`，footer 返回 `module.exports`
+- **externals**（当前冻结模块表）：`react`、`react/jsx-runtime`、`react-dom`、`react-dom/client`、`@deepseek-ai/cordis`、`@deepseek-ai/dsh-client-store`、`@deepseek-ai/dsh-client-ui-slots`、`@deepseek-ai/dsh-client-ui-primitives`
+- **依赖策略**：`deps.neverBundle` 保留上述模块，`deps.alwaysBundle` 内联其余依赖；旧 `external/noExternal` 配置已退出
 - `define`：`process.env.NODE_ENV`、`import.meta.env(.MODE)` 替换
 - `sourcemap: true`；`clean: false`（别清掉同目录的 node half 产物）
 - 纯度规则：非平台表的 `@deepseek-ai/*` 值导入禁止（跨插件协作走 cordis 服务；type-only import 会被擦除不受限）
@@ -104,7 +100,8 @@ harness 的共享预设 `packages/client/tsdown.client.ts` 不对外发布，自
 | ask_user 工具 | `packages/interaction/tool-ask-user/src/index.ts` |
 | client 模块扫描（dsh.client） | `packages/client/modules/src/index.ts` |
 | slot 注册表（ui-slots） | `packages/client/ui-slots/`（README 含 register 契约） |
-| slot 注入先例 | `packages/client/ui-theme/src/client/index.ts:406`、`packages/session-query/session-log-export/src/client/index.ts` |
+| 侧栏 slot 声明与先例 | `packages/client/ui-sidebar/src/client/contract/slots.ts`、`packages/extensions/ui-cordis/src/client/index.ts` |
+| 认证 RPC/Fetch | `packages/client/connection/src/rpc.ts`、`rpc-host.ts`、`client/rpc.ts` |
 | client 构建预设（契约蓝本） | `packages/client/tsdown.client.ts`、`packages/client/web/src/platform.ts`、`packages/client/web/src/seed.ts` |
 | 动态插件运行器（进阶） | `packages/extensions/cordis-client-runner/` |
 | base bundle（默认插件清单） | `packages/bundle/base/cordis.patch.yml` |

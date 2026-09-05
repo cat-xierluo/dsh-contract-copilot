@@ -23,10 +23,16 @@ export interface PluginConfig {
 
 export interface WorkbenchConfig {
   readonly enabled: boolean
-  readonly port: number
-  readonly autoOpen: boolean
-  readonly host: string
+  /** 分析回合注入提示的合同正文字符上限（部署相关；加载边界校验）。 */
+  readonly analysisContractTextMaxChars: number
 }
+
+/** 分析回合合同正文注入上限的默认值（覆盖绝大多数中文合同全文）。 */
+export const ANALYSIS_CONTRACT_TEXT_DEFAULT_CHARS = 40_000
+/** 协议硬顶：配置不得超过（防止单回合提示被配置撑爆；协议安全常量）。 */
+export const ANALYSIS_CONTRACT_TEXT_HARD_MAX_CHARS = 200_000
+/** 下限：低于该值装不下有意义的合同片段。 */
+const ANALYSIS_CONTRACT_TEXT_MIN_CHARS = 1_000
 
 export const Config: z<PluginConfig> = z.object({
   skillRoot: z.string().required().description(
@@ -38,11 +44,11 @@ export const Config: z<PluginConfig> = z.object({
   ),
   injectProgress: z.boolean().default(true).description('是否每步注入审查进度上下文'),
   workbench: z.object({
-    enabled: z.boolean().default(true).description('是否启用插件工作台 HTTP 服务器'),
-    port: z.number().min(1).max(65535).default(8790).description('工作台端口'),
-    autoOpen: z.boolean().default(true).description('创建/阻塞 session 时是否自动弹出工作台页面（macOS open）'),
-    host: z.string().default('127.0.0.1').description('绑定 host（默认仅本机）'),
-  }).description('v2 工作台（插件自带 HTTP 页面 + SSE 实时推送）'),
+    enabled: z.boolean().default(true).description('是否在 DSH Web 界面启用内嵌合同审查工作台'),
+    analysisContractTextMaxChars: z.number().default(ANALYSIS_CONTRACT_TEXT_DEFAULT_CHARS).description(
+      `分析回合注入提示的合同正文字符上限（${ANALYSIS_CONTRACT_TEXT_MIN_CHARS}–${ANALYSIS_CONTRACT_TEXT_HARD_MAX_CHARS}）`,
+    ),
+  }).description('复用 DSH Connection 鉴权、侧栏插槽与 Web 地址的内嵌工作台'),
 })
 
 /** 校验并固化为运行时配置；skillRoot 指向不存在的目录时立刻失败（misconfiguration fails loud）。 */
@@ -55,6 +61,16 @@ export function resolveConfig(raw: PluginConfig): PluginConfig {
       + '请把 skillRoot 指向 contract-copilot skill 的根目录',
     )
   }
+  const analysisContractTextMaxChars =
+    raw.workbench?.analysisContractTextMaxChars ?? ANALYSIS_CONTRACT_TEXT_DEFAULT_CHARS
+  if (!Number.isInteger(analysisContractTextMaxChars)
+    || analysisContractTextMaxChars < ANALYSIS_CONTRACT_TEXT_MIN_CHARS
+    || analysisContractTextMaxChars > ANALYSIS_CONTRACT_TEXT_HARD_MAX_CHARS) {
+    throw new Error(
+      `contract-copilot: workbench.analysisContractTextMaxChars 必须是 `
+      + `${ANALYSIS_CONTRACT_TEXT_MIN_CHARS}–${ANALYSIS_CONTRACT_TEXT_HARD_MAX_CHARS} 之间的整数，收到 ${String(analysisContractTextMaxChars)}`,
+    )
+  }
   return {
     skillRoot,
     pythonExecutable: raw.pythonExecutable || 'python3',
@@ -62,9 +78,7 @@ export function resolveConfig(raw: PluginConfig): PluginConfig {
     injectProgress: raw.injectProgress !== false,
     workbench: {
       enabled: raw.workbench?.enabled !== false,
-      port: raw.workbench?.port ?? 8790,
-      autoOpen: raw.workbench?.autoOpen !== false,
-      host: raw.workbench?.host ?? '127.0.0.1',
+      analysisContractTextMaxChars,
     },
   }
 }

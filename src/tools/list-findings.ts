@@ -9,6 +9,7 @@ import { readFileSync, writeFileSync } from 'node:fs'
 import type { Context } from '@deepseek-ai/cordis'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import { compactUndefinedDeep } from '../json.ts'
+import { beginPlanReview } from '../plan-review.ts'
 import type { SessionStore } from '../session.ts'
 
 type FindingBrief = {
@@ -83,7 +84,11 @@ export function registerListFindingsTool(ctx: Context, store: SessionStore): voi
         plan.meta = { ...plan.meta, edit_policy: editPolicy }
         writeFileSync(session.planPath, `${JSON.stringify(plan, null, 2)}\n`, 'utf8')
         if (session.intake !== undefined) {
-          store.save({ ...session, intake: { ...session.intake, editPolicy } })
+          store.save({
+            ...session,
+            intake: { ...session.intake, editPolicy },
+            planReview: beginPlanReview(session.planPath, session.planReview),
+          })
         }
       }
 

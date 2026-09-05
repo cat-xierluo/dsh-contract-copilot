@@ -32,21 +32,7 @@
 | Q27 | 被拒后的 re-analyze | **扩展到 rejected/partial/failed** | integrity 拒绝后的修复回路就是"改 summary/findings 再 analyze" |
 | Q28 | 实质性改写的修订收束 | **沿用收束 + schema 文档化 force_edit** | action_executor.resolve_delivery_action 对 substantive rewrite 默认降级批注；schema description 告知 agent 显式授权 |
 
-## Q33：intake 复用 blocked session（2026-08-19）
-
-| 字段 | 内容 |
-|---|---|
-| **结论** | intake 对同合同最近一个 `state=created` 且带非空 `pendingAnswers` 的 session **复用而非新建**（前提 contractPath 相同） |
-| **理由** | 表单答案存在 session A、agent 重调 intake 若新建 session B 则答案丢失——工作台表单回路断在两半。复用后"blocked → 表单 → 无参重调"闭合成环 |
-| **验证** | e2e 实测：blocked session `…0259953` → 表单答案写入 → 无参重调 intake → **同一 sessionId** 返回 ok（客户名来自表单而非 memory）→ analyze(force_edit) → apply 4/0/0/0 → finalize 全通 |
-
-## Q34：实现期验证点 V2/V3/V4 结论（2026-08-19）
-
-| # | 结论 | 证据 |
-|---|---|---|
-| V2 | **关闭（被表单方案取代）** | Q25 原首选"tool 内调 ctx.userQuestions"未实施；工作台确认表单（Q31）成为 intake 交互的主路径且 e2e 验证通过。Q25 的回退路径升级为正式路径 |
-| V3 | **✅ 已接线** | `Agent.id` 即 `SessionId`（`packages/core/agent/src/runtime-types.ts:66`"The single identity shared with session"）；intake 通过 `exec.agent.id` 写入 `session.dshSessionId` |
-| V4 | **❌ 不支持（记录为已知限制）** | 实测：out-of-tree 插件重建 lib/client.js（内容变化）后 `__DSH_BOOT__` rev 不变——client-modules 的 `rebuilt()` 只被 harness 仓库 `dev:web` watcher 触发，不 watch link: 插件。**out-of-tree 插件更新需重启 dsh web**（已记入 DSH-PLUGIN-REFERENCE.md §4） |
+## Q29：tool 返回值适配 DSH lossless JSON（2026-08-19）
 
 | 字段 | 内容 |
 |---|---|
@@ -65,7 +51,7 @@
 | **问题** | **方向错误**——用户原话："**我要的不是说你启动一个 local host** 而是这个工作台是在 dsh **以插件这个形式**，比如说侧边栏或者什么其他的方式去进行展示的"；类比"成熟的法律 AI 产品" |
 | **撤回时机** | 2026-08-19 用户明确反馈后 |
 
-## Q31：v2 交付形态——DSH 原生 client-modules + ui-slots（2026-08-19，**当前路线**）
+## Q31：v2 交付形态——DSH 原生 client-modules + ui-slots（2026-08-19，**由 Q35 更新接入细节**）
 
 | 字段 | 内容 |
 |---|---|
@@ -85,18 +71,117 @@
 | **理由** | 错路径代码无价值，但功能（OOXML 渲染）正确 |
 | **影响** | 下一轮 v2 实施时按 Q31 拆解为 React 组件 |
 
+## Q33：intake 复用 blocked session（2026-08-19）
+
+| 字段 | 内容 |
+|---|---|
+| **结论** | intake 对同合同最近一个 `state=created` 且带非空 `pendingAnswers` 的 session **复用而非新建**（前提 contractPath 相同） |
+| **理由** | 表单答案存在 session A、agent 重调 intake 若新建 session B 则答案丢失——工作台表单回路断在两半。复用后"blocked → 表单 → 无参重调"闭合成环 |
+| **验证** | e2e 实测：blocked session `…0259953` → 表单答案写入 → 无参重调 intake → **同一 sessionId** 返回 ok（客户名来自表单而非 memory）→ analyze(force_edit) → apply 4/0/0/0 → finalize 全通 |
+
+## Q34：实现期验证点 V2/V3/V4 结论（2026-08-19）
+
+| # | 结论 | 证据 |
+|---|---|---|
+| V2 | **关闭（被表单方案取代）** | Q25 原首选"tool 内调 ctx.userQuestions"未实施；工作台确认表单（Q31）成为 intake 交互的主路径且 e2e 验证通过。Q25 的回退路径升级为正式路径 |
+| V3 | **✅ 已接线** | `Agent.id` 即 `SessionId`（`packages/core/agent/src/runtime-types.ts:66`"The single identity shared with session"）；intake 通过 `exec.agent.id` 写入 `session.dshSessionId` |
+| V4 | **❌ 不支持（记录为已知限制）** | 实测：out-of-tree 插件重建 lib/client.js（内容变化）后 `__DSH_BOOT__` rev 不变——client-modules 的 `rebuilt()` 只被 harness 仓库 `dev:web` watcher 触发，不 watch link: 插件。**out-of-tree 插件更新需重启 dsh web**（已记入 DSH-PLUGIN-REFERENCE.md §4） |
+
+## Q35：DSH 0.1.2 工作台迁移边界（2026-09-04）
+
+| 字段 | 内容 |
+|---|---|
+| **结论** | 保留 Python CLI、7 个 tool 与 `SessionStore`；把 Web 外壳迁移到 `sidebar.footer.action`、Connection 认证 RPC、认证事件流与精确下载路由。工作台增加四阶段进度和最近状态跃迁。 |
+| **理由** | 旧插件在 DSH 0.1.2 仍可启动，但依赖已删除的 `dsh-client-runtime`、轮询非公开 sidebar DOM，且 `/contract-copilot/*` 在无浏览器会话 token 时仍返回数据。核心在新版依赖下构建和 69 项测试均通过，无需整体重写。 |
+| **影响** | Client 组件通过独立 API 适配器访问 Host；headless 保留原有 agent tool 行为；旧的 `workbench.port/autoOpen/host` 配置退出。 |
+| **何时重新评估** | 需要工作台直接创建后台 Agent、逐 finding 实时进度或跨插件消费 ContractSession 时，评估 Service Definition + Typert Remote。 |
+
+## Q36：案件状态与 DSH 运行状态分层（2026-09-04）
+
+| 字段 | 内容 |
+|---|---|
+| **结论** | ContractSession 继续作为合同计划、律师决定和交付物的权威来源；专属 DSH session 记录 Agent 消息、步骤和 tool 轨迹，两者通过 `dshSessionId` 关联。 |
+| **理由** | DSH 运行过程可观察，但 live Agent 与进程同寿命；案件可能跨小时、刷新或重启，不能依赖内存 handle 恢复法律决定。 |
+| **影响** | 工作台读取业务 session 投影案件状态，Agent 运行状态只补充当前执行信息；所有影响交付的决定必须先持久化。 |
+| **何时重新评估** | ContractSession 成为其他插件的公共能力，或 DSH 提供适合业务记录的可扩展案件投影时。 |
+
+## Q37：分析后设置不可绕过的律师决策门（2026-09-04）
+
+| 字段 | 内容 |
+|---|---|
+| **结论** | 每次 analyze 都使计划进入 `awaiting-decisions`；所有 finding 获得显式决定并批准后才允许 apply。批准与计划 hash 绑定，文件变化自动失效。 |
+| **理由** | 只在提示词里要求 Agent 停止不能构成产品约束；律师确认必须同时约束工作台、Agent 和直接 tool 调用。 |
+| **影响** | `apply` 新增 fail-closed 门禁；重新 analyze、改变计划或外部改写文件后必须重新批准。 |
+| **何时重新评估** | 用户明确要求某类低风险合同采用预授权自动审查，并能定义可审计的授权规则时。 |
+
+## Q38：专属 Agent 使用 AgentRegistry，不使用 workflowEngine（2026-09-04）
+
+| 字段 | 内容 |
+|---|---|
+| **结论** | 工作台通过 `ctx.agents.create/resume` 创建或恢复一个案件专属 Agent，用 `followup/cancel/whenIdle` 驱动阶段；workflowEngine 不承担案件主流程。 |
+| **理由** | Agent session 可持久化并恢复；当前 workflow run 是 holder-owned foreground collection，缺少后台 start/poll、journaling 和 restart resume。 |
+| **影响** | 插件持有并完整 dispose 自己创建的 AgentHandle；新建 Agent 使用 DSH 当前默认模型选择，工作台记录 create/resume 失败。 |
+| **何时重新评估** | workflow capability 提供后台句柄、持久检查点和重启恢复后。 |
+
+## Q39：第一版 finding 决策词汇（2026-09-04）
+
+| 字段 | 内容 |
+|---|---|
+| **结论** | 每项 finding 必选“按建议处理 / 仅批注 / 仅意见书 / 忽略”，另可调整 severity 和写内部律师备注。 |
+| **理由** | 四种动作能映射现有 Python plan 语义，不要求改 Python；备注不自动进入对外文书，避免内部意见泄漏。 |
+| **影响** | 批量采用建议仍生成逐项审计记录；`忽略`只从获批执行计划移除，原发现和决定保留在 session 历史。 |
+| **何时重新评估** | 需要律师直接编辑替换文本、合并 finding 或新增人工 finding 时。 |
+
+## Q40：DSH 可观察运行面支撑工作台交互粒度（2026-09-04）
+
+| 字段 | 内容 |
+|---|---|
+| **结论** | 工作台以 DSH 暴露的 Agent 生命周期、持久 Session、命名 Tool 调用和状态事件作为运行信号，再将其投影为 ContractSession 中可持久化、可操作、可审计的案件状态。工作台不展示模型隐藏思维链。 |
+| **理由** | 仅按完整对话轮次交互，无法在 analyze 与 apply 之间可靠设置律师暂停、逐项确认、取消、重试和恢复点。DSH 的运行面允许插件观察阶段结果并控制后续动作，同时由业务 session 保存法律决定。 |
+| **影响** | 新交互必须对应明确的业务状态、决定或授权门，并能从持久状态恢复；Agent 轨迹用于解释运行过程，不取代 ContractSession 的业务权威。只具有调试价值且不能稳定重建的内部过程不进入产品界面。 |
+| **何时重新评估** | DSH 提供具有持久检查点、业务事件投影和重启恢复语义的公共 workflow 能力时。 |
+
+## Q41：工作台壳层与批注定位分层交付（2026-09-04）
+
+| 字段 | 内容 |
+|---|---|
+| **结论** | 先分别交付主题/窄屏/焦点统一的工作台壳层与稳定的批注锚点模型，再在后续集成任务中接通 Word 批注渲染、双向选择、滚动和高亮。暗色视觉使用 DSH 官方主题变量，产品文案进入 typed locale 字典。 |
+| **理由** | 壳层与 Host/协议锚点可以按文件独立实现和验证；点击批注跳转同时依赖两者，若在两个并行任务中都修改 `Workbench.tsx`，会造成职责重叠和合并风险。 |
+| **影响** | 窄屏不再直接隐藏操作区，而以可切换区域保留完整能力；批注 id、锚点和降级原因成为 Host 到 Client 的显式数据；第二波集成只消费已验证的两项基础。 |
+| **何时重新评估** | DSH 提供统一的文档批注组件与稳定选择协议，或 `docx-preview` 原生暴露可直接消费的双向批注导航接口时。 |
+
+## Q42：专属 Agent 的分析上下文由 Host 注入（2026-09-05）
+
+| 字段 | 内容 |
+|---|---|
+| **结论** | 工作台在派发分析前由 Host 从业务 session 的合同路径提取 OOXML 可见正文，并把有界正文与最小审查指导注入专属 Agent 回合；不要求 DSH Web profile 开放通用文件、shell 或 skill 工具。 |
+| **理由** | 真实 DSH Web 验证表明专属 Agent 只有 7 个合同领域工具，旧提示要求其自行读取 DOCX 与 skill references，形成无法执行的前置条件。Host 已持有经过路径校验的业务对象，能够在最早可解析点提供确定输入。 |
+| **影响** | 正文放在明确的数据边界内，合同中的伪造边界标记会被隔离；注入上限由 `workbench.analysisContractTextMaxChars` 配置，默认 40000、硬上限 200000；提取失败或正文为空会持久化 failed 并在创建 Agent 前终止。交付回合不重复注入正文。 |
+| **何时重新评估** | 专属 preset 获得可审计且受路径策略约束的文件/skill 能力，或超长合同需要分段检索而不适合有界全文提示时。 |
+
+## Q43：兼容 docx-preview 的两种批注引用 DOM（2026-09-05）
+
+| 字段 | 内容 |
+|---|---|
+| **结论** | 导航保留带批注 id 的原生 `.docx-comment-ref` 路径，同时支持 run-style `.docx_commentreference`：从相邻 `end of comment #id` 注释恢复 id，再增强为可见、可聚焦且支持 Enter/Space 的批注入口。 |
+| **理由** | 真实 DSH Web 渲染的含批注 DOCX 使用 run-style 占位元素，没有早期测试假定的 `.docx-comment-ref`；仅依赖后一选择器会使正文到侧栏的反向导航失效。 |
+| **影响** | 两种 DOM 共用同一选择、滚动和高亮控制器；只有恢复到有效批注 id 的占位元素才会增强，无法解析时保持未命中而不误跳。可见标记和辅助名称由 typed locale 提供。 |
+| **何时重新评估** | 锁定的 `docx-preview` 版本提供稳定、公开且带 id 的批注引用接口时。 |
+
 ---
 
 ## 决策索引（按主题）
 
 **产品形态**
 - Q22 / Q23 / Q25 — 范围边界（起草排除、复核组合覆盖、ask 交互首选 userQuestions）
-- Q30 / Q31 — v2 形态：localhost 错路径 → DSH 原生 client-modules + ui-slots
+- Q30 / Q31 / Q35 — localhost 错路径 → DSH 原生 UI → DSH 0.1.2 官方 slot 与认证连接层
+- Q36 / Q37 / Q39 / Q40 / Q41 / Q42 / Q43 — 案件与运行状态分层、律师决策门、finding 决策词汇、工作台交互粒度、批注交付分层、分析上下文和真实批注 DOM
 
 **DSH harness 适配**
 - Q17 / Q18 / Q21 — 状态写盘、异步 spawn、integrity 不自建回滚
 - Q26 / Q27 / Q28 — analyze 必填 summary、re-analyze 状态门、force_edit 授权
 - Q29 — compactUndefinedDeep 适配 lossless JSON
+- Q34 / Q35 / Q38 / Q40 / Q42 — DSH 会话接线、HMR 边界、0.1.2 工作台迁移、专属 Agent 驱动、可观察运行面与分析上下文注入
 
 **作用域与命名**
 - Q1 / Q5 / Q6 / Q7 / Q9 / Q10 / Q11 — 用户、仓库、scope、GitHub 用户名

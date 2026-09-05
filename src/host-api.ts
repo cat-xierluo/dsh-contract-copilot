@@ -1,273 +1,439 @@
-/**
- * host half 的同源数据面：把 SessionStore / 文档渲染暴露给浏览器 client half。
- *
- * 模式（session-log-export 先例）：host 在 ctx.webServer 注册 prefix 路由，
- * 浏览器端直接 fetch 同源 URL——不需要额外 RPC 层。
- *
- * 端点：
- *   GET  /state                          session 列表
- *   GET  /events                         SSE：store 变更实时推送（A2）
- *   GET  /sessions/:id                   详情（intake/missing/outputs/history/findings）
- *   GET  /sessions/:id/document          OOXML → HTML 渲染（修订/批注高亮）
- *   POST /sessions/:id/answers           工作台确认表单回收 → pendingAnswers
- *   POST /sessions/:id/recheck           对方改稿再审：更新 contractPath（A3）
- *   GET  /sessions/:id/download/:kind   产物 DOCX 下载（A1）
- *
- * webServer 是可选服务（headless profile 没有）：用 ctx.get 取（packages/AGENTS.md
- * 的可选服务规则），拿不到就静默跳过——工具链在 headless 下照常工作。
- */
+/** Authenticated Host data plane for the embedded Contract Copilot workbench. */
 
-import { readFileSync, statSync } from 'node:fs'
-import { createReadStream } from 'node:fs'
-import type { IncomingMessage, ServerResponse } from 'node:http'
+import { createReadStream, existsSync, readFileSync, statSync } from 'node:fs'
 import path from 'node:path'
+import { Readable } from 'node:stream'
 import type { Context } from '@deepseek-ai/cordis'
+import type {
+  ConnectionRpcFailure,
+  ConnectionRpcResult,
+  HostConnectionHandle,
+} from '@deepseek-ai/dsh-client-connection'
 import type { PluginConfig } from './config.ts'
-import { extractDocxParts, parseCommentsXml, renderDocumentHtml } from './docx-view.ts'
-import { resolveIntakeFields } from './intake-fields.ts'
-import type { ContractSession, SessionStore } from './session.ts'
-import { existsSync } from 'node:fs'
+import { AgentCoordinatorError, ContractAgentCoordinator } from './agent-coordinator.ts'
+import { extractDocxParts, parseCommentsXml, renderDocumentWithAnchors } from './docx-view.ts'
+import { hasBlockers, resolveIntakeFields } from './intake-fields.ts'
 import { expandHome, normalizeContractKey } from './paths.ts'
+import { approvePlan, PlanReviewError, type FindingDecisionInput } from './plan-review.ts'
+import type { ContractSession, DecisionAnswers, SessionStore } from './session.ts'
 import { findContractMemory, readReviewerProfile, readReviewMemory } from './skill-config.ts'
+import {
+  WORKBENCH_DOWNLOAD_PATH,
+  WORKBENCH_EVENTS_PATH,
+  WORKBENCH_RPC_CHANNEL,
+  type DocumentView,
+  type ApprovePlanResult,
+  type RecheckResult,
+  type SessionDetail,
+  type StartReviewResult,
+  type WorkbenchRpcEndpoint,
+  type WorkbenchState,
+} from './workbench-protocol.ts'
 
-/** webServer 服务的结构子集（避免引入 dsh-host-webserver 依赖）。 */
-interface WebServerLike {
-  register(route: {
-    kind: 'prefix'
-    path: string
-    handler: (req: IncomingMessage, res: ServerResponse) => void
-  }): () => void
+const SESSION_ID_PATTERN = /^[^\u0000-\u001F\u007F/\\]{1,200}$/u
+const MAX_PATH_LENGTH = 4096
+const MAX_ANSWER_FIELDS = 64
+const MAX_ANSWER_TEXT_LENGTH = 20_000
+const DOCX_CONTENT_TYPE = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+
+class WorkbenchRequestError extends Error {
+  constructor(
+    readonly code: string,
+    message: string,
+  ) {
+    super(message)
+  }
 }
 
-const ROUTE_PREFIX = '/contract-copilot'
-/** POST body 上限：本数据面只收表单字段与路径，1MB 绰绰有余。 */
-const MAX_BODY_BYTES = 1024 * 1024
-
-/** 注册数据面；无 webServer（headless）时静默跳过。 */
-export function registerHostApi(ctx: Context, config: PluginConfig, store: SessionStore): (() => void) | undefined {
-  const webServer = ctx.get('webServer') as WebServerLike | undefined
-  if (webServer === undefined) return undefined
-
-  // A2：SSE 订阅者集合（store 任何变更 → 推一条 session 快照）
-  const sseClients = new Set<(payload: string) => void>()
-  const unsubscribe = store.subscribe((session) => {
-    const line = `event: session\ndata: ${JSON.stringify({
-      id: session.id, contractName: session.contractName,
-      state: session.state, updatedAt: session.updatedAt,
-    })}\n\n`
-    for (const send of sseClients) {
-      try { send(line) } catch { /* 见 SessionStore.emit 的 catch 契约 */ }
-    }
+/** Register workbench routes when the Web profile provides Connection. */
+export function registerHostApi(
+  ctx: Context,
+  config: PluginConfig,
+  store: SessionStore,
+  coordinator: ContractAgentCoordinator,
+): void {
+  if (!config.workbench.enabled) return
+  ctx.inject(['connection'], (connectionCtx) => {
+    const connection = connectionCtx.connection as HostConnectionHandle
+    connection.rpc.handle(
+      WORKBENCH_RPC_CHANNEL,
+      (endpoint, payload) => handleWorkbenchRpc(config, store, endpoint, payload, coordinator),
+    )
+    connection.fetch.register({
+      path: WORKBENCH_EVENTS_PATH,
+      methods: ['GET'],
+      fetch: request => Promise.resolve(workbenchEventsResponse(request, store)),
+    })
+    connection.fetch.register({
+      path: WORKBENCH_DOWNLOAD_PATH,
+      methods: ['GET', 'HEAD'],
+      fetch: request => Promise.resolve(workbenchDownloadResponse(request, store)),
+    })
   })
+}
 
-  const disposer = webServer.register({ kind: 'prefix', path: ROUTE_PREFIX, handler: handle })
-  ctx.effect(() => () => { unsubscribe(); disposer() }, 'contract-copilot: workbench data routes')
-  return disposer
-
-  function handle(req: IncomingMessage, res: ServerResponse): void {
-    const url = req.url ?? '/'
-    const suffix = url.startsWith(ROUTE_PREFIX) ? url.slice(ROUTE_PREFIX.length).split('?')[0] : ''
-    const method = req.method ?? 'GET'
-
-    if (method === 'GET' && suffix === '/state') {
-      json(res, 200, { sessions: store.listRecent(30) })
-      return
+/** Dispatch one authenticated workbench JSON request. */
+export async function handleWorkbenchRpc(
+  config: PluginConfig,
+  store: SessionStore,
+  endpoint: string,
+  payload: unknown,
+  coordinator?: ContractAgentCoordinator,
+): Promise<ConnectionRpcResult<unknown>> {
+  try {
+    const input = recordPayload(payload)
+    switch (endpoint as WorkbenchRpcEndpoint) {
+      case 'state':
+        return success<WorkbenchState>(workbenchState(store))
+      case 'detail':
+        return success(sessionDetail(store, sessionIdFrom(input)))
+      case 'document':
+        return success(documentView(config, requireSession(store, sessionIdFrom(input))))
+      case 'answers': {
+        const session = requireSession(store, sessionIdFrom(input))
+        store.save({ ...session, pendingAnswers: answersFrom(input.fields) })
+        return success({ ok: true as const })
+      }
+      case 'approve': {
+        const session = requireSession(store, sessionIdFrom(input))
+        const approved = approvePlan(
+          session,
+          stringField(input, 'sourcePlanHash'),
+          decisionsFrom(input.decisions),
+        )
+        store.save({ ...session, planReview: approved.planReview })
+        return success<ApprovePlanResult>({
+          ok: true,
+          approvedPlanHash: approved.planReview.approvedPlanHash!,
+          approvedFindings: approved.approvedFindings,
+          omittedFindings: approved.omittedFindings,
+        })
+      }
+      case 'run-analysis': {
+        const session = requireSession(store, sessionIdFrom(input))
+        assertIntakeReady(config, session)
+        return success(await requireCoordinator(coordinator).runAnalysis(session.id))
+      }
+      case 'run-delivery': {
+        const session = requireSession(store, sessionIdFrom(input))
+        return success(await requireCoordinator(coordinator).runDelivery(session.id))
+      }
+      case 'cancel': {
+        const session = requireSession(store, sessionIdFrom(input))
+        return success(await requireCoordinator(coordinator).cancel(session.id))
+      }
+      case 'start':
+        return success(startReview(config, store, stringField(input, 'contractPath')))
+      case 'recheck':
+        return success(recheck(store, sessionIdFrom(input), stringField(input, 'newContractPath')))
+      default:
+        throw new WorkbenchRequestError('contract-copilot/not-found', `未知工作台操作: ${endpoint}`)
     }
+  } catch (error) {
+    return failure(error)
+  }
+}
 
-    // A2：SSE 端点。连接即推一次当前快照，此后 store 变更实时推。
-    if (method === 'GET' && suffix === '/events') {
-      res.writeHead(200, {
-        'content-type': 'text/event-stream; charset=utf-8',
-        'cache-control': 'no-cache, no-transform',
-        connection: 'keep-alive',
-      })
-      const send = (payload: string): void => { res.write(payload) }
-      send(`event: snapshot\ndata: ${JSON.stringify({ sessions: store.listRecent(30) })}\n\n`)
-      sseClients.add(send)
-      const ka = setInterval(() => { try { res.write(': keepalive\n\n') } catch { /* closed */ } }, 15000)
-      req.on('close', () => { clearInterval(ka); sseClients.delete(send) })
-      return
+function success<T>(value: T): ConnectionRpcResult<T> {
+  return { ok: true, value }
+}
+
+function failure(error: unknown): ConnectionRpcResult<never> {
+  if (error instanceof AgentCoordinatorError) {
+    return { ok: false, error: rpcFailure(error.code, error.message) }
+  }
+  if (error instanceof PlanReviewError) {
+    return { ok: false, error: rpcFailure(error.code, error.message) }
+  }
+  if (error instanceof WorkbenchRequestError) {
+    return { ok: false, error: rpcFailure(error.code, error.message) }
+  }
+  const message = error instanceof Error ? error.message : String(error)
+  return { ok: false, error: rpcFailure('contract-copilot/internal', message) }
+}
+
+function requireCoordinator(coordinator: ContractAgentCoordinator | undefined): ContractAgentCoordinator {
+  if (coordinator === undefined) {
+    throw new WorkbenchRequestError('contract-copilot/automation-unavailable', '工作台 Agent 控制器未加载。')
+  }
+  return coordinator
+}
+
+function decisionsFrom(value: unknown): FindingDecisionInput[] {
+  if (!Array.isArray(value) || value.length > 500) {
+    throw new WorkbenchRequestError('contract-copilot/bad-request', 'decisions 必须是不超过 500 项的数组。')
+  }
+  return value.map((raw) => {
+    if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) {
+      throw new WorkbenchRequestError('contract-copilot/bad-request', 'decision 必须是 JSON 对象。')
     }
+    const decision = raw as Record<string, unknown>
+    const findingId = stringField(decision, 'findingId')
+    const disposition = stringField(decision, 'disposition') as FindingDecisionInput['disposition']
+    const severity = optionalString(decision, 'severity', 40)
+    const note = optionalString(decision, 'note', MAX_ANSWER_TEXT_LENGTH)
+    return { findingId, disposition, ...(severity === undefined ? {} : { severity }), ...(note === undefined ? {} : { note }) }
+  })
+}
 
-    // 工作台"新建审查"：创建 session 并预算阻塞项（表单先行，agent 后续 intake 复用消费）
-    if (method === 'POST' && suffix === '/sessions/start') {
-      readBody(req).then((raw) => {
-        try {
-          const body = JSON.parse(raw) as { contractPath?: string }
-          const contractPath = path.resolve(expandHome(String(body.contractPath ?? '')))
-          if (!existsSync(contractPath)) { json(res, 400, { error: `合同不存在: ${contractPath}` }); return }
-          if (!contractPath.toLowerCase().endsWith('.docx')) { json(res, 400, { error: '仅支持 DOCX' }); return }
-          const contractName = path.basename(contractPath, path.extname(contractPath))
-          const memory = findContractMemory(readReviewMemory(config.skillRoot), normalizeContractKey(contractName))
-          const profile = readReviewerProfile(config.skillRoot)
-          const { missing } = resolveIntakeFields({}, {}, memory, profile)
-          const session = store.create(contractPath, contractName)
-          if (missing.length > 0) store.save({ ...session, intakeMissing: missing })
-          json(res, 200, {
-            sessionId: session.id,
-            contractName,
-            missing,
-            nextStep: missing.length > 0
-              ? `右侧表单补齐后，对 agent 说：审查 ${contractPath}（工作台表单已填）`
-              : `直接对 agent 说：审查 ${contractPath}`,
-          })
-        } catch (error) {
-          json(res, 400, { error: String(error) })
-        }
-      }).catch((error: unknown) => json(res, 400, { error: String(error) }))
-      return
+function optionalString(payload: Record<string, unknown>, field: string, max: number): string | undefined {
+  const value = payload[field]
+  if (value === undefined) return undefined
+  if (typeof value !== 'string' || value.length > max) {
+    throw new WorkbenchRequestError('contract-copilot/bad-request', `${field} 必须是长度不超过 ${max} 的字符串。`)
+  }
+  const trimmed = value.trim()
+  return trimmed === '' ? undefined : trimmed
+}
+
+function rpcFailure(code: string, message: string): ConnectionRpcFailure {
+  return { code, message, details: {} }
+}
+
+function recordPayload(payload: unknown): Record<string, unknown> {
+  if (typeof payload !== 'object' || payload === null || Array.isArray(payload)) {
+    throw new WorkbenchRequestError('contract-copilot/bad-request', '请求参数必须是 JSON 对象。')
+  }
+  return payload as Record<string, unknown>
+}
+
+function stringField(payload: Record<string, unknown>, field: string): string {
+  const value = payload[field]
+  if (typeof value !== 'string' || value.trim() === '') {
+    throw new WorkbenchRequestError('contract-copilot/bad-request', `${field} 必须是非空字符串。`)
+  }
+  if (value.length > MAX_PATH_LENGTH) {
+    throw new WorkbenchRequestError('contract-copilot/bad-request', `${field} 超过长度上限。`)
+  }
+  return value.trim()
+}
+
+function sessionIdFrom(payload: Record<string, unknown>): string {
+  const sessionId = stringField(payload, 'sessionId')
+  if (!SESSION_ID_PATTERN.test(sessionId) || sessionId === '.' || sessionId === '..') {
+    throw new WorkbenchRequestError('contract-copilot/bad-request', 'sessionId 格式无效。')
+  }
+  return sessionId
+}
+
+function answersFrom(value: unknown): DecisionAnswers {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    throw new WorkbenchRequestError('contract-copilot/bad-request', 'fields 必须是字符串字段对象。')
+  }
+  const entries = Object.entries(value)
+  if (entries.length > MAX_ANSWER_FIELDS) {
+    throw new WorkbenchRequestError('contract-copilot/bad-request', '确认字段数量超过上限。')
+  }
+  const answers = Object.create(null) as DecisionAnswers
+  for (const [field, answer] of entries) {
+    if (field === '' || field.length > 200 || typeof answer !== 'string' || answer.length > MAX_ANSWER_TEXT_LENGTH) {
+      throw new WorkbenchRequestError('contract-copilot/bad-request', '确认字段的名称或内容无效。')
     }
+    answers[field] = answer
+  }
+  return answers
+}
 
-    const sessionMatch = /^\/sessions\/([\w.-]+)(\/(detail|document|answers|recheck|download\/(reviewed|report|source)))?$/.exec(suffix)
-    if (sessionMatch === null) {
-      json(res, 404, { error: 'not found' })
-      return
-    }
-    const id = sessionMatch[1] ?? ''
-    const action = sessionMatch[3] ?? 'detail'
+function requireSession(store: SessionStore, sessionId: string): ContractSession {
+  const session = store.get(sessionId)
+  if (session === undefined) {
+    throw new WorkbenchRequestError('contract-copilot/not-found', `审查 session 不存在: ${sessionId}`)
+  }
+  return session
+}
 
-    if (method === 'GET' && action === 'detail') {
-      const session = store.get(id)
-      if (session === undefined) { json(res, 404, { error: 'session not found' }); return }
-      json(res, 200, {
-        session: {
+function assertIntakeReady(config: PluginConfig, session: ContractSession): void {
+  if (session.state !== 'created') return
+  const memory = findContractMemory(readReviewMemory(config.skillRoot), session.contractKey)
+  const profile = readReviewerProfile(config.skillRoot)
+  const { missing } = resolveIntakeFields({}, session.pendingAnswers ?? {}, memory, profile)
+  if (hasBlockers(missing)) {
+    throw new WorkbenchRequestError(
+      'contract-copilot/intake-incomplete',
+      `仍有 ${missing.length} 项前置信息未填写。`,
+    )
+  }
+}
+
+function resolveDocxPath(input: string, label: string): string {
+  const resolved = path.resolve(expandHome(input))
+  if (!resolved.toLowerCase().endsWith('.docx')) {
+    throw new WorkbenchRequestError('contract-copilot/bad-request', `${label}仅支持 DOCX。`)
+  }
+  if (!existsSync(resolved)) {
+    throw new WorkbenchRequestError('contract-copilot/bad-request', `${label}不存在: ${resolved}`)
+  }
+  return resolved
+}
+
+function startReview(config: PluginConfig, store: SessionStore, inputPath: string): StartReviewResult {
+  const contractPath = resolveDocxPath(inputPath, '合同')
+  const contractName = path.basename(contractPath, path.extname(contractPath))
+  const memory = findContractMemory(readReviewMemory(config.skillRoot), normalizeContractKey(contractName))
+  const profile = readReviewerProfile(config.skillRoot)
+  const { missing } = resolveIntakeFields({}, {}, memory, profile)
+  const session = store.create(contractPath, contractName)
+  if (missing.length > 0) store.save({ ...session, intakeMissing: missing })
+  return {
+    sessionId: session.id,
+    contractName,
+    missing,
+    nextStep: missing.length > 0
+      ? '请在右侧补齐前置信息，然后点击“提交并开始分析”。'
+      : '前置信息已齐，可以直接启动风险分析。',
+  }
+}
+
+function recheck(store: SessionStore, sessionId: string, inputPath: string): RecheckResult {
+  const session = requireSession(store, sessionId)
+  const contractPath = resolveDocxPath(inputPath, '新版合同')
+  const contractName = path.basename(contractPath, path.extname(contractPath))
+  store.transition(session.id, 'contract_copilot_recheck', 'intake_done', (target) => {
+    target.contractPath = contractPath
+    target.contractKey = normalizeContractKey(contractName)
+    target.contractName = contractName
+    target.outputs = {}
+    delete target.planPath
+    delete target.planReview
+  })
+  return {
+    ok: true,
+    hint: '已指向新版合同，可以从工作台重新启动风险分析。',
+  }
+}
+
+function sessionDetail(store: SessionStore, sessionId: string): SessionDetail {
+  const session = requireSession(store, sessionId)
+  return {
+    session: {
+      id: session.id,
+      contractName: session.contractName,
+      contractPath: session.contractPath,
+      state: session.state,
+      intake: session.intake,
+      intakeMissing: session.intakeMissing,
+      planReview: session.planReview,
+      automation: session.automation,
+      outputs: session.outputs,
+      updatedAt: session.updatedAt,
+      historyTail: session.history.slice(-8),
+    },
+    findings: session.planReview?.sourceFindings ?? planFindings(session),
+  }
+}
+
+function documentView(config: PluginConfig, session: ContractSession): DocumentView {
+  const docxPath = session.outputs.reviewedDocx ?? session.contractPath
+  const { documentXml, commentsXml } = extractDocxParts(docxPath, config.pythonExecutable)
+  const comments = parseCommentsXml(commentsXml)
+  const rendered = renderDocumentWithAnchors(documentXml, comments)
+  return {
+    label: session.outputs.reviewedDocx !== undefined ? '审核修订版 DOCX' : '原合同',
+    html: rendered.html,
+    comments: rendered.comments,
+    reviewedDocx: session.outputs.reviewedDocx,
+    reportDocx: session.outputs.reportDocx,
+  }
+}
+
+/** Create the authenticated EventSource response for SessionStore changes. */
+export function workbenchEventsResponse(request: Request, store: SessionStore): Response {
+  const encoder = new TextEncoder()
+  let dispose = (): void => {}
+  const body = new ReadableStream<Uint8Array>({
+    start(controller) {
+      let active = true
+      const send = (event: string, value: unknown): void => {
+        if (!active) return
+        controller.enqueue(encoder.encode(`event: ${event}\ndata: ${JSON.stringify(value)}\n\n`))
+      }
+      const unsubscribe = store.subscribe((session) => {
+        send('session', {
           id: session.id,
           contractName: session.contractName,
-          contractPath: session.contractPath,
           state: session.state,
-          intake: session.intake,
-          intakeMissing: session.intakeMissing,
-          outputs: session.outputs,
           updatedAt: session.updatedAt,
-          historyTail: session.history.slice(-8),
-        },
-        findings: planFindings(session),
-      })
-      return
-    }
-
-    if (method === 'GET' && action === 'document') {
-      const session = store.get(id)
-      if (session === undefined) { json(res, 404, { error: 'session not found' }); return }
-      try {
-        const docxPath = session.outputs.reviewedDocx ?? session.contractPath
-        const { documentXml, commentsXml } = extractDocxParts(docxPath, config.pythonExecutable)
-        const comments = parseCommentsXml(commentsXml)
-        const html = renderDocumentHtml(documentXml, comments)
-        json(res, 200, {
-          label: session.outputs.reviewedDocx !== undefined ? '审核修订版 DOCX' : '原合同',
-          html,
-          comments: [...comments.entries()].map(([id, c]) => ({ id, ...c })),
-          reviewedDocx: session.outputs.reviewedDocx,
-          reportDocx: session.outputs.reportDocx,
+          automationStatus: session.automation?.status,
         })
-      } catch (error) {
-        json(res, 500, { error: String(error) })
+      })
+      const heartbeat = setInterval(() => {
+        if (active) controller.enqueue(encoder.encode(': keepalive\n\n'))
+      }, 15_000)
+      const release = (close: boolean): void => {
+        if (!active) return
+        active = false
+        clearInterval(heartbeat)
+        unsubscribe()
+        request.signal.removeEventListener('abort', abort)
+        if (close) controller.close()
       }
-      return
-    }
-
-    if (method === 'POST' && action === 'answers') {
-      readBody(req).then((raw) => {
-        try {
-          const body = JSON.parse(raw) as { fields?: Record<string, string> }
-          const session = store.get(id)
-          if (session === undefined) { json(res, 404, { error: 'session not found' }); return }
-          store.save({ ...session, pendingAnswers: body.fields ?? {} })
-          json(res, 200, { ok: true })
-        } catch (error) {
-          json(res, 400, { error: String(error) })
-        }
-      }).catch((error: unknown) => json(res, 400, { error: String(error) }))
-      return
-    }
-
-    // A3：对方改稿再审——更新 session 指向新版合同，用户再让 agent resume+analyze。
-    if (method === 'POST' && action === 'recheck') {
-      readBody(req).then((raw) => {
-        try {
-          const body = JSON.parse(raw) as { newContractPath?: string }
-          const session = store.get(id)
-          if (session === undefined) { json(res, 404, { error: 'session not found' }); return }
-          const newPath = path.resolve(expandHome(String(body.newContractPath ?? '')))
-          if (!existsSync(newPath)) { json(res, 400, { error: `新版合同不存在: ${newPath}` }); return }
-          if (!newPath.toLowerCase().endsWith('.docx')) { json(res, 400, { error: '仅支持 DOCX' }); return }
-          store.save({
-            ...session,
-            contractPath: newPath,
-            contractName: path.basename(newPath, path.extname(newPath)),
-          })
-          json(res, 200, {
-            ok: true,
-            hint: '已指向新版合同。请让 agent 调 contract_copilot_resume（sessionId，不带 newContractPath）后重新 analyze 提交针对新版合同的 findings',
-          })
-        } catch (error) {
-          json(res, 400, { error: String(error) })
-        }
-      }).catch((error: unknown) => json(res, 400, { error: String(error) }))
-      return
-    }
-
-    // A1：产物/原合同下载（流式 + content-disposition）
-    if (method === 'GET' && sessionMatch[4] !== undefined) {
-      const kind = sessionMatch[4]
-      serveDownload(res, store, id, kind === 'reviewed' || kind === 'source' ? kind : 'report')
-      return
-    }
-
-    json(res, 404, { error: 'not found' })
-  }
-}
-
-function json(res: ServerResponse, status: number, body: unknown): void {
-  const text = JSON.stringify(body)
-  res.writeHead(status, { 'content-type': 'application/json; charset=utf-8', 'content-length': String(Buffer.byteLength(text)) })
-  res.end(text)
-}
-
-function readBody(req: IncomingMessage): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const chunks: Buffer[] = []
-    let total = 0
-    req.on('data', (chunk: Buffer) => {
-      total += chunk.length
-      if (total > MAX_BODY_BYTES) {
-        req.destroy()
-        reject(new Error(`body 超过上限 ${MAX_BODY_BYTES} 字节`))
-        return
-      }
-      chunks.push(chunk)
-    })
-    req.on('end', () => resolve(Buffer.concat(chunks).toString('utf8')))
-    req.on('error', reject)
+      const abort = (): void => { release(true) }
+      dispose = () => { release(false) }
+      if (request.signal.aborted) abort()
+      else request.signal.addEventListener('abort', abort, { once: true })
+      send('snapshot', workbenchState(store))
+    },
+    cancel() { dispose() },
+  })
+  return new Response(body, {
+    status: 200,
+    headers: {
+      'content-type': 'text/event-stream; charset=utf-8',
+      'cache-control': 'no-cache, no-transform',
+    },
   })
 }
 
-function serveDownload(res: ServerResponse, store: SessionStore, id: string, kind: 'reviewed' | 'report' | 'source'): void {
-  const session = store.get(id)
-  if (session === undefined) {
-    json(res, 404, { error: 'session not found' })
-    return
+function workbenchState(store: SessionStore): WorkbenchState {
+  return {
+    sessions: store.listRecent(30).map((entry) => ({
+      ...entry,
+      automationStatus: store.get(entry.id)?.automation?.status,
+    })),
   }
-  const file = kind === 'reviewed'
-    ? session.outputs.reviewedDocx
-    : kind === 'source'
-      ? session.contractPath
-      : session.outputs.reportDocx
-  if (file === undefined) {
-    json(res, 404, { error: `${kind} DOCX 尚未产出` })
-    return
-  }
+}
+
+/** Stream one authenticated source or delivery DOCX response. */
+export function workbenchDownloadResponse(request: Request, store: SessionStore): Response {
   try {
-    const size = statSync(file).size
-    res.writeHead(200, {
-      'content-type': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-      'content-length': String(size),
+    if (request.method !== 'GET' && request.method !== 'HEAD') {
+      throw new WorkbenchRequestError('contract-copilot/bad-request', '下载仅支持 GET 或 HEAD。')
+    }
+    const url = new URL(request.url)
+    const sessionId = sessionIdFrom({ sessionId: url.searchParams.get('sessionId') })
+    const kind = url.searchParams.get('kind')
+    if (kind !== 'source' && kind !== 'reviewed' && kind !== 'report') {
+      throw new WorkbenchRequestError('contract-copilot/bad-request', 'kind 必须是 source、reviewed 或 report。')
+    }
+    const session = requireSession(store, sessionId)
+    const file = kind === 'source'
+      ? session.contractPath
+      : kind === 'reviewed'
+        ? session.outputs.reviewedDocx
+        : session.outputs.reportDocx
+    if (file === undefined || !existsSync(file)) {
+      throw new WorkbenchRequestError('contract-copilot/not-found', `${kind} DOCX 尚未产出。`)
+    }
+    const headers = {
+      'content-type': DOCX_CONTENT_TYPE,
+      'content-length': String(statSync(file).size),
       'content-disposition': `attachment; filename*=UTF-8''${encodeURIComponent(path.basename(file))}`,
-    })
-    createReadStream(file).pipe(res)
+    }
+    if (request.method === 'HEAD') return new Response(null, { status: 200, headers })
+    const body = Readable.toWeb(createReadStream(file)) as ReadableStream<Uint8Array>
+    return new Response(body, { status: 200, headers })
   } catch (error) {
-    json(res, 500, { error: String(error) })
+    const result = failure(error)
+    const body = result.ok ? undefined : JSON.stringify({ error: result.error })
+    const status = !result.ok && result.error.code === 'contract-copilot/not-found'
+      ? 404
+      : !result.ok && result.error.code === 'contract-copilot/internal'
+        ? 500
+        : 400
+    return new Response(body, {
+      status,
+      headers: { 'content-type': 'application/json; charset=utf-8' },
+    })
   }
 }
 

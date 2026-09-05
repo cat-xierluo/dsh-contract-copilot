@@ -23,6 +23,10 @@ export interface ApplyCliArgs {
   readonly author: string
   readonly organization: string
   readonly department?: string
+  /** Optional isolated archive root; production callers use the skill default. */
+  readonly archiveDir?: string
+  /** Per-process environment overrides for isolated integration fixtures. */
+  readonly environment?: NodeJS.ProcessEnv
   readonly signal?: AbortSignal
 }
 
@@ -65,6 +69,7 @@ export function buildArgv(args: ApplyCliArgs): string[] {
     '--organization', args.organization,
   ]
   if (args.department !== undefined && args.department !== '') argv.push('--department', args.department)
+  if (args.archiveDir !== undefined && args.archiveDir !== '') argv.push('--archive-dir', args.archiveDir)
   return argv
 }
 
@@ -73,6 +78,7 @@ export function runApplyCli(args: ApplyCliArgs): Promise<BridgeResult> {
   return new Promise((resolve, reject) => {
     const child = spawn(args.pythonExecutable, buildArgv(args), {
       stdio: ['ignore', 'pipe', 'pipe'],
+      env: args.environment === undefined ? process.env : { ...process.env, ...args.environment },
       signal: args.signal,
     })
     let stdout = ''

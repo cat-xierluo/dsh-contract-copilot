@@ -4,6 +4,104 @@
 
 ## [Unreleased] — 推进中
 
+### Added（2026-09-05，工作台体验基础）
+- DOCX 批注获得内容派生的稳定锚点和可持久传输的定位元数据；简版正文同步输出可选择的锚点标记，无法精确定位时返回确定性降级原因
+- 新增纯客户端批注导航控制器，统一稳定选择器解析、滚动、焦点、瞬时高亮清理和结构化未命中结果
+- 新增类型完整的中英文工作台词典，以中文为键集事实源，并在编译期核对英文键、逐键插值参数和业务枚举覆盖
+
+### Changed（2026-09-05，工作台壳层）
+- 工作台视觉统一使用 DSH 官方主题变量；窄屏由隐藏操作栏改为任务、文档、操作三栏切换，所有区域保持可达
+- 工作台对话框补齐初始焦点、Tab 环、执行中 Escape 门控和关闭后焦点归还
+- 工作台产品文案统一由 typed locale 字典提供；未知或不可用浏览器 locale 确定性回退中文
+- Word 预览启用原生批注渲染；侧栏批注与 Word/简版正文可双向选择、滚动、聚焦和瞬时高亮，未命中时给出本地化状态且不误跳
+- 侧栏渲染全部批注并以作者短名和正文摘录组成辅助名称；切换审查会话时清理旧批注导航状态
+- 同时兼容 `docx-preview` 的原生引用元素和 run-style `.docx_commentreference` 占位元素；后者从相邻范围结束标记恢复批注 id，并增强为可见、可聚焦且支持 Enter/Space 的入口
+- 工作台专属 Agent 的分析回合由 Host 注入有界合同正文与最小审查指导，不再要求 DSH Web profile 开放通用文件或 skill 工具；伪造边界标记会被隔离，提取失败或正文为空时在创建 Agent 前显式失败
+
+### Fixed（2026-09-05，验收修复）
+- 简单视图点击侧栏批注恢复正文定位：导航控制器支持逐次视图绑定选项后，`data-cc-anchor` 打点属性随跳转传递；此前 Workbench 把它丢在共享 navigator 之外，简单视图每次跳转都按默认属性寻址而未命中（Word 视图经注释标记命中，不受影响）
+- 批注跳转的短暂高亮在 Word 与简单两套视图真实可见：导航控制器一直输出 `cc-comment-flash`，但从未有对应 CSS；现以纸面静态琥珀底色加描边限定在两个文档容器内，明暗主题下均可读
+- 批注导航请求的已处理水位随案件切换复位；A→B→A 返回旧案件后不会把新请求误判为已消费，同一案件重复激活也不会清空仍有效的导航状态
+- 简版文档挂载点现在绑定 `simpleHolder`，侧栏跳转能取得实际正文根节点并命中稳定锚点；源码接线回归同时保护 Word 与简版两个 holder ref
+
+### Testing（2026-09-05，工作台体验基础）
+- client typecheck、16 个测试文件 266 项测试和 Node/Client build 通过
+- 候选 `cfcfb77` 以 tarball 安装到 DSH `0.1.2-rc.1` 隔离 Web profile；真实浏览器通过明暗主题、窄屏页签、Escape 焦点归还、Word/简版侧栏前向定位与正文反向选择、A→B→A 和同案件重复激活复验
+- 正式 `dsh-plugin-lint` 输出 `0 FAIL / 3 WARN / 0 NOT_VERIFIED`；三项 WARN 已按真实 tarball boot、typed locale 与历史决策语义完成人工处置
+- 最终 GUI GIF 已绑定 SHA-256 `3f19a70ea655b5a1f1969349bd309957122cb3b63d578779c4549009c068aace`；未参与实现的 GLM reviewer 在 PR 头 `cdcbbcca69dbaff768d98fe450f9a86ba7fa6ca2` 给出 `ACCEPT`，结构化角色分离与 merge-gate 均通过
+- 收口后重打包 SHA-256 为 `713d73025ac3e243e7fc29df6e9a34e499926a9dd15ec2c3d29457c98a8835d1`；与浏览器验收包相比仅 README 状态变化，运行载荷逐文件一致
+
+### Planning（2026-09-04，工作台体验收口）
+- 将暗色主题、窄屏操作区和对话框焦点统一划为工作台壳层任务，将 DOCX 批注稳定定位划为独立 Host/协议任务
+- 批注双向跳转在两项基础验收后单独集成，避免并行任务同时修改工作台主组件
+- 更新路线图、任务源和 Q41，明确使用 DSH 主题变量、typed locale 字典以及真实浏览器候选证据
+- 将只读研究收敛为两个可复用工程资产：纯客户端批注导航控制器，以及类型完整的中英文工作台词典；最终浏览器验收仍由独立 reviewer 执行
+
+### Docs（2026-09-04，工作台交互原则）
+- 明确 DSH 的 Agent、Session、Tools 和状态事件是细粒度工作台交互的运行基础，并由 ContractSession 投影为可持久化、可操作、可审计的案件状态
+- 明确可观察运行过程不等于模型隐藏思维链；新交互必须对应可恢复业务状态或授权门
+
+### Planning（2026-09-04，律师决策工作台）
+- 确认 `0.3.0` 采用案件专属 DSH Agent：工作台负责建案、启动分析、等待律师和恢复交付
+- 确认 analyze 后设置不可绕过的律师决策门，并以 plan hash 约束批准有效性
+- 确认第一版 finding 支持按建议处理、仅批注、仅意见书、忽略、风险等级调整和内部备注
+- 设计与执行清单见 `docs/plans/2026-09-04-lawyer-decision-workbench-design.md`、`status/TASKS.md`
+
+### Added（2026-09-04，律师计划批准门）
+- ContractSession 新增可选 `planReview`：保存当前计划 hash、逐 finding 决定、批准 hash 与追加式审计历史
+- 工作台协议新增 plan approve RPC；任一 finding 未决定、未知或重复决定、旧页面 hash 均以稳定领域错误拒绝
+- 四种决定确定性投影到获批 plan：保留建议、仅批注、仅意见书或从执行计划忽略，并支持风险等级覆盖和内部备注
+
+### Added（2026-09-04，案件专属 Agent）
+- 工作台新增分析、交付和取消命令，直接创建或恢复案件专属 DSH Agent，不要求律师返回聊天窗口补发指令
+- Agent 分析阶段停在待律师决策，批准后由同一 DSH session 继续修订与交付；工作台持久显示运行、等待、失败和完成状态
+- 同一案件只允许一个在途命令；取消、插件卸载和结果投影均等待 Agent 实际进入 idle
+- 新建 Agent 继承 DSH 当前默认模型选择；首次创建失败保留错误但不产生无效 session 关联，重试仍可重新创建
+
+### Added（2026-09-04，律师决策界面）
+- 工作台改为“前置信息、风险分析、律师决策、修订交付、完成”五阶段，并展示 Agent 运行、等待、失败和已交付状态
+- 每项风险卡可选择四种处理方式、调整 P0/P1/P2 等级并填写仅内部留存的律师备注；全部按建议仍生成逐项决定
+- 计划全部决定后可一次完成批准和交付派发；运行中可取消，已批准但派发失败时可按原方案重试
+- 空 finding 计划仍可显式批准；页面刷新后从业务 session 恢复当前决定，计划 hash 变化时丢弃旧页面草稿
+
+### Security（2026-09-04，律师计划批准门）
+- `contract_copilot_apply` 在 Python 启动前强制检查律师批准和文件 hash；未批准或批准后被改写的计划无法执行
+
+### Fixed（2026-09-04，浏览器验收）
+- 前置信息自由文本输入框使用问题正文作为辅助标签，键盘和辅助技术可直接识别输入目的
+- Agent 到达“等待律师决策”或“已交付”后清除旧的运行中提示，避免持久状态与临时消息相互矛盾
+
+### Changed（2026-09-04，DSH 0.1.2 迁移）
+- 依赖从 DSH `0.1.0-rc.7` 升级到 `0.1.2-rc.1`，客户端由已移除的 `dsh-client-runtime` 迁到 connection、ui-renderer、ui-sidebar
+- 工作台入口由手动追加 sidebar DOM 改为官方 `sidebar.footer.action`；折叠和展开侧栏均有对应显示
+- Host 数据面由未认证 `/contract-copilot/*` HTTP 路由改为 Connection 认证 RPC，以及 `/api/contract-copilot.events`、`/api/contract-copilot.download` 精确 Fetch 路由
+- 工作台新增“前置信息 → 分析与风险 → 修订与批注 → 交付与复审”四阶段进度，以及最近八条工具状态跃迁
+- `workbench` 配置收敛为 `enabled`；删除已无意义的 `port`、`host`、`autoOpen`
+
+### Security（2026-09-04）
+- 工作台状态、文档渲染、表单提交、实时事件和 DOCX 下载统一复用 DSH Host/Origin fence 与签名 Cookie 认证
+- RPC payload 对路径、session ID、答案数量与长度做显式校验；下载只接受 GET/HEAD 和固定产物类型
+
+### Testing（2026-09-04）
+- 候选 `e287ee2` 从 tarball 安装到隔离 DSH `0.1.2-rc.1` Web profile；使用脱敏合成合同和本地 replay provider 跑通 Agent 分析、律师批准、真实 Python apply、finalize 与双 DOCX 交付
+- 浏览器验证批准前禁用、逐项决定后解锁、修订高亮、批注、交付统计和下载入口；DSH 重启后已交付状态、决定及批准锁完整恢复
+- 正式 dsh-plugin-lint 五层审查通过，机械结果为 `0 FAIL / 0 WARN`；候选截图与报告见 `docs/acceptance/2026-09-04-lawyer-decision-workbench.md`
+- 新增工作台纯投影与直接 tool 入口测试，覆盖五阶段、漏项禁用、决定字段规范化、空计划、精确 session 复用和未批准 apply 拒绝
+- 13 个文件 103 项完整测试、真实 Python spawn、Node/Client build 与 `pnpm peers check` 通过
+- 新增确定性 Agent 生命周期测试，覆盖 create/resume、busy、创建失败重试、批准后交付、取消和 teardown；不依赖固定 sleep
+- DSH 运行时及测试 peer 依赖统一到 `0.1.2-rc.1`，`pnpm peers check` 无版本混装
+- 新增 Host/Client 工作台测试，覆盖 RPC、错误传播、路由注册、SSE 生命周期、Unicode session ID 和 DOCX GET/HEAD 下载
+- 真实 Python spawn 集成测试改用独有临时配置与归档目录，避免改写用户的 Contract Copilot 配置或 archive
+- `pnpm run build`、9 个文件 80 项完整测试与 dsh-plugin-lint 机械层通过
+- 候选 `943b1b7` 从真实 tarball 安装到隔离 DSH home 并启动 Web profile；匿名 RPC、事件、下载请求均返回 `401`
+- 浏览器验收通过：官方侧栏入口、四阶段、最近操作、Word 正文、批注、发现、表单与下载入口均可见；证据见 `docs/acceptance/2026-09-04-dsh-0.1.2-workbench.md`
+
+### Build（2026-09-04）
+- 候选版本升级为 `0.3.0`，用于绑定 tarball、DSH profile 与浏览器验收证据
+- 客户端 tsdown 配置改用 DSH 0.1.2 的 `deps.neverBundle/alwaysBundle` 与 `outputOptions`，并把 React 类型对齐到 React 18
+- 新增受版本控制的 pnpm 锁文件，并仅允许 `esbuild` 执行安装脚本
+- 完整构建先清理本包 `lib/`，防止已删除源码的旧 JavaScript 混入发布 tarball
+
 ### Added（2026-08-19 第二轮）
 - **A1 产物下载**：工作台右栏一键下载审核修订版/审查意见书 DOCX（流式 + `filename*=UTF-8''` 中文文件名）
 - **A2 SSE 实时推送**：`/events` 端点 + client EventSource——store 变更即时上屏，轮询降为 10s 兜底
