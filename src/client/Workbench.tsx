@@ -648,6 +648,20 @@ export function adjacentPaneId(current: WorkbenchPane, offset: number): Workbenc
   return ids[(index + offset % ids.length + ids.length) % ids.length]
 }
 
+/**
+ * Full tablist keyboard model (CC-V5-010): ArrowLeft/Right wrap to the
+ * neighbor pane, Home/End jump to the first/last one, and every other key is
+ * left unhandled (`undefined`) — Space and Enter must still activate the
+ * focused tab button natively, and unbound keys must not steal preventDefault.
+ */
+export function paneForKey(key: string, current: WorkbenchPane): WorkbenchPane | undefined {
+  if (key === 'ArrowLeft') return adjacentPaneId(current, -1)
+  if (key === 'ArrowRight') return adjacentPaneId(current, 1)
+  if (key === 'Home') return NARROW_TABS[0].id
+  if (key === 'End') return NARROW_TABS[NARROW_TABS.length - 1].id
+  return undefined
+}
+
 // ---------------------------------------------------------------------------
 // Dialog focus model: deterministic initial focus, Tab containment, Escape
 // gating, and focus return to the launcher.
@@ -1040,6 +1054,8 @@ export function Workbench({ client, onClose }: { readonly client: ContractCopilo
   const [createBusy, setCreateBusy] = useState(false)
   const [narrow, setNarrow] = useState(() => typeof window !== 'undefined' && typeof window.matchMedia === 'function' && window.matchMedia(narrowMediaQuery()).matches)
   const [narrowPane, setNarrowPane] = useState<WorkbenchPane>('tasks')
+  /** Narrow-tab buttons by pane id: roving tabindex moves real focus here. */
+  const tabButtonRefs = useRef(new Map<WorkbenchPane, HTMLButtonElement | null>())
   const [navigationRequest, setNavigationRequest] = useState<{ comment: DocComment; seq: number } | undefined>(undefined)
   // Reverse navigation state (document → sidebar): which entry is selected and
   // how many times a marker hit demanded focus (re-clicks must re-focus).
@@ -1114,11 +1130,23 @@ export function Workbench({ client, onClose }: { readonly client: ContractCopilo
     panelRef.current?.focus()
   }, [])
 
+  /**
+   * Unified dismissal entry (CC-V5-010): the overlay click and the close
+   * button run through the same commandBusy gate as Escape, so a command in
+   * flight can never be abandoned through any path. `aria-disabled` on the
+   * close button announces the gate to assistive tech while keeping the
+   * button focusable (the Tab containment skips it while gated).
+   */
+  const requestClose = (): void => {
+    if (!escapeClosesDialog(commandBusy)) return
+    onClose()
+  }
+
   const onOverlayKeyDown = (event: React.KeyboardEvent<HTMLDivElement>): void => {
     if (event.key === 'Escape') {
       if (escapeClosesDialog(commandBusy)) {
         event.stopPropagation()
-        onClose()
+        requestClose()
       }
       return
     }
@@ -1498,7 +1526,7 @@ export function Workbench({ client, onClose }: { readonly client: ContractCopilo
   const activeTab = NARROW_TABS.find(tab => tab.id === narrowPane) ?? NARROW_TABS[0]
 
   return (
-    <div style={S.overlay} onClick={onClose} onKeyDown={onOverlayKeyDown}>
+    <div style={S.overlay} onClick={requestClose} onKeyDown={onOverlayKeyDown}>
       <style>{insDelCss}</style>
       <div
         ref={panelRef}
@@ -1511,15 +1539,21 @@ export function Workbench({ client, onClose }: { readonly client: ContractCopilo
       >
         <div style={S.head}>
           <span style={S.title}>{label('workbench.title')}</span>
-          <button aria-label={label('workbench.closeAria')} type="button" style={S.close} onClick={onClose}>✕</button>
+          <button aria-label={label('workbench.closeAria')} type="button" style={S.close} aria-disabled={commandBusy || undefined} onClick={requestClose}>✕</button>
         </div>
         {loadError !== undefined ? <div role="alert" style={S.errorStrip}>{loadError}</div> : null}
         {narrow ? (
           <div style={S.bodyNarrow}>
             <div role="tablist" aria-label={label('pane.group')} style={S.tabList}
               onKeyDown={(event) => {
-                if (event.key === 'ArrowLeft') { event.preventDefault(); setNarrowPane(pane => adjacentPaneId(pane, -1)) }
-                if (event.key === 'ArrowRight') { event.preventDefault(); setNarrowPane(pane => adjacentPaneId(pane, 1)) }
+                const next = paneForKey(event.key, narrowPane)
+                if (next === undefined) return
+                event.preventDefault()
+                setNarrowPane(next)
+                // Real focus migration (CC-V5-010): the newly active tab takes
+                // focus on keydown — selection-follows-focus, the roving
+                // tabIndex below keeps it the single tab stop after commit.
+                tabButtonRefs.current.get(next)?.focus()
               }}
             >
               {NARROW_TABS.map(tab => (
@@ -1530,8 +1564,10 @@ export function Workbench({ client, onClose }: { readonly client: ContractCopilo
                   id={`ccp-tab-${tab.id}`}
                   aria-selected={tab.id === activeTab.id}
                   aria-controls={`ccp-panel-${tab.id}`}
+                  tabIndex={tab.id === activeTab.id ? 0 : -1}
                   style={narrowTabStyle(tab.id === activeTab.id)}
                   onClick={() => setNarrowPane(tab.id)}
+                  ref={node => { if (node === null) tabButtonRefs.current.delete(tab.id); else tabButtonRefs.current.set(tab.id, node) }}
                 >
                   {label(tab.labelKey)}
                 </button>

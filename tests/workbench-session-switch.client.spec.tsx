@@ -19,7 +19,7 @@ import type { WorkbenchConnection } from '../src/client/api.ts'
 // node 的 navigator.language 跟随宿主（本机为 en）；文案断言按产品主语言 zh
 // 固定，必须在 Workbench 模块初始化 translator 之前生效，因此动态导入。
 vi.stubGlobal('navigator', { language: 'zh-CN' })
-const { Workbench } = await import('../src/client/Workbench.tsx')
+const { Workbench, RailEntryButton } = await import('../src/client/Workbench.tsx')
 
 // ---------------------------------------------------------------------------
 // Deferred fake RPC：每个 (endpoint, sessionId) 一个 FIFO 队列，测试手动放行。
@@ -163,6 +163,7 @@ const internals = (React as unknown as {
 let currentRecord: InstanceRecord | null = null
 let renderRequested = false
 let renderPass = 0
+let focusLog: Array<object> | null = null
 const records = new Map<string, InstanceRecord>()
 const pendingCleanups: Array<() => void> = []
 const pendingCreates: Array<{ record: InstanceRecord; index: number }> = []
@@ -235,7 +236,11 @@ function miniUseEffect(effect: () => void | (() => void), deps: readonly unknown
 const dispatcher = { useState: miniUseState, useRef: miniUseRef, useCallback: miniUseCallback, useEffect: miniUseEffect }
 
 function createFakeDom(tag: string): Record<string, unknown> {
-  return {
+  // CC-V5-010：focus 事件按 dom 身份记录（focusLog 非空时），供焦点迁移断言
+  // 使用——每轮 flush 都会重建 fake dom，事后包装单个 dom 的 focus 会拿到
+  // 过期引用，只有挂载器内置日志能同时覆盖「flush 前的同步迁移」与
+  // 「flush 期间 effect 里的恢复焦点」两种时序。
+  const dom: Record<string, unknown> = {
     tagName: tag.toUpperCase(),
     nodeType: 1,
     innerHTML: '',
@@ -243,12 +248,13 @@ function createFakeDom(tag: string): Record<string, unknown> {
     style: {},
     addEventListener() {},
     removeEventListener() {},
-    focus() {},
+    focus() { focusLog?.push(dom) },
     scrollIntoView() {},
     querySelectorAll() { return [] },
     getAttribute() { return null },
     setAttribute() {},
   }
+  return dom
 }
 
 function attachRef(ref: unknown, dom: Record<string, unknown>): void {
@@ -352,7 +358,13 @@ function nodeText(node: MiniNode): string {
 }
 
 function walk(node: MiniNode, visit: (element: MiniElement) => void): void {
-  if (node === null || node.kind !== 'element') return
+  if (node === null || node.kind === 'text') return
+  // fragment 也要下钻：RailEntryButton 返回 <>…</>，跳过 fragment 会让
+  // launcher 按钮对 findByAria / findButtonWithText 不可见。
+  if (node.kind === 'fragment') {
+    for (const child of node.children) walk(child, visit)
+    return
+  }
   visit(node)
   for (const child of node.children) walk(child, visit)
 }
@@ -395,11 +407,11 @@ function changeValue(element: MiniElement, value: string): void {
 }
 
 /** 挂载真实 Workbench：全局 EventSource/fetch 用 stub（node 环境没有）。 */
-async function mountWorkbench(backend: FakeWorkbenchBackend): Promise<void> {
+async function mountWorkbench(backend: FakeWorkbenchBackend, onClose: () => void = () => {}): Promise<void> {
   vi.stubGlobal('EventSource', class { addEventListener(): void {} close(): void {} })
   vi.stubGlobal('fetch', () => new Promise<never>(() => {}))
   const client = new ContractCopilotClient(backend.connection as unknown as WorkbenchConnection)
-  rootElementRef = <Workbench client={client} onClose={() => {}} />
+  rootElementRef = <Workbench client={client} onClose={onClose} />
   renderRequested = true
   await flush()
 }
@@ -417,6 +429,7 @@ function dispose(): void {
   renderRequested = false
   renderedRootRef = null
   rootElementRef = null
+  focusLog = null
   vi.unstubAllGlobals()
 }
 
@@ -564,5 +577,240 @@ describe('工作台跨案件数据隔离（CC-V5-006）', () => {
     await flush()
     click(findButtonWithText('建立审查案件'))
     expect(backend.startCalls).toEqual(['/tmp/新合同.docx', '/tmp/再次提交.docx', '/tmp/第三次.docx'])
+  })
+})
+
+// ---------------------------------------------------------------------------
+// CC-V5-010：窄屏 tab 完整键盘语义（roving tabindex + 焦点迁移）与
+// commandBusy 统一关闭门。以下全部在真实 Workbench / RailEntryButton 上驱动。
+// ---------------------------------------------------------------------------
+
+/** 窄屏视口 stub：matchMedia 恒命中 900px 断点，须在挂载前调用。 */
+function stubNarrowViewport(): void {
+  vi.stubGlobal('window', {
+    matchMedia: (query: string) => ({
+      matches: true,
+      media: query,
+      onchange: null,
+      addEventListener(): void {},
+      removeEventListener(): void {},
+      addListener(): void {},
+      removeListener(): void {},
+      dispatchEvent: () => false,
+    }),
+  })
+}
+
+const TAB_IDS = ['tasks', 'document', 'operations'] as const
+
+function findTab(id: string): MiniElement {
+  let found: MiniElement | undefined
+  walk(renderedRootRef, element => {
+    if (element.type === 'button' && element.props.id === `ccp-tab-${id}`) found ??= element
+  })
+  if (found === undefined) throw new Error(`tab not found: ${id}`)
+  return found
+}
+
+function findOverlay(): MiniElement {
+  let found: MiniElement | undefined
+  walk(renderedRootRef, element => {
+    if (element.type === 'div' && (element.props.style as { position?: string } | undefined)?.position === 'fixed') found ??= element
+  })
+  if (found === undefined) throw new Error('overlay not found')
+  return found
+}
+
+function tablist(): MiniElement {
+  return findByAria('工作台区域')
+}
+
+/** 全部窄屏 tab 的 roving 快照：tabIndex 与 aria-selected 必须一一对应。 */
+function rovingSnapshot(): Record<string, { tabIndex: unknown; selected: unknown }> {
+  const snapshot: Record<string, { tabIndex: unknown; selected: unknown }> = {}
+  for (const id of TAB_IDS) {
+    const tab = findTab(id)
+    snapshot[id] = { tabIndex: tab.props.tabIndex, selected: tab.props['aria-selected'] }
+  }
+  return snapshot
+}
+
+/** 开启焦点日志：直到下一次断言前，所有 fake dom 的 focus() 都按 dom 身份记录。 */
+function startFocusLog(): Array<object> {
+  focusLog = []
+  return focusLog
+}
+
+function keyDown(element: MiniElement, key: string): void {
+  ;(element.props.onKeyDown as ((event: FakeEvent) => void) | undefined)?.({ stopPropagation() {}, preventDefault() {}, key, target: element.dom })
+}
+
+describe('窄屏 tab roving tabindex 与键盘焦点迁移（CC-V5-010）', () => {
+  it('只有 active tab 是 tabIndex=0 的停靠点，其余 -1；点击激活后 roving 跟随', async () => {
+    stubNarrowViewport()
+    const backend = new FakeWorkbenchBackend()
+    backend.queueResolved('state', undefined, { sessions: [] })
+    await mountWorkbench(backend)
+
+    expect(rovingSnapshot()).toEqual({
+      tasks: { tabIndex: 0, selected: true },
+      document: { tabIndex: -1, selected: false },
+      operations: { tabIndex: -1, selected: false },
+    })
+
+    // 点击激活：语义切换 + roving 跟随，但不做程序化焦点迁移。
+    click(findTab('operations'))
+    await flush()
+    expect(rovingSnapshot()).toEqual({
+      tasks: { tabIndex: -1, selected: false },
+      document: { tabIndex: -1, selected: false },
+      operations: { tabIndex: 0, selected: true },
+    })
+  })
+
+  it('ArrowRight/ArrowLeft 同时切换 pane 并把真实焦点迁到新 active tab', async () => {
+    stubNarrowViewport()
+    const backend = new FakeWorkbenchBackend()
+    backend.queueResolved('state', undefined, { sessions: [] })
+    await mountWorkbench(backend)
+
+    const focusCalls = startFocusLog()
+    keyDown(tablist(), 'ArrowRight')
+    // 键盘即迁移：焦点必须落在刚成为 active 的 tab 上，而非停留在旧 tab。
+    expect(focusCalls).toEqual([findTab('document').dom])
+    await flush()
+    expect(rovingSnapshot()).toEqual({
+      tasks: { tabIndex: -1, selected: false },
+      document: { tabIndex: 0, selected: true },
+      operations: { tabIndex: -1, selected: false },
+    })
+    // pane 同帧切换：文档区占位提示出现，任务区内容退场。
+    expect(treeText()).toContain(SELECT_PROMPT)
+    expect(treeText()).not.toContain('新建审查')
+
+    // 反向键：焦点迁回 tasks tab。
+    const backCalls = startFocusLog()
+    keyDown(tablist(), 'ArrowLeft')
+    expect(backCalls).toEqual([findTab('tasks').dom])
+    await flush()
+    expect(rovingSnapshot().tasks).toEqual({ tabIndex: 0, selected: true })
+  })
+
+  it('Home/End 跳到首个/最后一个 pane 并迁移焦点；方向键之外的键不被接管', async () => {
+    stubNarrowViewport()
+    const backend = new FakeWorkbenchBackend()
+    backend.queueResolved('state', undefined, { sessions: [] })
+    await mountWorkbench(backend)
+
+    keyDown(tablist(), 'End')
+    await flush()
+    expect(rovingSnapshot().operations).toEqual({ tabIndex: 0, selected: true })
+
+    const focusCalls = startFocusLog()
+    keyDown(tablist(), 'Home')
+    expect(focusCalls).toEqual([findTab('tasks').dom])
+    await flush()
+    expect(rovingSnapshot().tasks).toEqual({ tabIndex: 0, selected: true })
+
+    // 未映射的键：不切换、不迁移焦点。
+    const focusBefore = focusCalls.length
+    keyDown(tablist(), 'ArrowDown')
+    await flush()
+    expect(rovingSnapshot().tasks).toEqual({ tabIndex: 0, selected: true })
+    expect(focusCalls.length).toBe(focusBefore)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// CC-V5-010：commandBusy 统一关闭门 —— Escape 已有门，遮罩与关闭按钮补齐。
+// ---------------------------------------------------------------------------
+
+const BUSY_ID = 'case-busy'
+
+function createdDetail(): SessionDetail {
+  return {
+    session: {
+      id: BUSY_ID,
+      contractName: 'busy案件',
+      contractPath: '/tmp/busy.docx',
+      state: 'created',
+      outputs: {},
+      updatedAt: '2026-09-05T03:00:00.000Z',
+      historyTail: [],
+    },
+    findings: [],
+  }
+}
+
+/** 挂载并把工作台推进 commandBusy=true（run-analysis 请求挂起不放行）。 */
+async function mountWithCommandInFlight(onClose: () => void): Promise<{ backend: FakeWorkbenchBackend; releaseAnalysis(): void }> {
+  const backend = new FakeWorkbenchBackend()
+  backend.queueResolved('state', undefined, { sessions: [{ id: BUSY_ID, contractName: 'busy案件', state: 'created', updatedAt: '2026-09-05T03:00:00.000Z' }] })
+  backend.queueResolved('detail', BUSY_ID, createdDetail())
+  backend.queue('document', BUSY_ID)
+  const pendingAnalysis = backend.queue('run-analysis', BUSY_ID)
+  await mountWorkbench(backend, onClose)
+  click(findButtonWithText('启动风险分析'))
+  await flush()
+  // busy 已置位（启动按钮 disabled 佐证），命令仍未放行。
+  expect(findButtonWithText('启动风险分析').props.disabled).toBe(true)
+  return { backend, releaseAnalysis: () => pendingAnalysis.resolve({ accepted: true, dshSessionId: 'agent-1', phase: 'analysis' }) }
+}
+
+describe('commandBusy 统一关闭门（CC-V5-010）', () => {
+  it('命令执行中 Escape、遮罩点击、关闭按钮均不关闭，工作台保持挂载且关闭按钮状态可感知', async () => {
+    const onCloseCalls: number[] = []
+    const { releaseAnalysis } = await mountWithCommandInFlight(() => { onCloseCalls.push(1) })
+
+    const closeButton = findByAria('关闭合同审查工作台')
+    expect(closeButton.props['aria-disabled']).toBe(true)
+
+    click(closeButton)
+    keyDown(findOverlay(), 'Escape')
+    click(findOverlay())
+    await flush()
+
+    expect(onCloseCalls).toEqual([])
+    expect(findByAria('关闭合同审查工作台')).toBeDefined()
+
+    // 命令放行 → 空闲 → 关闭门解除，关闭按钮状态恢复可访问语义。
+    releaseAnalysis()
+    await flush()
+    expect(findByAria('关闭合同审查工作台').props['aria-disabled']).toBeUndefined()
+  })
+
+  it('空闲时 Escape、遮罩点击、关闭按钮三个入口全部关闭', async () => {
+    const onClose = vi.fn()
+    const backend = new FakeWorkbenchBackend()
+    backend.queueResolved('state', undefined, { sessions: [] })
+    await mountWorkbench(backend, onClose)
+
+    keyDown(findOverlay(), 'Escape')
+    expect(onClose).toHaveBeenCalledTimes(1)
+    click(findOverlay())
+    expect(onClose).toHaveBeenCalledTimes(2)
+    click(findByAria('关闭合同审查工作台'))
+    expect(onClose).toHaveBeenCalledTimes(3)
+  })
+
+  it('空闲关闭经真实 RailEntryButton 接线卸载后，launcher 恢复焦点', async () => {
+    const backend = new FakeWorkbenchBackend()
+    backend.queueResolved('state', undefined, { sessions: [] })
+    vi.stubGlobal('EventSource', class { addEventListener(): void {} close(): void {} })
+    vi.stubGlobal('fetch', () => new Promise<never>(() => {}))
+    const client = new ContractCopilotClient(backend.connection as unknown as WorkbenchConnection)
+    const Rail = RailEntryButton as unknown as (props: { client: ContractCopilotClient; wide: boolean }) => React.JSX.Element
+    rootElementRef = <Rail client={client} wide={true} />
+    renderRequested = true
+    await flush()
+
+    click(findByAria('打开合同审查工作台'))
+    await flush()
+    expect(treeText()).toContain('审查工作台')
+
+    const focusCalls = startFocusLog()
+    click(findByAria('关闭合同审查工作台'))
+    await flush()
+    expect(focusCalls).toEqual([findByAria('打开合同审查工作台').dom])
   })
 })
