@@ -47,6 +47,14 @@
 - 目标：为本项目提供匹配 `status/TASKS.md`、`[Unreleased]` CHANGELOG 和跨仓链接的 doc-curator 配置，替代当前误用 FaroPDF 配置产生的假 hard/adaptive 信号。
 - 验收：历史范围检查不再误报任务源与 CHANGELOG 结构；真实断链负例仍 fail closed；不改变现有文档职责。
 
+### CC-V5-010：窄屏页签键盘语义与 commandBusy 统一关闭门
+
+- 状态：已交付待集成；分支 `cc-v5-modal-tabs-ux` 已 safe-push，等待 PM 建 PR（base `feat-v5-quality-hardening`）
+- 目标：窄屏页签遵循完整 tab 键盘语义——roving tabindex 仅活动页签为 0，Arrow/Home/End 切换 pane 的同时把真实焦点迁移到新活动页签；命令执行中 Escape、遮罩点击、关闭按钮统一不得卸载工作台（关闭按钮以 `aria-disabled` 声明状态），空闲时三个入口都关闭并归还 launcher 焦点。
+- 文件边界：`src/client/Workbench.tsx`、`tests/workbench-client.spec.ts`、`tests/workbench-session-switch.client.spec.tsx`；文档同步 `CHANGELOG.md`、`status/TASKS.md`。
+- 验收：真实组件行为回归（最小 React 挂载器，非源码字符串）覆盖 roving 快照、ArrowLeft/Right/Home/End 焦点迁移、点击激活语义、busy 三入口不卸载且关闭按钮状态可感知、空闲三入口关闭与 launcher 焦点归还；聚焦测试、client typecheck、build、`git diff --check` 通过。
+- 证据：先写回归后实现，4 个新行为用例在实现前按预期失败（tabIndex 缺失、无焦点迁移、End 不切换、无 aria-disabled 门）；实现后聚焦 vitest 63/63、全量 294/294（本任务新增 7 项）、build 通过、`git diff --check` 干净。`dsh-plugin-lint` 报 `10 FAIL / 3 WARN / 2 NOT_VERIFIED`，经 stash 对比在干净基线 `64a23c6` 上完全一致——均为新版 lint harness 对 `tsdown.client.config.ts` external 声明与主题 harness 的既有要求，非本任务引入；涉事文件超出本任务文件边界，留待 PM 在集成侧处置。
+
 ## CC-V4-010：简版文档导航根接线（CC-V4-004 验收退回）
 
 - 状态：已完成；真实浏览器复验与 CC-V4-004 独立 reviewer 合并门均通过

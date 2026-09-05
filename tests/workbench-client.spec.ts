@@ -38,6 +38,7 @@ import {
   navigationGateFor,
   navigationRequestKey,
   navigationWatermarkTransition,
+  paneForKey,
   type HandledNavigationWatermark,
   type NavigationGateDecision,
   findDocCommentByRefId,
@@ -247,6 +248,19 @@ describe('workbench narrow layout control', () => {
     expect(adjacentPaneId('operations', 1)).toBe('tasks')
     expect(adjacentPaneId('tasks', -1)).toBe('operations')
     expect(adjacentPaneId('operations', -1)).toBe('document')
+  })
+
+  it('resolves the full tablist keyboard model: arrows wrap, Home/End bound, other keys untouched (CC-V5-010)', () => {
+    expect(paneForKey('ArrowRight', 'tasks')).toBe('document')
+    expect(paneForKey('ArrowRight', 'operations')).toBe('tasks')
+    expect(paneForKey('ArrowLeft', 'tasks')).toBe('operations')
+    expect(paneForKey('ArrowLeft', 'document')).toBe('tasks')
+    expect(paneForKey('Home', 'operations')).toBe('tasks')
+    expect(paneForKey('End', 'tasks')).toBe('operations')
+    expect(paneForKey('ArrowDown', 'tasks')).toBeUndefined()
+    expect(paneForKey('ArrowUp', 'tasks')).toBeUndefined()
+    expect(paneForKey('Escape', 'tasks')).toBeUndefined()
+    expect(paneForKey(' ', 'tasks')).toBeUndefined()
   })
 })
 

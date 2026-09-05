@@ -11,7 +11,8 @@
 
 ### Changed（2026-09-05，工作台壳层）
 - 工作台视觉统一使用 DSH 官方主题变量；窄屏由隐藏操作栏改为任务、文档、操作三栏切换，所有区域保持可达
-- 工作台对话框补齐初始焦点、Tab 环、执行中 Escape 门控和关闭后焦点归还
+- 窄屏页签补齐完整 tab 键盘语义：roving tabindex 下仅活动页签是 Tab 停靠点（其余 -1），ArrowLeft/Right 循环切换、Home/End 跳转首尾页签，并在按键同时把真实焦点迁移到新活动页签；点击激活语义保持不变
+- 工作台对话框补齐初始焦点、Tab 环、执行中 Escape 门控和关闭后焦点归还；遮罩点击与关闭按钮现与 Escape 同受 commandBusy 门约束——命令执行中三个关闭入口一律不得卸载工作台，关闭按钮以 `aria-disabled` 向辅助技术声明状态，空闲时全部恢复关闭并归还 launcher 焦点
 - 工作台产品文案统一由 typed locale 字典提供；未知或不可用浏览器 locale 确定性回退中文
 - Word 预览启用原生批注渲染；侧栏批注与 Word/简版正文可双向选择、滚动、聚焦和瞬时高亮，未命中时给出本地化状态且不误跳
 - 侧栏渲染全部批注并以作者短名和正文摘录组成辅助名称；切换审查会话时清理旧批注导航状态
@@ -25,6 +26,7 @@
 - 简版文档挂载点现在绑定 `simpleHolder`，侧栏跳转能取得实际正文根节点并命中稳定锚点；源码接线回归同时保护 Word 与简版两个 holder ref
 
 ### Testing（2026-09-05，工作台体验基础）
+- CC-V5-010 真实组件行为回归 7 项：先失败后实现（RED→GREEN），覆盖 roving tabindex 快照、四键焦点迁移（挂载器内置焦点日志按 dom 身份断言）、点击激活、busy 三入口不卸载、空闲三入口关闭、launcher 焦点归还，以及 `paneForKey` 键盘模型；聚焦 63/63、全量 294/294、client typecheck 与 build 通过
 - client typecheck、16 个测试文件 266 项测试和 Node/Client build 通过
 - 候选 `cfcfb77` 以 tarball 安装到 DSH `0.1.2-rc.1` 隔离 Web profile；真实浏览器通过明暗主题、窄屏页签、Escape 焦点归还、Word/简版侧栏前向定位与正文反向选择、A→B→A 和同案件重复激活复验
 - 正式 `dsh-plugin-lint` 输出 `0 FAIL / 3 WARN / 0 NOT_VERIFIED`；三项 WARN 已按真实 tarball boot、typed locale 与历史决策语义完成人工处置
