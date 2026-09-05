@@ -17,8 +17,10 @@
  * 重存时会被重新编号，不可依赖）。范围标记（commentRangeStart..End）能在
  * 同一段落内重建时，正文输出 <span data-cc-anchor> 精确包裹；否则走确定性
  * 降级（原因 + 可见的引用点段落），绝不发明错误目标。HTML 标记与 anchor
- * 元数据由同一趟渲染产出：exact 状态 ⟺ 真实计划终点已在渲染中被消费并闭合
- * （段尾为 HTML 合法性做的补闭合不算——异常 OOXML 提前停止时范围不完整）。
+ * 元数据由同一趟渲染产出：真实计划终点被消费并闭合时，锚点为 exact 且正文
+ * 存在对应 <span data-cc-anchor>；终点未被消费时（异常 OOXML 提前停止）
+ * 元数据降级为 fallback，且正文不物化该锚点的任何 data-cc-anchor 元素，
+ * 避免 Client 把空壳/截断范围当成功导航目标。
  */
 
 import { spawnSync } from 'node:child_process'
@@ -345,8 +347,8 @@ function planCommentAnchors(
  *     commentReference 输出带 data-cc-anchor 的气泡
  *
  * 异常段落（缺少闭合）→ 落回纯文本提取，不抛错；计划中起点已渲染但真实
- * 终点未被消费的精确包裹（含段尾为 HTML 合法性的补闭合）降级为 fallback，
- * 保证 exact ⟺ 真实计划终点已被消费并闭合。
+ * 终点未被消费的精确包裹在元数据中降级为 fallback，且正文不物化对应的
+ * data-cc-anchor 元素，保证 exact ⟺ 正文存在真实闭合的范围标记。
  */
 export function renderDocumentWithAnchors(documentXml: string, comments: Map<string, DocxComment>): { html: string; comments: DocComment[] } {
   const anchorIds = assignCommentAnchorIds(comments)
@@ -415,19 +417,22 @@ function renderParagraph(
   const openWrap = (anchorId: string): void => {
     wrapStack.push({ anchorId, mark: chunks.length })
   }
-  /** 闭合指定锚点的包裹；锚点不在栈上（已被提前闭合或从未打开）时返回 false。 */
+  /**
+   * 在计划终点闭合指定锚点：只物化该锚点自己的开标签（含 data-cc-anchor）
+   * 与一个配对 </span>；栈中位于其上的条目（嵌套在内、真实终点未到）一并
+   * 弹出但保持惰性——不物化它们的锚点元素。锚点不在栈上（已被提前弹出或
+   * 从未打开）时不输出任何东西并返回 false。
+   */
   const closeWrap = (anchorId: string): boolean => {
     let idx = -1
     for (let i = wrapStack.length - 1; i >= 0; i--) {
       if (wrapStack[i].anchorId === anchorId) { idx = i; break }
     }
     if (idx < 0) return false
-    for (let i = wrapStack.length - 1; i >= idx; i--) chunks.push('</span>')
-    // 逆序按 mark 插入开标签：高 mark 先插，避免低 mark 插入导致偏移
-    const popped = wrapStack.splice(idx)
-    for (let i = popped.length - 1; i >= 0; i--) {
-      chunks.splice(popped[i].mark, 0, `<span class="cc-comment-anchor" data-cc-anchor="${popped[i].anchorId}">`)
-    }
+    chunks.push('</span>')
+    const entry = wrapStack[idx]
+    wrapStack.splice(idx)
+    chunks.splice(entry.mark, 0, `<span class="cc-comment-anchor" data-cc-anchor="${entry.anchorId}">`)
     return true
   }
   const ctx: RenderContext = { commentsMap, anchorIds, plans, chunks, openWrap, closeWrap, closedPlannedEnds }
@@ -491,8 +496,9 @@ function renderParagraph(
     // 跳过其他开始/结束标签
     pos += next.index + next[0].length
   }
-  // 段落收尾：把未闭合的精确包裹闭合在本段末尾（保持 HTML 合法）
-  while (wrapStack.length > 0) closeWrap(wrapStack[wrapStack.length - 1].anchorId)
+  // 段落收尾：真实终点未被消费的包裹直接丢弃——开标签从未进入 chunks，
+  // 不物化即无残留，HTML 保持平衡；绝不为此输出 data-cc-anchor 空壳。
+  wrapStack.length = 0
   const html = chunks.join('')
   if (html === '') return ''
   if (isHeading1 || isTitle) return `<h1>${html}</h1>`
@@ -553,8 +559,9 @@ function openPlannedWrap(ctx: RenderContext, id: string | undefined, absOffset: 
 
 /**
  * 命中计划中的精确终点时闭合范围包裹。只有终点标记被真实消费且包裹仍处于
- * 打开状态（closeWrap 成功闭合）才记入 closedPlannedEnds；段尾为 HTML 合法性
- * 做的补闭合不经过这里，因此「起点已输出、终点未消费」不会被判成 exact。
+ * 打开状态（closeWrap 成功闭合）才记入 closedPlannedEnds；终点未被消费的
+ * 包裹在段尾被静默丢弃（不物化 data-cc-anchor 元素），因此「起点已输出、
+ * 终点未消费」既不会被判成 exact，也不会在正文留下可导航的锚点元素。
  */
 function closePlannedWrap(ctx: RenderContext, id: string | undefined, absOffset: number): void {
   if (id === undefined) return
