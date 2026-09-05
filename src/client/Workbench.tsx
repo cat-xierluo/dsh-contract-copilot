@@ -1010,11 +1010,25 @@ function upsertSession(previous: SessionBrief[], next: SessionBrief): SessionBri
     .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))
 }
 
-function Workbench({ client, onClose }: { readonly client: ContractCopilotClient; readonly onClose: () => void }): React.JSX.Element {
+/**
+ * Session-scoped payload (CC-V5-006): detail and document state always carry
+ * the session id they were requested for, and render only while that session
+ * is still the selected one — so a late response from a previous case can
+ * never backfill another case's shell.
+ */
+export interface SessionScoped<T> {
+  readonly sessionId: string
+  readonly value: T
+}
+
+/** Exported for the session-switch behavior regression (tests/workbench-session-switch.client.spec.tsx). */
+export function Workbench({ client, onClose }: { readonly client: ContractCopilotClient; readonly onClose: () => void }): React.JSX.Element {
   const [sessions, setSessions] = useState<SessionBrief[]>([])
   const [selected, setSelected] = useState<string | undefined>(undefined)
-  const [detail, setDetail] = useState<SessionDetail | undefined>(undefined)
-  const [doc, setDoc] = useState<DocumentView | undefined>(undefined)
+  const [loadedDetail, setLoadedDetail] = useState<SessionScoped<SessionDetail> | undefined>(undefined)
+  const [loadedDoc, setLoadedDoc] = useState<SessionScoped<DocumentView> | undefined>(undefined)
+  const [detailError, setDetailError] = useState<string | undefined>(undefined)
+  const [docError, setDocError] = useState<string | undefined>(undefined)
   const [answers, setAnswers] = useState<Record<string, string>>({})
   const [notice, setNotice] = useState<string | undefined>(undefined)
   const [loadError, setLoadError] = useState<string | undefined>(undefined)
@@ -1022,6 +1036,8 @@ function Workbench({ client, onClose }: { readonly client: ContractCopilotClient
   const [newContractPath, setNewContractPath] = useState('')
   const [decisionDrafts, setDecisionDrafts] = useState<Record<string, FindingDecisionDraft>>({})
   const [commandBusy, setCommandBusy] = useState(false)
+  /** Independent in-flight guard for new-case creation; double-clicks dispatch once. */
+  const [createBusy, setCreateBusy] = useState(false)
   const [narrow, setNarrow] = useState(() => typeof window !== 'undefined' && typeof window.matchMedia === 'function' && window.matchMedia(narrowMediaQuery()).matches)
   const [narrowPane, setNarrowPane] = useState<WorkbenchPane>('tasks')
   const [navigationRequest, setNavigationRequest] = useState<{ comment: DocComment; seq: number } | undefined>(undefined)
@@ -1032,18 +1048,32 @@ function Workbench({ client, onClose }: { readonly client: ContractCopilotClient
   const commentButtonRefs = useRef<CommentButtonRegistry>(new Map())
   const panelRef = useRef<HTMLDivElement | null>(null)
   const decisionPlanHash = useRef<string | undefined>(undefined)
+  // Synchronous half of the create-request guard: effective even when a fast
+  // double-click lands twice before the next render (CC-V5-006).
+  const createBusyRef = useRef(false)
+  // Per-channel request generation: a newer load on the same channel
+  // invalidates every still-in-flight older response (CC-V5-006).
+  const dataGeneration = useRef({ detail: 0, doc: 0 })
   // Latest selected id for the list/snapshot callbacks (registered once per
   // client): first-session adoption must not override an existing selection.
   const selectedRef = useRef<string | undefined>(undefined)
   selectedRef.current = selected
 
+  // A stored payload renders only while its owning session is still selected;
+  // together with the activation reset and the load write-back guards this
+  // makes a cross-case content leak unrepresentable in the render output.
+  const detail = selected !== undefined && loadedDetail?.sessionId === selected ? loadedDetail.value : undefined
+  const doc = selected !== undefined && loadedDoc?.sessionId === selected ? loadedDoc.value : undefined
+
   /**
    * Single activation path for every way a session becomes selected — user
    * click, startReview, first-load/event adoption — so request, selection,
    * focus and button-registry state from one session never leaks into the
-   * next (see sessionNavigationReset / SESSION_NAVIGATION_RESET_KEYS).
-   * Re-activating the already-selected session is an idempotent no-op
-   * (see shouldActivateSession).
+   * next (see sessionNavigationReset / SESSION_NAVIGATION_RESET_KEYS), and the
+   * previous case's document body, findings, decisions and load errors are
+   * dropped synchronously with the switch instead of lingering under the new
+   * case's shell until the next load resolves (CC-V5-006). Re-activating the
+   * already-selected session is an idempotent no-op (see shouldActivateSession).
    */
   const activateSession = (id: string): void => {
     if (!shouldActivateSession(selectedRef.current, id)) return
@@ -1053,6 +1083,14 @@ function Workbench({ client, onClose }: { readonly client: ContractCopilotClient
     setSelectedCommentId(reset.selectedCommentId)
     setCommentFocusSeq(reset.commentFocusSeq)
     commentButtonRefs.current.clear()
+    setLoadedDetail(undefined)
+    setLoadedDoc(undefined)
+    setDetailError(undefined)
+    setDocError(undefined)
+    setAnswers({})
+    setDecisionDrafts({})
+    decisionPlanHash.current = undefined
+    setNotice(undefined)
   }
 
   /** List/snapshot refresh: adopt the first session only while nothing is selected. */
@@ -1125,19 +1163,28 @@ function Workbench({ client, onClose }: { readonly client: ContractCopilotClient
     return () => { alive = false; clearInterval(timer); events.close() }
   }, [client])
 
+  /**
+   * Session detail and document load and fail independently (CC-V5-006): a
+   * document failure must not blank out an already-loaded detail, and neither
+   * channel may keep a previous case's payload alive under the new selection.
+   * Every response is written back only when the effect is still alive, the
+   * selection still points at the requested session, and no newer request on
+   * the same channel has started — so late responses from a previous case (or
+   * from an older poll) can never overwrite the current one.
+   */
   useEffect(() => {
-    if (selected === undefined) { setDetail(undefined); setDoc(undefined); return }
+    const sessionId = selected
+    if (sessionId === undefined) return
     let alive = true
     const controller = new AbortController()
-    const load = async (): Promise<void> => {
+    const owned = (): boolean => alive && !controller.signal.aborted && selectedRef.current === sessionId
+    const loadDetail = async (): Promise<void> => {
+      const generation = ++dataGeneration.current.detail
       try {
-        const [nextDetail, nextDoc] = await Promise.all([
-          client.detail(selected, controller.signal),
-          client.document(selected, controller.signal),
-        ])
-        if (!alive) return
-        setDetail(nextDetail)
-        setDoc(nextDoc)
+        const nextDetail = await client.detail(sessionId, controller.signal)
+        if (!owned() || dataGeneration.current.detail !== generation) return
+        setLoadedDetail({ sessionId, value: nextDetail })
+        setDetailError(undefined)
         setDecisionDrafts(current => {
           const nextHash = nextDetail.session.planReview?.sourcePlanHash
           const persisted = nextDetail.session.planReview?.decisions ?? {}
@@ -1145,13 +1192,26 @@ function Workbench({ client, onClose }: { readonly client: ContractCopilotClient
           decisionPlanHash.current = nextHash
           return persisted
         })
-        setLoadError(undefined)
       } catch (caught) {
-        if (alive && !controller.signal.aborted) setLoadError(label('notice.detailFailed',{ message: errorMessage(caught) }))
+        if (!owned() || dataGeneration.current.detail !== generation) return
+        setDetailError(label('notice.detailFailed',{ message: errorMessage(caught) }))
       }
     }
-    void load()
-    const timer = setInterval(() => { void load() }, 5_000)
+    const loadDocument = async (): Promise<void> => {
+      const generation = ++dataGeneration.current.doc
+      try {
+        const nextDoc = await client.document(sessionId, controller.signal)
+        if (!owned() || dataGeneration.current.doc !== generation) return
+        setLoadedDoc({ sessionId, value: nextDoc })
+        setDocError(undefined)
+      } catch (caught) {
+        if (!owned() || dataGeneration.current.doc !== generation) return
+        setDocError(label('notice.detailFailed',{ message: errorMessage(caught) }))
+      }
+    }
+    void loadDetail()
+    void loadDocument()
+    const timer = setInterval(() => { void loadDetail(); void loadDocument() }, 5_000)
     return () => { alive = false; clearInterval(timer); controller.abort() }
   }, [client, selected])
 
@@ -1232,15 +1292,25 @@ function Workbench({ client, onClose }: { readonly client: ContractCopilotClient
     }
   }
 
+  /**
+   * New-case creation with its own request busy (CC-V5-006): a fast
+   * double-click dispatches `start` exactly once, and the busy state resets in
+   * `finally` whether creation succeeded or failed.
+   */
   const startReview = async (): Promise<void> => {
-    if (newContractPath.trim() === '') return
+    if (createBusyRef.current || newContractPath.trim() === '') return
+    createBusyRef.current = true
+    setCreateBusy(true)
     try {
       const result = await client.startReview(newContractPath.trim())
-      selectSession(result.sessionId)
+      activateSession(result.sessionId)
       setNewContractPath('')
       setNotice(result.nextStep)
     } catch (caught) {
       setNotice(label('notice.createFailed', { message: errorMessage(caught) }))
+    } finally {
+      createBusyRef.current = false
+      setCreateBusy(false)
     }
   }
 
@@ -1258,13 +1328,6 @@ function Workbench({ client, onClose }: { readonly client: ContractCopilotClient
   const missing = detail?.session.intakeMissing ?? []
   const stats = detail?.session.outputs.stats
   const comments: DocComment[] = doc?.comments ?? []
-
-  const selectSession = (id: string): void => {
-    activateSession(id)
-    setAnswers({})
-    setDecisionDrafts({})
-    decisionPlanHash.current = undefined
-  }
 
   /** Sidebar comment click: show the document pane, select the entry, then locate the comment in it. */
   const openComment = (comment: DocComment): void => {
@@ -1292,7 +1355,7 @@ function Workbench({ client, onClose }: { readonly client: ContractCopilotClient
             <div style={{ ...S.card, marginBottom: 10 }}>
               <div style={{ ...S.muted, marginBottom: 6 }}>{label('newReview.title')}</div>
               <input aria-label={label('newReview.pathAria')} className="ccp-field" style={S.input} placeholder={label('newReview.placeholder')} value={newContractPath} onChange={event => setNewContractPath(event.target.value)} />
-              <button type="button" className="ccp-btn" style={{ ...S.btn, marginTop: 6, width: '100%' }} onClick={() => { void startReview() }} disabled={newContractPath.trim() === ''}>{label('newReview.submit')}</button>
+              <button type="button" className="ccp-btn" style={{ ...S.btn, marginTop: 6, width: '100%' }} onClick={() => { void startReview() }} disabled={createBusy || newContractPath.trim() === ''}>{label('newReview.submit')}</button>
             </div>
             {sessions.length === 0 ? (
               <div style={S.muted}>{label('list.empty')}</div>
@@ -1301,7 +1364,7 @@ function Workbench({ client, onClose }: { readonly client: ContractCopilotClient
                 type="button"
                 key={session.id}
                 style={sessionRowStyle(session.id === selected)}
-                onClick={() => selectSession(session.id)}
+                onClick={() => activateSession(session.id)}
               >
                 <div style={{ fontSize: 13, fontWeight: 550, overflow: 'hidden', textOverflow: 'ellipsis' }}>{session.contractName}</div>
                 <div style={S.muted}>{label(STATE_KEYS[session.state])} · {new Date(session.updatedAt).toLocaleTimeString()}</div>
@@ -1314,12 +1377,18 @@ function Workbench({ client, onClose }: { readonly client: ContractCopilotClient
           <div key={id}>
             {doc !== undefined && selected !== undefined ? (
               <WordPane client={client} sessionId={selected} reviewedDocx={doc.reviewedDocx} fallbackHtml={doc.html} label={doc.label} navigationRequest={navigationRequest} onNavigationMiss={setNotice} onCommentRefActivated={handleCommentRefActivated} />
-            ) : <div style={S.muted}>{label('doc.selectPrompt')}</div>}
+            ) : (
+              <div>
+                {docError !== undefined ? <div role="alert" style={S.errorStrip}>{docError}</div> : null}
+                <div style={S.muted}>{label('doc.selectPrompt')}</div>
+              </div>
+            )}
           </div>
         )
       case 'status':
         return (
           <div key={id} style={S.card}>
+            {detailError !== undefined ? <div role="alert" style={{ ...S.muted, color: token('--dsw-alias-state-error-primary', '#a53a2d'), marginBottom: 6 }}>{detailError}</div> : null}
             <div style={S.muted}>{label('status.currentLabel')}</div>
             <div style={{ marginTop: 6 }}><span style={S.pill}>{detail === undefined ? '—' : label(STATE_KEYS[detail.session.state])}</span></div>
             {detail?.session.automation !== undefined ? <div style={{ marginTop: 7, fontSize: 12 }}>{label(AUTOMATION_KEYS[detail.session.automation.status])}</div> : null}
