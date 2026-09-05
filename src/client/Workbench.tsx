@@ -885,7 +885,7 @@ function WordPane(props: {
         {error !== undefined ? <span title={error} style={{ ...S.muted, color: token('--dsw-alias-state-error-primary', '#b03a2e') }}>{label('doc.renderFailed')}</span> : null}
       </div>
       <div ref={wordHolder} className={WORD_VIEW_HOLDER_CLASS} style={{ ...S.docFrame, padding: 0, border: 0, minHeight: 400, display: mode === 'word' ? 'block' : 'none' }} />
-      {mode === 'simple' ? <div className={SIMPLE_VIEW_HOLDER_CLASS} style={S.docFrame} dangerouslySetInnerHTML={{ __html: props.fallbackHtml }} /> : null}
+      {mode === 'simple' ? <div ref={simpleHolder} className={SIMPLE_VIEW_HOLDER_CLASS} style={S.docFrame} dangerouslySetInnerHTML={{ __html: props.fallbackHtml }} /> : null}
     </>
   )
 }

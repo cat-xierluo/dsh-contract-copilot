@@ -1,5 +1,6 @@
 /** Browser adapter tests for authenticated Contract Copilot workbench calls. */
 
+import { readFileSync } from 'node:fs'
 import { describe, expect, it, vi } from 'vitest'
 import { ContractCopilotClient, type WorkbenchConnection } from '../src/client/api.ts'
 import {
@@ -302,6 +303,24 @@ describe('workbench comment navigation', () => {
   it('两种视图的挂载点带可导航的 holder class', () => {
     expect(WORD_VIEW_HOLDER_CLASS).toBe('ccp-docx-word')
     expect(SIMPLE_VIEW_HOLDER_CLASS).toBe('ccp-doc ccp-docx-simple')
+  })
+
+  /**
+   * JSX 接线无法用纯 helper 覆盖，按断言读 Workbench 源码：声明 holder class
+   * 的挂载点 div 必须把 ref 接到对应 holder ref 上。simple 挂载点缺
+   * `ref={simpleHolder}` 曾让导航 effect 里的 `simpleHolder.current` 恒为
+   * null，侧栏在简版视图的每次跳转都静默返回。
+   */
+  const workbenchSourceLine = (marker: string): string => {
+    const source = readFileSync(new URL('../src/client/Workbench.tsx', import.meta.url), 'utf8')
+    const line = source.split('\n').find(candidate => candidate.includes(marker))
+    if (line === undefined) throw new Error(`Workbench 源码应渲染 ${marker}`)
+    return line
+  }
+
+  it('word 与 simple 两个挂载点 div 都接到 holder ref（接线丢失即导航静默失效）', () => {
+    expect(workbenchSourceLine('className={WORD_VIEW_HOLDER_CLASS}')).toContain('ref={wordHolder}')
+    expect(workbenchSourceLine('className={SIMPLE_VIEW_HOLDER_CLASS}')).toContain('ref={simpleHolder}')
   })
 
   it('word 视图用 OOXML id 空间，simple 视图用 anchorId 空间', () => {
