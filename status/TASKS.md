@@ -95,7 +95,7 @@
 - 状态：进行中；代码、静态门禁与真实 DSH Web 已通过，待最终 GUI GIF 与独立 reviewer 结论
 - 目标：由未参与实现的 reviewer 对暗色、窄屏、焦点、批注跳转、回归测试和文档一致性做独立验收；PM 只在通过后写回 CHANGELOG、ARCHITECTURE、ROADMAP 与本任务源。
 - 验收：typecheck、完整测试、build、更新后的 dsh-plugin-lint、真实 DSH Web 浏览器流程和 GUI GIF 均绑定最终候选；未通过项退回原 worker 修复。
-- 当前证据：候选 `cfcfb77` 的 client typecheck、16 文件 266/266 测试、build 和 worker 价值交付后门禁通过；tarball SHA-256 `eec5933e2babb0a20dbf25049aba76586d8697d4642921b2588456baf2e22a38` 安装到 DSH `0.1.2-rc.1`（`76fda729`）隔离 profile，明暗主题、窄屏、焦点、Word/简版双向导航、A→B→A 与同案件重复激活均通过真实浏览器复验。正式证据见 `docs/acceptance/2026-09-05-workbench-ux-hardening.md`。
+- 当前证据：候选 `cfcfb77` 的 client typecheck、16 文件 266/266 测试、build 和 worker 价值交付后门禁通过；最终文档头打包产物 SHA-256 `6b96c0f6d7334b13934c339959e030ab48c3684f9e29b5c6062aa27d9f87a198` 安装到 DSH `0.1.2-rc.1`（`76fda729`）隔离 profile，明暗主题、窄屏、焦点、Word/简版双向导航、A→B→A 与同案件重复激活均通过真实浏览器复验。正式证据见 `docs/acceptance/2026-09-05-workbench-ux-hardening.md`。
 
 ## CC-V3-001：律师决策工作台闭环
 

@@ -5,7 +5,7 @@
 - 产品实现候选：`cfcfb7790c927919fcb5222e6ba87f3cc35bbbfe`
 - DSH：`0.1.2-rc.1`，源码提交 `76fda729799fe9b3848dbe2c211d4b231032b81e`
 - 插件包：`@yangweixin/dsh-contract-copilot@0.3.0`
-- tarball SHA-256：`eec5933e2babb0a20dbf25049aba76586d8697d4642921b2588456baf2e22a38`
+- tarball SHA-256：`6b96c0f6d7334b13934c339959e030ab48c3684f9e29b5c6062aa27d9f87a198`
 - profile：独立临时 DSH home 与 Web profile；插件从上述 tarball 安装，不使用源码链接
 - 数据：脱敏合成软件开发服务合同；不含真实客户、案号或身份材料
 
