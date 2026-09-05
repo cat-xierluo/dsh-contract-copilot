@@ -2,7 +2,7 @@
 
 ## CC-V5：工作台质量加固波次
 
-- 状态：进行中；Wave 1 准备派发
+- 状态：进行中；Wave 1 已派发，两个交付已进入 PR，锚点修复按独立审查意见返修
 - 默认主干：`main`
 - 集成分支：`feat-v5-quality-hardening`
 - 集成目标：Wave 1 worker PR 均以 `feat-v5-quality-hardening` 为 base；里程碑完成后由该分支向 `main` 提最终 PR
@@ -13,30 +13,33 @@
 
 ### CC-V5-001：异常 OOXML 批注锚点精度修复
 
-- 状态：待派发
+- 状态：PR #2 返修中；首个提交 `d2ad698` 已通过交付价值门，但独立审查拒绝异常范围仍输出可导航空/截断锚点，修复 Task `CC-V5-001-R1` 已重新派给原 Worker
 - 目标：当渲染器在计划终点前因异常 OOXML 提前停止时，不得仅因段尾补闭合了部分范围就把批注报告为 `exact`；精确状态必须证明真实终点已被消费。
 - 文件边界：`src/docx-view.ts`、`tests/docx-view.spec.ts`；不修改抽取进程、Host、Client、协议或共享文档。
 - 验收：新增失败回归覆盖“起点已输出、终点未消费、段尾被迫闭合”的路径；此路径稳定降级，正常范围与嵌套范围继续为 `exact`；聚焦测试、完整测试和 build 通过。
+- 审查补充验收：未真实消费计划终点时，HTML 不得包含对应 `data-cc-anchor`；否则简单视图仍会把 fallback 范围当成成功导航目标。
 
 ### CC-V5-002：DSH 主题 token 运行时漂移门禁
 
-- 状态：待派发
+- 状态：Worker 运行中；前两个 GLM 通道因 429/网络重试未产生代码并已精确清理，当前以独立直连 GLM Flash 通道在新分支重派
 - 目标：把工作台主题 token 的真实性从源码内自维护 allowlist 提升为对锁定 DSH 客户端包已发布工件的机械核对，防止 DSH 升级后夜间模式因 token 消失而静默退回错误颜色。
 - 文件边界：新增 `scripts/verify-dsh-theme-tokens.mjs` 及其测试，可按需要调整 `tests/workbench-client.spec.ts`；不修改 `src/client/Workbench.tsx` 的视觉设计、不改依赖版本或锁文件。
 - 验收：校验器从当前安装的 `@deepseek-ai/dsh-client-ui-*` 已发布工件提取 token，证明 `DSH_THEME_TOKENS` 全部存在；不存在 token 的负例 fail closed；聚焦测试、client typecheck 和 build 通过。
 
 ### CC-V5-003：`force_edit` 修订产物可重复验收
 
-- 状态：待派发
+- 状态：PR #3 待独立审查；提交 `3af1e20` 已 safe-push，交付价值门通过
 - 目标：提供可重复工程验收资产，用合成合同和带 `force_edit: true` 的计划生成真实修订 DOCX，并证明工作台数据面输出可见的 `cc-ins`/`cc-del` 修订标记，为后续真实浏览器样例提供固定输入。
 - 文件边界：新增独立 fixture/集成测试或验收脚本，优先位于 `tests/` 与 `scripts/acceptance/`；不修改 Python 脚本、DOCX 渲染器、Host 生产代码、Client 生产代码或共享文档。
 - 验收：真实 Python CLI 生成物同时含 OOXML `w:ins`/`w:del`，再经现有工作台 document 路径投影为 `cc-ins`/`cc-del`；缺少依赖时明确 skip 原因，不能假绿；聚焦测试与完整测试通过。
+- 当前证据：真实 CLI 与 document RPC 集成测试 6/6、完整测试 272/272、build 通过；验收脚本支持保留生成物作为后续真实浏览器样例输入。
 
 ### CC-V5-004：DOCX 抽取异步化
 
 - 状态：已登记，等待 Wave 2；与 CC-V5-001 共享 `src/docx-view.ts`，本波不并行派发
 - 目标：将预览和 Agent 正文注入共用的 `spawnSync` 抽取改为有界异步子进程，避免大 DOCX 或慢 Python 冻结 DSH Host 事件循环。
-- 验收：Host RPC 与分析派发均 await 抽取；超时、非零退出和取消路径明确；事件循环可在抽取进行时继续调度；完整测试和 build 通过。
+- 文件边界：`src/docx-view.ts`、`src/host-api.ts`、`src/agent-coordinator.ts`、`src/config.ts`、`src/index.ts` 及对应抽取、Host、分析和配置测试；不修改 Python、Client、工作台协议、apply/finalize 工具链或依赖。
+- 验收：Host RPC 与分析派发均 await 抽取；Connection/request signal 可取消子进程；超时、非零退出、输出过大和 malformed output 路径明确；事件循环可在抽取进行时继续调度；取消不误标合同损坏，分析失败不创建 Agent；`rg -n 'spawnSync' src` 无命中；完整测试和 build 通过。
 
 ### CC-V5-005：项目级文档体检配置
 
