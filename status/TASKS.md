@@ -2,7 +2,7 @@
 
 ## CC-V4-010：简版文档导航根接线（CC-V4-004 验收退回）
 
-- 状态：实现及真实浏览器复验完成，待 CC-V4-004 独立 reviewer 合并门复核
+- 状态：已完成；真实浏览器复验与 CC-V4-004 独立 reviewer 合并门均通过
 - 基线：`bda0e24`
 - 目标：把简版文档 JSX 挂载点绑定到 `simpleHolder`；此前 `simpleHolder.current` 恒为 `null`，导航 effect 在定位前静默返回。
 - 文件边界：`src/client/Workbench.tsx`、`tests/workbench-client.spec.ts`。
@@ -11,7 +11,7 @@
 
 ## CC-V4-009：跨案件与同案件导航生命周期（CC-V4-004 验收退回）
 
-- 状态：实现及真实浏览器复验完成，待 CC-V4-004 独立 reviewer 合并门复核
+- 状态：已完成；真实浏览器复验与 CC-V4-004 独立 reviewer 合并门均通过
 - 目标：A→B→A 返回旧案件时复位已处理导航水位；重复激活当前案件保持幂等，不清空仍有效状态。
 - 文件边界：`src/client/Workbench.tsx`、`tests/workbench-client.spec.ts`。
 - 验收：导航水位按案件生命周期复位，同一案件重复激活为 no-op；真实 DSH Web 两条路径均可再次定位并高亮正文。
@@ -19,7 +19,7 @@
 
 ## CC-V4-008：简单视图批注前向导航修复（CC-V4-004 验收退回）
 
-- 状态：实现及真实浏览器复验完成，待 CC-V4-004 独立 reviewer 合并门复核
+- 状态：已完成；真实浏览器复验与 CC-V4-004 独立 reviewer 合并门均通过
 - 基线：`4a31b5c`
 - 目标：修复简单视图点击侧栏批注必未命中的缺陷——Workbench 的导航效果把 `CommentNavigationInput.options`（简单视图 `data-cc-anchor` 打点属性）丢在共享 navigator 之外，属性策略按默认 `data-cc-comment-id` 寻址必然落空，每次跳转都报 `id-not-found`；同时补齐 `.cc-comment-flash` 高亮 CSS（控制器一直输出该 class，但从未有规则渲染，两套视图的高亮均不可见）。
 - 文件边界：`src/client/comment-navigation.ts`、`src/client/Workbench.tsx`、`tests/comment-navigation.spec.ts`、`tests/workbench-client.spec.ts`；不修改 Host、协议、DOCX 解析或 Python。
@@ -42,7 +42,7 @@
 
 ## CC-V4-001：工作台视觉与窄屏交互统一
 
-- 状态：实现完成并进入集成分支；待 CC-V4-004 真实浏览器验收
+- 状态：已完成；集成、真实浏览器验收与独立 reviewer 合并门均通过
 - 基线：`6c52c76`（律师决策工作台已验收）
 - 目标：让工作台在 DSH 明暗主题与桌面/窄屏布局中保持一致、可读、可操作，并补齐对话框键盘焦点管理。
 - 文件边界：`src/client/Workbench.tsx`、`src/client/index.tsx` 与现有 client 测试；typed locale 模块由 CC-V4-006 单独交付；不修改 Host、协议、DOCX 解析或 Python。
@@ -51,7 +51,7 @@
 
 ## CC-V4-002：批注定位锚点模型
 
-- 状态：已由 CC-V4-003 消费并进入集成分支；待 CC-V4-004 真实浏览器验收
+- 状态：已完成；已由 CC-V4-003 消费并通过真实浏览器验收与独立 reviewer 合并门
 - 基线：`6c52c76`（律师决策工作台已验收）
 - 目标：Host/协议层为 DOCX 批注和简版文档渲染提供稳定、可持久传输的定位信息，供工作台执行双向跳转与高亮。
 - 文件边界：`src/docx-view.ts`、`src/workbench-protocol.ts`、`src/host-api.ts` 及其对应测试；不修改 `src/client/Workbench.tsx`、共享文档或 Python。
@@ -60,7 +60,7 @@
 
 ## CC-V4-005：客户端批注导航控制器
 
-- 状态：已由 CC-V4-003 接线并进入集成分支；待 CC-V4-004 真实浏览器验收
+- 状态：已完成；已由 CC-V4-003 接线并通过真实浏览器验收与独立 reviewer 合并门
 - 基线：`6434e82`
 - 目标：在独立纯客户端模块中实现稳定选择器、正文定位、滚动/聚焦、短暂高亮清理和未命中结果，供 CC-V4-003 接入工作台。
 - 文件边界：只新增 `src/client/comment-navigation.ts` 与 `tests/comment-navigation.spec.ts`；不修改 Workbench、Host、协议、依赖或共享文档。
@@ -69,7 +69,7 @@
 
 ## CC-V4-006：typed locale 工作台词典
 
-- 状态：实现完成并进入集成分支；待 CC-V4-004 双语言浏览器验收
+- 状态：已完成；集成、双语言浏览器验收与独立 reviewer 合并门均通过
 - 基线：`6434e82`
 - 目标：把当前工作台产品文案整理为类型完整的中英文 locale 字典与取值 API，为 CC-V4-001/003 的最终接线提供单一来源。
 - 文件边界：只新增 `src/client/locale.ts` 与 `tests/workbench-locale.spec.ts`；不修改 Workbench、Host、协议、依赖或共享文档。
@@ -78,24 +78,24 @@
 
 ## CC-V4-003：批注双向导航与 Word 原生观感
 
-- 状态：实现完成并进入集成分支；待 CC-V4-004 真实浏览器验收
+- 状态：已完成；集成、真实浏览器验收与独立 reviewer 合并门均通过
 - 目标：工作台启用 `docx-preview` 批注渲染，将侧栏批注与正文锚点连接；点击批注滚动到正文并短暂高亮，正文批注标记反向选中侧栏条目，同时兼顾键盘与降级路径。
 - 验收：真实含批注 DOCX 在简单视图和 Word 预览中均可完成可见的定位反馈；未找到锚点时不误跳且给出状态；浏览器实操与截图/GIF 绑定候选提交。
 - 证据：`b48ba5d`、`1d2868a`、`d1c909d`、`a6ba439`、`21bbc8a`、`9f65ed7`、`e24a9a5`、`bda0e24`、`cfcfb77`；真实浏览器发现并补齐 run-style Word 标记、简版导航选项、可见高亮、跨案件水位和简版 holder 接线；最终集成分支完整测试 266/266、client typecheck 和 build 通过。
 
 ## CC-V4-007：专属 Agent 分析上下文闭环
 
-- 状态：真实模型浏览器验收通过；已从工作台进入 plan_ready，待 CC-V4-004 最终候选绑定
+- 状态：已完成；真实模型浏览器验收、最终候选绑定与独立 reviewer 合并门均通过
 - 目标：使只装载 7 个合同领域工具的 DSH Web 专属 Agent 获得确定的合同正文和最小审查指导，不依赖未装载的文件、shell 或 skill 工具。
 - 验收：Host 从受信任的 session 合同路径抽取可见正文并有界注入；合同伪造数据边界被隔离；提取失败、空正文和无效配置 fail loud；交付提示不携带正文；真实模型能够从工作台进入 plan_ready。
 - 证据：`ed6233a`、`47272ed`；新增 OOXML 正文抽取、提示边界与截断、失败状态、配置范围和 analyze 工具说明测试；隔离 DSH 0.1.2-rc.1 Web profile 使用真实 `deepseek-v4-flash` 从合成合同生成 8 项 finding，并停在 plan_ready / waiting-decisions；最终集成分支完整测试 266/266、typecheck 和 build 通过。
 
 ## CC-V4-004：独立验收与项目收口
 
-- 状态：进行中；代码、静态门禁与真实 DSH Web 已通过，待最终 GUI GIF 与独立 reviewer 结论
+- 状态：已完成；代码、静态门禁、真实 DSH Web、GUI GIF 与独立 reviewer 合并门均通过
 - 目标：由未参与实现的 reviewer 对暗色、窄屏、焦点、批注跳转、回归测试和文档一致性做独立验收；PM 只在通过后写回 CHANGELOG、ARCHITECTURE、ROADMAP 与本任务源。
 - 验收：typecheck、完整测试、build、更新后的 dsh-plugin-lint、真实 DSH Web 浏览器流程和 GUI GIF 均绑定最终候选；未通过项退回原 worker 修复。
-- 当前证据：候选 `cfcfb77` 的 client typecheck、16 文件 266/266 测试、build 和 worker 价值交付后门禁通过；最终文档头打包产物 SHA-256 `6b96c0f6d7334b13934c339959e030ab48c3684f9e29b5c6062aa27d9f87a198` 安装到 DSH `0.1.2-rc.1`（`76fda729`）隔离 profile，明暗主题、窄屏、焦点、Word/简版双向导航、A→B→A 与同案件重复激活均通过真实浏览器复验。正式证据见 `docs/acceptance/2026-09-05-workbench-ux-hardening.md`。
+- 当前证据：候选 `cfcfb77` 的 client typecheck、16 文件 266/266 测试、build 和 worker 价值交付后门禁通过；打包产物 SHA-256 `6b96c0f6d7334b13934c339959e030ab48c3684f9e29b5c6062aa27d9f87a198` 安装到 DSH `0.1.2-rc.1`（`76fda729`）隔离 profile，明暗主题、窄屏、焦点、Word/简版双向导航、A→B→A 与同案件重复激活均通过真实浏览器复验。GUI GIF SHA-256 为 `3f19a70ea655b5a1f1969349bd309957122cb3b63d578779c4549009c068aace`；未参与实现的 GLM reviewer 在 PR 头 `cdcbbcca69dbaff768d98fe450f9a86ba7fa6ca2` 给出 `ACCEPT`，review-acceptance 与 merge-gate 结构化门禁均通过。正式证据见 `docs/acceptance/2026-09-05-workbench-ux-hardening.md`。
 
 ## CC-V3-001：律师决策工作台闭环
 

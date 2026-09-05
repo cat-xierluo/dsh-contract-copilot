@@ -5,7 +5,7 @@
 - 设计稿：`docs/2026-08-18-dsh-plugin-design.md`
 - 原 skill：`legal-skills/skills/contract-copilot/SKILL.md`（**Python 一行不动**，插件只做外壳）
 - 安装：`dsh plugin --profile lawyer add ./dsh-contract-copilot`
-- 当前阶段：**v0.3.1 工作台体验收口正在进行最终合并门复核**；7 个 Agent tool 与 Python CLI 保持不变，工作台可直接驱动案件专属 Agent，在修订前执行逐 finding 律师批准，并支持明暗主题、窄屏操作和 Word/简版批注双向定位
+- 当前阶段：**v0.3.1 工作台体验收口已通过独立验收，等待 PR 合并**；7 个 Agent tool 与 Python CLI 保持不变，工作台可直接驱动案件专属 Agent，在修订前执行逐 finding 律师批准，并支持明暗主题、窄屏操作和 Word/简版批注双向定位
 
 ## 快速开始
 

@@ -27,7 +27,8 @@
 ### Testing（2026-09-05，工作台体验基础）
 - client typecheck、16 个测试文件 266 项测试和 Node/Client build 通过
 - 候选 `cfcfb77` 以 tarball 安装到 DSH `0.1.2-rc.1` 隔离 Web profile；真实浏览器通过明暗主题、窄屏页签、Escape 焦点归还、Word/简版侧栏前向定位与正文反向选择、A→B→A 和同案件重复激活复验
-- 最终 GUI GIF 与独立 reviewer 结论由 CC-V4-004 在 PR 精确头上补齐
+- 正式 `dsh-plugin-lint` 输出 `0 FAIL / 3 WARN / 0 NOT_VERIFIED`；三项 WARN 已按真实 tarball boot、typed locale 与历史决策语义完成人工处置
+- 最终 GUI GIF 已绑定 SHA-256 `3f19a70ea655b5a1f1969349bd309957122cb3b63d578779c4549009c068aace`；未参与实现的 GLM reviewer 在 PR 头 `cdcbbcca69dbaff768d98fe450f9a86ba7fa6ca2` 给出 `ACCEPT`，结构化角色分离与 merge-gate 均通过
 
 ### Planning（2026-09-04，工作台体验收口）
 - 将暗色主题、窄屏操作区和对话框焦点统一划为工作台壳层任务，将 DOCX 批注稳定定位划为独立 Host/协议任务

@@ -20,6 +20,7 @@
 | `pnpm run build` | Node 类型构建、Client 类型构建及 tsdown bundle 通过；`client.js` 542.13 kB，gzip 117.36 kB |
 | `git diff --check` | 通过 |
 | CC-V4-009 / CC-V4-010 worker value postflight | 通过；提交头、工程资产和三条验证命令已绑定 |
+| 独立 GLM merge review | `ACCEPT`；reviewed head `cdcbbcca69dbaff768d98fe450f9a86ba7fa6ca2`；review-acceptance 与 merge-gate 均通过 |
 
 ## 真实 Agent 与案件状态
 
@@ -50,10 +51,11 @@
 2. `comment-navigation.ts` 的中文文本是内部诊断；用户可见未命中状态由 typed locale 的 `commentMissStatusText` 提供。
 3. `docs/DECISIONS.md` 中的 `dsh-client-runtime` 是记录迁移删除原因的历史决策，不是当前依赖或架构声明。
 
-合并前在最终 PR 精确头上重新执行 lint；若输出或处置发生变化，本记录不得被用作最终通过证据。
+lint 运行绑定 PR 代码与打包头；后续收口提交只更新项目状态文档，不改变插件运行代码、构建工件或上述 WARN 处置。
 
-## 尚待合并门
+## GUI GIF 与独立合并门
 
-- 在最终 PR 精确头上生成并核对 GUI GIF。
-- 推送精确头，由未参与实现的 GLM reviewer 复核 diff、测试、lint、浏览器证据和 GIF。
-- reviewer 字面结论为 `ACCEPT` 且角色分离门禁通过后，才可合并和清理分支、Worktree、浏览器任务空间与后台服务。
+- GUI GIF：[`contract-copilot-v301-final.gif`](https://github.com/cat-xierluo/dsh-contract-copilot/blob/contract-copilot-v301-assets/contract-copilot-v301-final.gif?raw=true)，1200×900、11 秒、282489 bytes，SHA-256 `3f19a70ea655b5a1f1969349bd309957122cb3b63d578779c4549009c068aace`。资产分支只承载演示文件，合并后继续保留。
+- 未参与实现的 GLM reviewer `cc-pr1-final-review-glm` 对完整 `origin/main...cdcbbcca69dbaff768d98fe450f9a86ba7fa6ca2` diff、测试、lint、浏览器证据和 GIF 给出字面结论 `ACCEPT`；`review-acceptance-gate.v1` 与 merge-gate postflight 均通过。
+- reviewer 独立执行 `git diff --check origin/main...HEAD`、client `tsc` 与完整 `vitest`，最终退出码均为 0。首次 `tsc` 因只读 pnpm 链接断裂退出 1；PM 只修复环境链接，未改产品文件，原命令复跑通过，审查报告同时保留该环境事故。
+- `doc-curator` 对 `origin/main..HEAD` 的上下文同步检查无 hard 阻断；唯一 adaptive 是通用规则要求 `## YYYY-MM-DD`，而本项目采用 `## [Unreleased]` 下的带日期详细小节。全量扫描使用 FaroPDF 兜底配置，与本项目任务源和跨仓库链接规则不匹配，不作为合并门禁。
