@@ -114,14 +114,27 @@ describe.skipIf(!hasPython3 || process.platform === 'win32')('runApplyCli 取消
   const KILL_SETTLE_MS = 300
   let root: string
 
-  /** 常驻后代：自带忽略 SIGTERM 的 handler，继承父的 stdout/stderr（R3 负控核心）。 */
+  /** 常驻后代：自带忽略 SIGTERM 的 handler，继承父的 stdout/stderr（R3/R4 负控核心）。 */
   const DESCENDANT_CODE = [
     'import signal, time',
     'def on_term(signum, frame):',
     '    pass',
     'signal.signal(signal.SIGTERM, on_term)',
     'while True:',
-    '    time.sleep(0.05)',
+    "    time.sleep(0.05)  # cc-r4-red-cleanup-marker",
+  ].join('\n')
+
+  /**
+   * R4 负控：父写完双 pid 后立即 exit 0，永久后代继承 stdout/stderr 存活——
+   * close 因后代持 pipe 永不到达，父是否已 exit 不得决定树是否仍被清理。
+   */
+  const exitedParentScript = (pidsFile: string): string => [
+    'import os, subprocess, sys',
+    'descendant = subprocess.Popen([sys.executable, "-c", ' + JSON.stringify(DESCENDANT_CODE) + '], stdout=sys.stdout, stderr=sys.stderr)',
+    'open(' + JSON.stringify(pidsFile) + ', "w").write("%d %d" % (os.getpid(), descendant.pid))',
+    "sys.stdout.write('PARENT-EXITING\\n')",
+    'sys.stdout.flush()',
+    'sys.exit(0)',
   ].join('\n')
 
   /** 父：忽略 SIGTERM，派生永久后代（继承 pipe），写双 pid 文件，常驻循环。 */
@@ -197,6 +210,25 @@ describe.skipIf(!hasPython3 || process.platform === 'win32')('runApplyCli 取消
     }
   }
 
+  /**
+   * 负控独立 backstop（4s）：取消类负控必须在秒级出结论，不允许旧缺陷回归时
+   * 悬挂到 it 超时（green 路径 ~0.3–0.4s settle，backstop 有 10 倍余量）。
+   */
+  async function withBackstop<T>(pending: Promise<T>, label: string): Promise<T> {
+    const BACKSTOP_MS = 4_000
+    let timer: NodeJS.Timeout | undefined
+    try {
+      return await Promise.race([
+        pending,
+        new Promise<T>((_, reject) => {
+          timer = setTimeout(() => reject(new Error(`${label}（独立 backstop ${BACKSTOP_MS}ms 内未 settle）`)), BACKSTOP_MS)
+        }),
+      ])
+    } finally {
+      if (timer !== undefined) clearTimeout(timer)
+    }
+  }
+
   beforeAll(() => {
     root = mkdtempSync(path.join(tmpdir(), 'cc-bridge-term-'))
     mkdirSync(path.join(root, 'scripts', 'review'), { recursive: true })
@@ -204,6 +236,11 @@ describe.skipIf(!hasPython3 || process.platform === 'win32')('runApplyCli 取消
 
   afterAll(() => {
     rmSync(root, { recursive: true, force: true })
+    // 负控后代卫生兜底：修复生效时后代已在测试内被整组 KILL，此兜底只服务
+    // "旧缺陷回归"的红路径（后代逃逸存活），精确匹配本负控注入的 marker。
+    if (process.platform !== 'win32') {
+      try { execSync('pkill -f cc-r4-red-cleanup-marker', { stdio: 'pipe' }) } catch { /* 无匹配进程 */ }
+    }
   })
 
   it('TERM 被忽略 → 升级 KILL，Promise 在 close 后才 settle', { timeout: 30_000 }, async () => {
@@ -219,7 +256,7 @@ describe.skipIf(!hasPython3 || process.platform === 'win32')('runApplyCli 取消
     await waitForFile(marker, 20_000)
     controller.abort()
     const abortedAt = Date.now()
-    const result = await pending
+    const result = await withBackstop(pending, 'TERM 忽略负控取消未按上界返回')
 
     // TERM 确实送达且被 Python 捕获忽略（这是"仍存活"的证据，非时长推断）
     expect(result.stderr).toContain('SIGTERM-IGNORED')
@@ -248,7 +285,7 @@ describe.skipIf(!hasPython3 || process.platform === 'win32')('runApplyCli 取消
     expect(Number.isInteger(descendantPid)).toBe(true)
     controller.abort()
     const abortedAt = Date.now()
-    const result = await pending
+    const result = await withBackstop(pending, '进程树负控取消未按上界返回')
     const elapsed = Date.now() - abortedAt
 
     // 硬上界：TERM(grace) → 整组 KILL → 最终 settle 上界，Promise 必须在内返回
@@ -260,6 +297,37 @@ describe.skipIf(!hasPython3 || process.platform === 'win32')('runApplyCli 取消
     // 父与永久后代都不复存在：整组 KILL 的直接证据（非时长推断）
     await expectPidGone(parentPid, '父 Python')
     await expectPidGone(descendantPid, '永久后代')
+  })
+
+  it('父先退出的永久后代（继承 pipe）→ 取消仍整组清理且在硬上界内返回', { timeout: 30_000 }, async () => {
+    const pidsFile = path.join(root, 'orphan.pids')
+    writeEntry(exitedParentScript(pidsFile))
+    const controller = new AbortController()
+    const pending = runApplyCli({
+      ...baseArgs(),
+      signal: controller.signal,
+      terminateGraceMs: GRACE_MS,
+      killSettleMs: KILL_SETTLE_MS,
+    })
+    await waitForFile(pidsFile, 20_000)
+    const [parentPid, descendantPid] = readFileSync(pidsFile, 'utf8').trim().split(/\s+/).map(Number)
+    expect(Number.isInteger(parentPid)).toBe(true)
+    expect(Number.isInteger(descendantPid)).toBe(true)
+    // 合同要求：确认父已消亡再触发取消（exit-before-close 场景的前提）
+    await expectPidGone(parentPid, '父 Python（已自行退出）')
+    controller.abort()
+    const abortedAt = Date.now()
+    const result = await withBackstop(pending, '父先退出负控取消未按上界返回')
+    const elapsed = Date.now() - abortedAt
+
+    // 硬上界：父已 exit 也要整组 TERM→KILL 并启动最终 settle，Promise 必须在内返回
+    expect(elapsed).toBeLessThanOrEqual(GRACE_MS + KILL_SETTLE_MS + 500)
+    // 永久后代（继承 pipe、忽略 TERM）必须消亡：isAlive 早退的旧实现会让本用例悬挂
+    await expectPidGone(descendantPid, '永久后代')
+    // 结果仍来自父：退出码/分类原样透出，父的输出被完整捕获
+    expect(result.exitCode).toBe(0)
+    expect(result.kind).toBe('success')
+    expect(result.stdout).toContain('PARENT-EXITING')
   })
 
   it('未 abort 的正常 close 不受升级链影响：一次 settle，exitCode 原样透出', { timeout: 30_000 }, async () => {

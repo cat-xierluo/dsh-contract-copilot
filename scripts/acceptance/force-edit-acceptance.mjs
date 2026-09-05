@@ -18,10 +18,11 @@
  *
  * 进程所有权（与 src/python-bridge.ts runApplyCli 同一模型）：所有 Python
  * 子进程一律异步 spawn，不使用 spawnSync——脚本拥有完整进程组/进程树：
- * POSIX 上 detached 使 Python 成为独立组长（pgid=pid），超时先整组 SIGTERM，
- * 短暂 grace 仍存活则整组 SIGKILL，并在 KILL 后的最终上界（KILL_SETTLE_MS）
- * 内无条件 settle——继承 stdout/stderr 的残留后代不能拖住脚本；计时器与
- * 输出监听在 settle 时统一清理，无孤儿进程、无双重 settle。内部预算最坏
+ * POSIX 上 detached 使 Python 成为独立组长（pgid=pid），超时只要尚未 settle
+ * 就对整树 SIGTERM（父进程已 exit 不免除树的清理责任），短暂 grace 后无条件
+ * 整组 SIGKILL，并在 KILL 后的最终上界（KILL_SETTLE_MS）内无条件 settle——
+ * 继承 stdout/stderr 的残留后代不能拖住脚本；settle 时销毁本地 stdio handle，
+ * 事件循环不被残留管道拖住、脚本有界退出。内部预算最坏
  * （3×(5+2) + (20+2) + (60+2) + (20+2) = 127s）必须早于调用方外层超时
  * （集成测试 backstop 140s），保证外层永不先杀本脚本而绕过 finally 清理。
  *
@@ -79,8 +80,6 @@ function isReadableFile(target) {
   }
 }
 
-const isAlive = (child) => child.exitCode === null && child.signalCode === null
-
 /**
  * 终止整棵进程树（runApplyCli 同款）：POSIX 对 -pid（进程组）发信号；组已空
  * 等异常回退为直接杀。Windows 无 POSIX 进程组，用 taskkill /T /F 按树强杀
@@ -106,9 +105,10 @@ function signalTree(child, sig) {
 
 /**
  * 异步运行一个有界子进程（runApplyCli 同款所有权模型）：脚本拥有完整进程组，
- * timeoutMs 到点先整组 SIGTERM，KILL_GRACE_MS 后仍存活才整组 SIGKILL，再等
- * KILL_SETTLE_MS仍无 close 则用已捕获输出无条件 settle（forced=true）——
- * 继承 stdout/stderr 的残留后代不能拖住脚本；计时器与输出监听 settle 时清理。
+ * timeoutMs 到点对整树 SIGTERM（不以直接子进程已 exit 早退——后代持有的
+ * stdout/stderr 仍能让 close 永不到达），KILL_GRACE_MS 后无条件整组 SIGKILL，
+ * 再等 KILL_SETTLE_MS 仍无 close 则用已捕获输出无条件 settle（forced=true）；
+ * settle 时销毁本地 stdio handle，脚本事件循环不被残留管道拖住、有界退出。
  */
 function ownedSpawn(file, args, timeoutMs) {
   return new Promise((resolve) => {
@@ -131,6 +131,10 @@ function ownedSpawn(file, args, timeoutMs) {
       child.removeAllListeners()
       child.stdout?.removeAllListeners()
       child.stderr?.removeAllListeners()
+      // settle 后销毁本地管道端：forced settle 时 OS 管道可能仍被残留后代持有，
+      // 不销毁会让脚本事件循环被残留管道拖住（正常 close 后为无害 no-op）。
+      child.stdout?.destroy()
+      child.stderr?.destroy()
     }
     const settle = (forced) => {
       if (settled) return
@@ -159,10 +163,10 @@ function ownedSpawn(file, args, timeoutMs) {
     child.on('exit', (code, signal) => { exitInfo = { code, signal } })
     child.on('close', () => { settle(false) })
     timeoutTimer = setTimeout(() => {
-      if (settled || !isAlive(child)) return
+      if (settled) return
       signalTree(child, 'SIGTERM')
       graceTimer = setTimeout(() => {
-        if (!settled && isAlive(child)) signalTree(child, 'SIGKILL')
+        if (!settled) signalTree(child, 'SIGKILL')
       }, KILL_GRACE_MS)
       // 最终 settle 上界：close 因残留后代持 pipe 永不到达时在此兜底。
       settleTimer = setTimeout(() => settle(true), KILL_GRACE_MS + KILL_SETTLE_MS)

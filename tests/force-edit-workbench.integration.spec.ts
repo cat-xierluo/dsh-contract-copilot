@@ -17,8 +17,8 @@
  * 验证 exit 2 且 finally 真实清理了已建目录。
  */
 
-import { spawnSync } from 'node:child_process'
-import { mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
+import { execSync, spawnSync } from 'node:child_process'
+import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
@@ -60,6 +60,20 @@ function makePrivateTmpRoot(label: string): string {
 
 function privateTmpEnv(root: string, extra: NodeJS.ProcessEnv = {}): NodeJS.ProcessEnv {
   return { ...process.env, ...extra, TMPDIR: root, TMP: root, TEMP: root }
+}
+
+/** 断言 pid 已消亡（process.kill(pid, 0) 抛错）；有界重试吸收进程收割延迟。 */
+async function expectPidGone(pid: number, label: string): Promise<void> {
+  const deadline = Date.now() + 5_000
+  for (;;) {
+    try {
+      process.kill(pid, 0)
+    } catch {
+      return // ESRCH：不存在（本用例中唯一的预期结局）
+    }
+    if (Date.now() > deadline) throw new Error(`${label} pid=${pid} 取消后仍存活`)
+    await new Promise((resolve) => setTimeout(resolve, 25))
+  }
 }
 
 describe.skipIf(deps.missing.length > 0)('force_edit 修订产物验收（真实 CLI + document RPC）', () => {
@@ -143,10 +157,14 @@ describe.skipIf(deps.missing.length > 0)('force_edit 修订产物验收（真实
 
   afterAll(() => {
     // 临时目录与子进程由本测试全权清理：runApplyCli 的子进程已 await close
-    //（超时时经 TERM→grace→KILL 升级链确认消亡），extractDocxParts 的临时脚本自清理，
-    // 这里负责工作目录与负控私有根。
+    //（超时时经整组 TERM→grace→KILL 升级链确认消亡），extractDocxParts 的临时
+    // 脚本自清理，这里负责工作目录与负控私有根。另含负控后代卫生兜底：只精确
+    // 匹配 wrapper 负控注入的 marker（回归红路径的逃逸后代）。
     rmSync(dir, { recursive: true, force: true })
     for (const extra of negctlDirs) rmSync(extra, { recursive: true, force: true })
+    if (process.platform !== 'win32') {
+      try { execSync('pkill -f cc-r4-red-cleanup-marker', { stdio: 'pipe' }) } catch { /* 无匹配进程 */ }
+    }
   })
 
   it('真实 CLI success：exit 0 且 force_edit finding 落为 applied', () => {
@@ -240,6 +258,61 @@ describe.skipIf(deps.missing.length > 0)('force_edit 修订产物验收（真实
     // BLOCKED 原因证明挂在生成步骤（目录已建之后），不是依赖探测提前返回
     expect(blockedRun.stderr).toContain('合成 DOCX 生成')
     expect(readdirSync(blockedRoot)).toEqual([])
+  })
+
+  it('负控：gen 父进程先退出、永久后代持有管道时脚本仍有界退出（exit 0）', { timeout: 60_000 }, async () => {
+    // R4 exit-before-close：gen wrapper 派生继承 stdout/stderr 的永久后代（忽略
+    // SIGTERM）后照常 exec 真实生成并退出 0——gen 的 close 因后代持 pipe 永不
+    // 到达；旧 ownedSpawn 以"直接子进程存活"为条件发起 TERM/KILL，会在此步永远
+    // 挂起（外层 backstop 杀脚本 → 本负控红）。修复后脚本内部超时照常整组
+    // TERM→KILL→settle（status 透出父的 exit 0），继续走完真实链路。
+    const wrapperRoot = mkdtempSync(path.join(tmpdir(), 'cc-force-edit-wrapper-exit-'))
+    negctlDirs.push(wrapperRoot)
+    const wrapper = path.join(wrapperRoot, 'python-wrapper-exit.py')
+    const pidFile = path.join(wrapperRoot, 'descendant.pid')
+    const descendantCode = [
+      'import signal, time',
+      'def on_term(signum, frame):',
+      '    pass',
+      'signal.signal(signal.SIGTERM, on_term)',
+      'while True:',
+      "    time.sleep(0.05)  # cc-r4-red-cleanup-marker",
+    ].join('\n')
+    writeFileSync(wrapper, [
+      '#!/usr/bin/env python3',
+      '"""R4 负控透传：gen 步骤派生继承 pipe 的永久后代后照常 exec 真实生成；其余原样透传。"""',
+      'import os',
+      'import subprocess',
+      'import sys',
+      'args = sys.argv[1:]',
+      "if args and args[0].endswith('gen-force-edit-fixture.py'):",
+      '    descendant = subprocess.Popen(',
+      '        [sys.executable, "-c", ' + JSON.stringify(descendantCode) + '],',
+      '        stdout=sys.stdout, stderr=sys.stderr,',
+      '    )',
+      '    open(' + JSON.stringify(pidFile) + ', "w").write(str(descendant.pid))',
+      "os.execvp('python3', ['python3'] + args)",
+    ].join('\n'), { encoding: 'utf8', mode: 0o755 })
+    const privateRoot = makePrivateTmpRoot('exited-parent')
+    negctlDirs.push(privateRoot)
+    const startedAt = Date.now()
+    const run = spawnSync(process.execPath, [ACCEPTANCE_SCRIPT], {
+      encoding: 'utf-8',
+      timeout: 50_000, // 早于本 it 的 60s：脚本悬挂（isAlive 早退）时先被杀并暴露
+      env: privateTmpEnv(privateRoot, { CONTRACT_COPILOT_PYTHON: wrapper }),
+    })
+    const elapsed = Date.now() - startedAt
+    expect(run.error?.code === 'ETIMEDOUT' ? 'script 悬挂超时（isAlive 早退缺陷未修复）' : null).toBeNull()
+    // gen settle（透出父的 exit 0）后脚本继续真实 CLI/抽取 → PASS exit 0
+    expect(run.status, `stdout: ${run.stdout}\nstderr: ${run.stderr}`).toBe(0)
+    expect(run.stdout).toContain('[force-edit-acceptance] PASS')
+    // 有界退出：gen 超时(20s)+grace(1s)+settle(1s)+真实 CLI/抽取，必须在上界内结束
+    expect(elapsed).toBeLessThan(45_000)
+    // 永久后代必须消亡（gen ownedSpawn 的整组 KILL），私有根零残留
+    const descendantPid = Number.parseInt(readFileSync(pidFile, 'utf8').trim(), 10)
+    expect(Number.isInteger(descendantPid)).toBe(true)
+    await expectPidGone(descendantPid, 'gen 永久后代')
+    expect(readdirSync(privateRoot)).toEqual([])
   })
 
   it('负控：依赖缺失时脚本 BLOCKED exit 2（此时未建工作目录，语义保留）', { timeout: 30_000 }, () => {

@@ -5,11 +5,13 @@
  * - 一律显式传参，不依赖 Python 非交互默认值（review_intensity 缺失会静默"强势"）。
  * - 异步 spawn（apply 可能运行数分钟，spawnSync 会冻结整个 harness）。
  * - 退码四分类：success / rejected(integrity) / partial(存在失败项) / error。
- * - 取消/超时的进程所有权（CC-V5-003-R3）：拥有完整进程组/进程树——POSIX 上
- *   detached 让 Python 成为独立组长（pgid=pid），abort 先整组 SIGTERM，可注入
- *   grace 后仍存活则整组 SIGKILL，并在 KILL 后的最终上界内无条件 settle（继承
- *   stdout/stderr 的残留后代可能让 close 永不到达，上界保证 Promise 一定返回）。
- *   不使用 spawn 内建 signal 选项（其 AbortError 会立即 settle 且子进程可能成为孤儿）。
+ * - 取消/超时的进程所有权（CC-V5-003-R3/R4）：拥有完整进程组/进程树——POSIX 上
+ *   detached 让 Python 成为独立组长（pgid=pid），取消/超时只要尚未 settle 就对
+ *   整树 SIGTERM，可注入 grace 后无条件整组 SIGKILL，并在 KILL 后的最终上界内
+ *   无条件 settle（继承 stdout/stderr 的残留后代可能让 close 永不到达，上界保证
+ *   Promise 一定返回；父进程是否已 exit 不决定树是否仍存在）。settle 时销毁本地
+ *   stdio handle，事件循环不被残留管道拖住。不使用 spawn 内建 signal 选项
+ *   （其 AbortError 会立即 settle 且子进程可能成为孤儿）。
  */
 
 import { spawn } from 'node:child_process'
@@ -134,6 +136,10 @@ export function runApplyCli(args: ApplyCliArgs): Promise<BridgeResult> {
       child.removeAllListeners()
       child.stdout?.removeAllListeners()
       child.stderr?.removeAllListeners()
+      // settle 后销毁本地管道端：forced settle 时 OS 管道可能仍被残留后代持有，
+      // 不销毁会让 CLI 事件循环被残留管道拖住（正常 close 后为无害 no-op）。
+      child.stdout?.destroy()
+      child.stderr?.destroy()
     }
 
     /**
@@ -160,9 +166,6 @@ export function runApplyCli(args: ApplyCliArgs): Promise<BridgeResult> {
       }
     }
 
-    /** 已退出（含被信号终止）则不再发信号；close 即将自然到达。 */
-    const isAlive = () => child.exitCode === null && child.signalCode === null
-
     const finish = () => {
       if (settled) return
       settled = true
@@ -177,11 +180,16 @@ export function runApplyCli(args: ApplyCliArgs): Promise<BridgeResult> {
       })
     }
 
+    /**
+     * 取消升级链：只要尚未 settle 就对拥有的整棵树发 TERM，grace 后无条件整组
+     * KILL，并启动最终 settle 上界。不以"直接子进程已 exit"早退——后代持有的
+     * stdout/stderr 仍能让 close 永不到达（R4 exit-before-close P1）。
+     */
     const escalate = () => {
-      if (settled || !isAlive()) return
+      if (settled) return
       signalTree('SIGTERM')
       graceTimer = setTimeout(() => {
-        if (!settled && isAlive()) signalTree('SIGKILL')
+        if (!settled) signalTree('SIGKILL')
       }, graceMs)
       // 最终 settle 上界：close 因残留后代持 pipe 永不到达时在此兜底，
       // 计时器在 finish 的 cleanup 统一清除，不泄漏。
