@@ -1,7 +1,7 @@
 /** Host workbench tests: validation, persistence, routes, SSE, and downloads. */
 
 import { spawnSync } from 'node:child_process'
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { chmodSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
@@ -32,7 +32,7 @@ beforeEach(() => {
     pythonExecutable: 'python3',
     sessionsDir: path.join(root, 'sessions'),
     injectProgress: true,
-    workbench: { enabled: true },
+    workbench: { enabled: true, docxExtractionTimeoutMs: 30_000 },
   }
 })
 
@@ -65,6 +65,13 @@ function writeCommentedDocx(filePath: string): void {
   ].join('\n')
   const result = spawnSync('python3', ['-c', script, filePath, COMMENTED_DOCUMENT_XML, COMMENTED_COMMENTS_XML], { encoding: 'utf-8' })
   if (result.status !== 0) throw new Error(`fixture 生成失败: ${result.stderr}`)
+}
+
+/** 挂住不退出的假 python 解释器（exec 自我替换，SIGKILL 必命中唯一子进程）。 */
+function writeHangingPython(filePath: string): string {
+  writeFileSync(filePath, '#!/bin/sh\nexec sleep 30\n', 'utf8')
+  chmodSync(filePath, 0o755)
+  return filePath
 }
 
 describe('handleWorkbenchRpc', () => {
@@ -135,7 +142,8 @@ describe('handleWorkbenchRpc', () => {
 
     await expect(handleWorkbenchRpc(config, store, 'run-analysis', { sessionId: session.id }, coordinator))
       .resolves.toMatchObject({ ok: true, value: { accepted: true, phase: 'analysis' } })
-    expect(runAnalysis).toHaveBeenCalledWith(session.id)
+    // RPC 的取消面以 dispatch 选项透传给控制器
+    expect(runAnalysis).toHaveBeenCalledWith(session.id, { signal: undefined })
 
     const busy = {
       runAnalysis: vi.fn(async () => {
@@ -173,6 +181,36 @@ describe('handleWorkbenchRpc', () => {
 
     // 协议数据必须无损过 JSON（浏览器 RPC 传输路径）
     expect(JSON.parse(JSON.stringify(view.comments))).toEqual(view.comments)
+  }, 30_000)
+  it('document 抽取挂住时 state RPC 先完成；取消后返回 aborted 而非合同损坏', async () => {
+    const slow = writeHangingPython(path.join(root, 'hanging-python'))
+    const slowConfig = { ...config, pythonExecutable: slow }
+    const session = store.create(path.join(root, 'contract.docx'), 'contract')
+    const controller = new AbortController()
+
+    const documentPending = handleWorkbenchRpc(slowConfig, store, 'document', { sessionId: session.id }, undefined, controller.signal)
+    // 抽取子进程挂住期间事件循环照常调度：state RPC 可先完成
+    await expect(handleWorkbenchRpc(slowConfig, store, 'state', {})).resolves.toMatchObject({ ok: true })
+    controller.abort()
+
+    const documentResult = await documentPending
+    expect(documentResult.ok).toBe(false)
+    if (documentResult.ok) return
+    expect(documentResult.error.code).toBe('contract-copilot/aborted')
+    expect(documentResult.error.message).not.toContain('失败')
+  })
+
+  it('document 抽取超过 workbench.docxExtractionTimeoutMs → 稳定超时错误码', async () => {
+    const slow = writeHangingPython(path.join(root, 'hanging-python'))
+    const timingOutConfig = {
+      ...config,
+      pythonExecutable: slow,
+      workbench: { enabled: true, docxExtractionTimeoutMs: 150 },
+    }
+    const session = store.create(path.join(root, 'contract.docx'), 'contract')
+
+    await expect(handleWorkbenchRpc(timingOutConfig, store, 'document', { sessionId: session.id }))
+      .resolves.toMatchObject({ ok: false, error: { code: 'contract-copilot/document-extraction-timeout' } })
   })
 })
 
@@ -194,6 +232,34 @@ describe('Connection registration', () => {
       WORKBENCH_EVENTS_PATH,
       WORKBENCH_DOWNLOAD_PATH,
     ])
+  })
+
+  it('document 端点消费 Connection 的第三个 AbortSignal 参数', async () => {
+    const handlers: Array<(endpoint: string, payload: unknown, signal: AbortSignal) => Promise<unknown>> = []
+    const handle = vi.fn((_channel: string, handler: (endpoint: string, payload: unknown, signal: AbortSignal) => Promise<unknown>) => {
+      handlers.push(handler)
+      return async () => {}
+    })
+    const register = vi.fn(() => async () => {})
+    const ctx = {
+      inject: (_services: readonly string[], callback: (child: unknown) => void) => {
+        callback({ connection: { rpc: { handle }, fetch: { register } } })
+      },
+    } as unknown as Context
+
+    // 处理函数必须声明 signal 形参，才会真正收到 Connection 的取消面
+    registerHostApi(ctx, config, store, {} as ContractAgentCoordinator)
+    expect(handlers[0]?.length).toBe(3)
+
+    const slow = writeHangingPython(path.join(root, 'hanging-python'))
+    const slowConfig = { ...config, pythonExecutable: slow }
+    registerHostApi(ctx, slowConfig, store, {} as ContractAgentCoordinator)
+    const session = store.create(path.join(root, 'contract.docx'), 'contract')
+    const controller = new AbortController()
+    const pending = handlers[1]!('document', { sessionId: session.id }, controller.signal)
+    controller.abort()
+
+    await expect(pending).resolves.toMatchObject({ ok: false, error: { code: 'contract-copilot/aborted' } })
   })
 
   it('workbench.enabled=false 时不等待 Connection', () => {

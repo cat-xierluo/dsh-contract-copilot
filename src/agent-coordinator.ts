@@ -7,8 +7,8 @@ import type { Agent, AgentHandle } from '@deepseek-ai/dsh-agent'
 import type {} from '@deepseek-ai/dsh-agent-default-model'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import { SessionId } from '@deepseek-ai/dsh-session/types'
-import { ANALYSIS_CONTRACT_TEXT_DEFAULT_CHARS } from './config.ts'
-import { extractContractText, extractDocxParts } from './docx-view.ts'
+import { ANALYSIS_CONTRACT_TEXT_DEFAULT_CHARS, DOCX_EXTRACTION_TIMEOUT_DEFAULT_MS } from './config.ts'
+import { DocxExtractionError, extractContractText, extractDocxParts } from './docx-view.ts'
 import { assertApprovedPlan } from './plan-review.ts'
 import type { ContractSession, SessionStore } from './session.ts'
 
@@ -39,6 +39,14 @@ export interface AgentCoordinatorOptions {
   readonly pythonExecutable?: string
   /** 分析回合注入合同正文的字符上限（Config 加载边界已校验；缺省走协议默认值）。 */
   readonly analysisContractTextMaxChars?: number
+  /** 单次合同 DOCX 抽取的超时上限毫秒（Config 加载边界已校验；缺省走协议默认值）。 */
+  readonly docxExtractionTimeoutMs?: number
+}
+
+/** 分析/交付命令的派发选项：signal 只约束 Agent 创建前的抽取阶段。 */
+export interface AgentDispatchOptions {
+  /** 上游取消面（工作台 RPC 的 Connection signal）：中止后不创建 Agent、不误报合同损坏。 */
+  readonly signal?: AbortSignal
 }
 
 /** 分析回合提示中合同正文数据区的边界标记。 */
@@ -69,6 +77,7 @@ export class ContractAgentCoordinator {
   private closing = false
   private readonly pythonExecutable: string
   private readonly contractTextMaxChars: number
+  private readonly extractionTimeoutMs: number
 
   constructor(
     private readonly ctx: Context,
@@ -81,16 +90,21 @@ export class ContractAgentCoordinator {
       throw new Error(`contract-copilot: analysisContractTextMaxChars 必须是正整数，收到 ${String(maxChars)}`)
     }
     this.contractTextMaxChars = maxChars
+    const timeoutMs = options.docxExtractionTimeoutMs ?? DOCX_EXTRACTION_TIMEOUT_DEFAULT_MS
+    if (!Number.isInteger(timeoutMs) || timeoutMs < 1) {
+      throw new Error(`contract-copilot: docxExtractionTimeoutMs 必须是正整数毫秒，收到 ${String(timeoutMs)}`)
+    }
+    this.extractionTimeoutMs = timeoutMs
   }
 
   /** Start or resume the dedicated Agent and stop after it produces a review plan. */
-  runAnalysis(sessionId: string): Promise<AgentDispatchResult> {
-    return this.dispatch(sessionId, 'analysis')
+  runAnalysis(sessionId: string, options: AgentDispatchOptions = {}): Promise<AgentDispatchResult> {
+    return this.dispatch(sessionId, 'analysis', options.signal)
   }
 
   /** Resume the dedicated Agent after lawyer approval and generate delivery files. */
-  runDelivery(sessionId: string): Promise<AgentDispatchResult> {
-    return this.dispatch(sessionId, 'delivery')
+  runDelivery(sessionId: string, options: AgentDispatchOptions = {}): Promise<AgentDispatchResult> {
+    return this.dispatch(sessionId, 'delivery', options.signal)
   }
 
   /** Cancel one in-flight command and wait for the Agent to become idle. */
@@ -125,7 +139,7 @@ export class ContractAgentCoordinator {
     await Promise.all(handles.map(handle => handle.dispose()))
   }
 
-  private async dispatch(sessionId: string, phase: AgentPhase): Promise<AgentDispatchResult> {
+  private async dispatch(sessionId: string, phase: AgentPhase, signal?: AbortSignal): Promise<AgentDispatchResult> {
     if (this.closing) {
       throw new AgentCoordinatorError('contract-copilot/coordinator-closed', '合同审查 Agent 控制器正在关闭。')
     }
@@ -138,17 +152,28 @@ export class ContractAgentCoordinator {
     // 派发前最早可解析处构建回合提示：Web profile 禁用通用 fs/shell/skill 工具，
     // 合同正文与审查指导必须在启动 Agent 前注入；提取失败/正文为空在这里
     // fail loud 并持久化 automation failed，不启动一个必失败 Agent。
+    // 上游取消（signal/关闭）不属于合同损坏：不持久化 failed，也不创建 Agent。
     let prompt: string
     try {
       prompt = phase === 'analysis'
-        ? buildAnalysisPrompt(session, this.extractContractBody(session), this.contractTextMaxChars)
+        ? buildAnalysisPrompt(session, await this.extractContractBody(session, signal), this.contractTextMaxChars)
         : buildDeliveryPrompt(session)
     } catch (error) {
+      if (signal?.aborted || (error instanceof DocxExtractionError && error.kind === 'aborted')) {
+        throw new AgentCoordinatorError('contract-copilot/aborted', '分析命令已取消（合同抽取中止），未创建 Agent。')
+      }
       const message = errorMessage(error)
       this.saveAutomation(session, 'failed', message)
       throw error instanceof AgentCoordinatorError
         ? error
         : new AgentCoordinatorError('contract-copilot/contract-text-unavailable', message)
+    }
+    if (this.closing) {
+      throw new AgentCoordinatorError('contract-copilot/coordinator-closed', '合同审查 Agent 控制器正在关闭。')
+    }
+    if (signal?.aborted) {
+      // 抽取完成后才到达的取消同样不得创建 Agent；这不走 failed 持久化
+      throw new AgentCoordinatorError('contract-copilot/aborted', '分析命令已取消（合同抽取中止），未创建 Agent。')
     }
 
     let agent: Agent
@@ -184,12 +209,18 @@ export class ContractAgentCoordinator {
     return { accepted: true, dshSessionId: String(agent.id), phase }
   }
 
-  /** 从可信本地 contractPath 提取合同可见文本；失败即抛 contract-text-unavailable。 */
-  private extractContractBody(session: ContractSession): string {
+  /** 从可信本地 contractPath 异步提取合同可见文本；失败即抛 contract-text-unavailable。 */
+  private async extractContractBody(session: ContractSession, signal?: AbortSignal): Promise<string> {
     let documentXml: string
     try {
-      ({ documentXml } = extractDocxParts(session.contractPath, this.pythonExecutable))
+      ({ documentXml } = await extractDocxParts(
+        session.contractPath,
+        this.pythonExecutable,
+        this.extractionTimeoutMs,
+        signal,
+      ))
     } catch (error) {
+      if (error instanceof DocxExtractionError && error.kind === 'aborted') throw error
       throw new AgentCoordinatorError(
         'contract-copilot/contract-text-unavailable',
         `合同 DOCX 提取失败（${session.contractPath}）: ${errorMessage(error)}`,

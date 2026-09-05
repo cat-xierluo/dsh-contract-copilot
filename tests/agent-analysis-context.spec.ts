@@ -10,7 +10,7 @@
  * - delivery 回合不注入正文。
  */
 
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { chmodSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
@@ -204,6 +204,13 @@ interface AgentFixture {
 let root: string
 let store: SessionStore
 
+/** 挂住不退出的假 python 解释器（exec 自我替换，SIGKILL 必命中唯一子进程）。 */
+function writeHangingPython(filePath: string): string {
+  writeFileSync(filePath, '#!/bin/sh\nexec sleep 30\n', 'utf8')
+  chmodSync(filePath, 0o755)
+  return filePath
+}
+
 beforeEach(() => {
   root = mkdtempSync(path.join(tmpdir(), 'cc-analysis-context-'))
   store = new SessionStore(path.join(root, 'sessions'))
@@ -245,6 +252,10 @@ function dispatchedPrompt(fixture: AgentFixture): string {
 }
 
 describe('ContractAgentCoordinator analysis context', () => {
+  // 涉及真实 python3 spawn（fixture 打包 + 合同抽取）的用例在慢盘环境下可能
+  // 超过默认 5s 测试超时；统一放宽到 30s（上限断言，不是 sleep 依赖）。
+  const REAL_PYTHON_TIMEOUT = 30_000
+
   it('分析回合提示注入 session、合同正文与审查规则', async () => {
     const contractPath = path.join(root, 'contract.docx')
     writeContractDocx(contractPath, SAMPLE_BODY.split('\n'))
@@ -265,7 +276,7 @@ describe('ContractAgentCoordinator analysis context', () => {
     fixture.settle()
     await coordinator.whenSettled(session.id)
     await coordinator.dispose()
-  })
+  }, REAL_PYTHON_TIMEOUT)
 
   it('坏 DOCX fail loud：不创建 Agent、不 followup、automation 持久化 failed', async () => {
     const session = store.create(path.join(root, 'missing.docx'), 'contract')
@@ -283,6 +294,61 @@ describe('ContractAgentCoordinator analysis context', () => {
     expect(persisted?.automation?.status).toBe('failed')
     expect(persisted?.automation?.error).toContain('missing.docx')
     await coordinator.dispose()
+  }, REAL_PYTHON_TIMEOUT)
+
+  it('派发前取消（AbortSignal）：不创建 Agent，也不把取消误报为合同损坏', async () => {
+    const slow = writeHangingPython(path.join(root, 'hanging-python'))
+    const contractPath = path.join(root, 'contract.docx')
+    writeContractDocx(contractPath, SAMPLE_BODY.split('\n'))
+    const session = store.create(contractPath, 'contract')
+    const fixture = agentFixture()
+    const { ctx, create } = context(fixture)
+    const coordinator = new ContractAgentCoordinator(ctx, store, { pythonExecutable: slow })
+
+    const controller = new AbortController()
+    const pending = coordinator.runAnalysis(session.id, { signal: controller.signal })
+    controller.abort()
+
+    await expect(pending).rejects.toMatchObject<Partial<AgentCoordinatorError>>({
+      code: 'contract-copilot/aborted',
+    })
+
+    expect(create).not.toHaveBeenCalled()
+    expect(fixture.followup).not.toHaveBeenCalled()
+    // 取消不是合同损坏：automation 保持未写 failed
+    expect(store.get(session.id)?.automation).toBeUndefined()
+    await coordinator.dispose()
+  }, REAL_PYTHON_TIMEOUT)
+
+  it('抽取超时：不创建 Agent，automation 持久化 failed 且错误可辨认', async () => {
+    const slow = writeHangingPython(path.join(root, 'hanging-python'))
+    const contractPath = path.join(root, 'contract.docx')
+    writeContractDocx(contractPath, SAMPLE_BODY.split('\n'))
+    const session = store.create(contractPath, 'contract')
+    const fixture = agentFixture()
+    const { ctx, create } = context(fixture)
+    const coordinator = new ContractAgentCoordinator(ctx, store, {
+      pythonExecutable: slow,
+      docxExtractionTimeoutMs: 150,
+    })
+
+    await expect(coordinator.runAnalysis(session.id)).rejects.toMatchObject<Partial<AgentCoordinatorError>>({
+      code: 'contract-copilot/contract-text-unavailable',
+    })
+
+    expect(create).not.toHaveBeenCalled()
+    expect(fixture.followup).not.toHaveBeenCalled()
+    const persisted = store.get(session.id)
+    expect(persisted?.automation?.status).toBe('failed')
+    expect(persisted?.automation?.error).toContain('超时')
+    await coordinator.dispose()
+  }, REAL_PYTHON_TIMEOUT)
+
+  it('docxExtractionTimeoutMs 非法时构造期 fail loud', () => {
+    const fixture = agentFixture()
+    expect(() => new ContractAgentCoordinator(context(fixture).ctx, store, {
+      docxExtractionTimeoutMs: 0,
+    })).toThrow(/docxExtractionTimeoutMs/)
   })
 
   it('正文为空的 DOCX fail loud：同样不启动 Agent 并记录失败', async () => {
@@ -302,7 +368,7 @@ describe('ContractAgentCoordinator analysis context', () => {
     expect(store.get(session.id)?.automation?.status).toBe('failed')
     expect(store.get(session.id)?.automation?.error).toContain('合同正文为空')
     await coordinator.dispose()
-  })
+  }, REAL_PYTHON_TIMEOUT)
 
   it('注入上限生效：超限正文被确定性截断且带截断说明', async () => {
     const contractPath = path.join(root, 'long.docx')
@@ -324,7 +390,7 @@ describe('ContractAgentCoordinator analysis context', () => {
     fixture.settle()
     await coordinator.whenSettled(session.id)
     await coordinator.dispose()
-  })
+  }, REAL_PYTHON_TIMEOUT)
 
   it('非法注入上限在构造期 fail loud', () => {
     const fixture = agentFixture()
@@ -362,5 +428,5 @@ describe('ContractAgentCoordinator analysis context', () => {
     fixture.settle()
     await coordinator.whenSettled(session.id)
     await coordinator.dispose()
-  })
+  }, REAL_PYTHON_TIMEOUT)
 })

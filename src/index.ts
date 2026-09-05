@@ -33,6 +33,7 @@ export function apply(ctx: Context, raw: PluginConfig): void {
   const coordinator = new ContractAgentCoordinator(ctx, store, {
     pythonExecutable: config.pythonExecutable,
     analysisContractTextMaxChars: config.workbench.analysisContractTextMaxChars,
+    docxExtractionTimeoutMs: config.workbench.docxExtractionTimeoutMs,
   })
   ctx.effect(() => () => coordinator.dispose())
 

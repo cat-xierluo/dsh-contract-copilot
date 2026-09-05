@@ -3,7 +3,9 @@
  *
  * 设计取舍：plugin 已硬依赖 python3（apply_review_plan.py），所以用 python3
  * 的 zipfile 模块抽取 word/document.xml 和 word/comments.xml——避免再拉
- * JS 的 unzip/zip 依赖。抽取本身用 spawnSync（仅启动一次 cost）。
+ * JS 的 unzip/zip 依赖。抽取本身是有界异步子进程（DECISIONS.md Q44）：
+ * 同步 spawn 会冻结 DSH Host 事件循环，且大 DOCX 或慢 Python 无法中断；
+ * 异步实现带超时上限、可选 AbortSignal 取消和 32 MiB 输出上限。
  *
  * 渲染器是纯函数（输入 XML 字符串 → 输出 HTML），便于单测；实际 DOCX
  * 抽取在 extractDocxParts 里，纯渲染逻辑分离。
@@ -23,8 +25,7 @@
  * 避免 Client 把空壳/截断范围当成功导航目标。
  */
 
-import { spawnSync } from 'node:child_process'
-import type { SpawnSyncReturns } from 'node:child_process'
+import { spawn } from 'node:child_process'
 import { unlinkSync, writeFileSync } from 'node:fs'
 import type { CommentAnchor, CommentAnchorFallbackReason, DocComment } from './workbench-protocol.ts'
 
@@ -34,14 +35,58 @@ export type DocxComment = {
   text: string
 }
 
+export type DocxParts = {
+  documentXml: string
+  commentsXml: string
+}
+
+/** 单次抽取 stdout/stderr 各自的输出上限（字节）；超过即终止子进程。 */
+export const DOCX_EXTRACT_MAX_OUTPUT_BYTES = 32 * 1024 * 1024
+
+/** 抽取失败的可区分语义；调用方按 kind 决定持久化失败还是静默取消。 */
+export type DocxExtractFailureKind =
+  | 'aborted'
+  | 'timeout'
+  | 'spawn-failed'
+  | 'nonzero-exit'
+  | 'output-too-large'
+  | 'malformed-output'
+
+/** 抽取失败的领域错误；kind 保证机器可判，message 面向人与工作台提示。 */
+export class DocxExtractionError extends Error {
+  constructor(
+    readonly kind: DocxExtractFailureKind,
+    message: string,
+    readonly exitCode?: number | null,
+    readonly exitSignal?: NodeJS.Signals,
+  ) {
+    super(message)
+    this.name = 'DocxExtractionError'
+  }
+}
+
 /**
- * 用 python3 zipfile 抽取 document.xml + comments.xml；stderr 抛错。
- * pythonExecutable 可通过 Config.workbench.pythonExecutable 覆盖（默认 python3）。
+ * 用 python3 zipfile 抽取 document.xml + comments.xml（Promise API）。
+ * pythonExecutable 可通过 Config.workbench.pythonExecutable 覆盖（默认 python3）；
+ * timeoutMs 来自 Config.workbench.docxExtractionTimeoutMs；可选 signal 传播上游取消。
  *
- * 实现：把脚本写进临时文件后用 `python3 <tmpfile> <docx>` 调用——避免
- * -c 在多行结构里 `;` 分隔造成的语法坑。返回时删临时文件。
+ * 失败语义：aborted（上游取消，非合同损坏）、timeout、spawn-failed、
+ * nonzero-exit（含 python 对坏 DOCX 的非零退码）、output-too-large、
+ * malformed-output（缺 ===DOC===/===COM=== 标记）。以 DocxExtractionError 抛出。
+ *
+ * 实现：把脚本写进临时文件后用 `<python> <tmpfile> <docx>` 调用——避免
+ * -c 在多行结构里 `;` 分隔造成的语法坑。临时脚本在 finally 清理；超时或
+ * 取消时 SIGKILL 子进程并等待其 close 后才 settle，绝不遗留僵尸进程。
  */
-export function extractDocxParts(docxPath: string, pythonExecutable: string): { documentXml: string; commentsXml: string } {
+export async function extractDocxParts(
+  docxPath: string,
+  pythonExecutable: string,
+  timeoutMs: number,
+  signal?: AbortSignal,
+): Promise<DocxParts> {
+  if (!Number.isInteger(timeoutMs) || timeoutMs < 1) {
+    throw new Error(`contract-copilot workbench: 抽取参数 timeoutMs 必须是正整数毫秒，收到 ${String(timeoutMs)}`)
+  }
   const script = [
     'import sys, zipfile',
     'z = zipfile.ZipFile(sys.argv[1])',
@@ -55,28 +100,153 @@ export function extractDocxParts(docxPath: string, pythonExecutable: string): { 
   ].join('\n')
   const tmpScript = `${process.env.TMPDIR ?? '/tmp'}/cc-docx-${process.pid}-${Date.now()}.py`
   writeFileSync(tmpScript, script, 'utf8')
-  let child: SpawnSyncReturns<string>
   try {
-    child = spawnSync(pythonExecutable, [tmpScript, docxPath], {
-      encoding: 'utf-8',
-      maxBuffer: 32 * 1024 * 1024,
-    })
+    return await runDocxExtractor(pythonExecutable, [tmpScript, docxPath], timeoutMs, signal)
   } finally {
     try { unlinkSync(tmpScript) } catch { /* 清理失败不影响 */ }
   }
-  if (child.status !== 0) {
-    throw new Error(`contract-copilot workbench: python 抽取 DOCX 失败（exit ${child.status ?? 'null'}）: ${child.stderr?.slice(0, 200) ?? ''}`)
-  }
-  const out = child.stdout
-  const docIdx = out.indexOf('===DOC===')
-  const comIdx = out.indexOf('===COM===')
-  if (docIdx < 0 || comIdx < 0) {
-    throw new Error('contract-copilot workbench: DOCX 抽取输出格式异常')
-  }
-  return {
-    documentXml: out.slice(docIdx + '===DOC==='.length, comIdx).replace(/^\n/, ''),
-    commentsXml: out.slice(comIdx + '===COM==='.length).replace(/^\n/, ''),
-  }
+}
+
+/**
+ * 有界异步抽取子进程：单次 settle，输出超限即杀；超时/取消先 SIGKILL 并等
+ * close 再 reject，因此 rejection 时子进程必然已经退出。失败优先级：
+ * aborted > timeout > output-too-large > spawn-failed > nonzero-exit > malformed。
+ */
+function runDocxExtractor(
+  pythonExecutable: string,
+  args: string[],
+  timeoutMs: number,
+  signal?: AbortSignal,
+): Promise<DocxParts> {
+  return new Promise<DocxParts>((resolve, reject) => {
+    let settled = false
+    let timedOut = false
+    let aborted = false
+    let tooLarge = false
+    let killPending = false
+    let spawnError: Error | undefined
+    let stdoutBytes = 0
+    let stderrBytes = 0
+    const stdoutChunks: Buffer[] = []
+    const stderrChunks: Buffer[] = []
+
+    const kill = (): void => {
+      // spawn 尚未完成（pid 未分配）时 kill() 是 no-op：挂起并在 'spawn' 事件补杀
+      if (child.pid === undefined) {
+        killPending = true
+        return
+      }
+      try { child.kill('SIGKILL') } catch { /* 进程已退出时不抛错 */ }
+    }
+    const onAbort = (): void => {
+      aborted = true
+      kill()
+    }
+
+    const child = spawn(pythonExecutable, args, { stdio: ['ignore', 'pipe', 'pipe'] })
+    const timer = setTimeout(() => {
+      timedOut = true
+      kill()
+    }, timeoutMs)
+    child.on('spawn', () => {
+      if (killPending) kill()
+    })
+    if (signal === undefined) {
+      // 无上游取消面
+    } else if (signal.aborted) {
+      onAbort()
+    } else {
+      signal.addEventListener('abort', onAbort, { once: true })
+    }
+
+    const finish = (settle: () => void): void => {
+      if (settled) return
+      settled = true
+      clearTimeout(timer)
+      signal?.removeEventListener('abort', onAbort)
+      settle()
+    }
+    /** 单次收束：优先级 aborted > timeout > output-too-large > spawn-failed > 退码 > 标记。 */
+    const decide = (closeSignal: NodeJS.Signals | null, exitCode: number | null): void => {
+      if (aborted) {
+        reject(new DocxExtractionError(
+          'aborted',
+          'contract-copilot workbench: DOCX 抽取已取消（上游中止）',
+          undefined,
+          closeSignal ?? undefined,
+        ))
+        return
+      }
+      if (timedOut) {
+        reject(new DocxExtractionError(
+          'timeout',
+          `contract-copilot workbench: DOCX 抽取超时（上限 ${timeoutMs}ms），已终止子进程`,
+          undefined,
+          closeSignal ?? undefined,
+        ))
+        return
+      }
+      if (tooLarge) {
+        reject(new DocxExtractionError(
+          'output-too-large',
+          `contract-copilot workbench: DOCX 抽取输出超过 ${DOCX_EXTRACT_MAX_OUTPUT_BYTES} 字节上限，已终止子进程`,
+        ))
+        return
+      }
+      if (spawnError !== undefined) {
+        reject(new DocxExtractionError(
+          'spawn-failed',
+          `contract-copilot workbench: 无法启动 ${pythonExecutable}: ${spawnError.message}`,
+        ))
+        return
+      }
+      if (exitCode !== 0) {
+        reject(new DocxExtractionError(
+          'nonzero-exit',
+          `contract-copilot workbench: python 抽取 DOCX 失败（exit ${exitCode ?? 'null'}）: `
+            + Buffer.concat(stderrChunks).toString('utf-8').slice(0, 200),
+          exitCode,
+        ))
+        return
+      }
+      const out = Buffer.concat(stdoutChunks).toString('utf-8')
+      const docIdx = out.indexOf('===DOC===')
+      const comIdx = out.indexOf('===COM===')
+      if (docIdx < 0 || comIdx < 0) {
+        reject(new DocxExtractionError('malformed-output', 'contract-copilot workbench: DOCX 抽取输出格式异常'))
+        return
+      }
+      resolve({
+        documentXml: out.slice(docIdx + '===DOC==='.length, comIdx).replace(/^\n/, ''),
+        commentsXml: out.slice(comIdx + '===COM==='.length).replace(/^\n/, ''),
+      })
+    }
+
+    const collect = (stream: NodeJS.ReadableStream, chunks: Buffer[], isStdout: boolean): void => {
+      stream.on('data', (chunk: Buffer) => {
+        const total = (isStdout ? stdoutBytes : stderrBytes) + chunk.length
+        if (isStdout) stdoutBytes = total
+        else stderrBytes = total
+        if (total <= DOCX_EXTRACT_MAX_OUTPUT_BYTES) chunks.push(chunk)
+        if (total > DOCX_EXTRACT_MAX_OUTPUT_BYTES && !tooLarge) {
+          tooLarge = true
+          kill()
+        }
+      })
+    }
+    collect(child.stdout, stdoutChunks, true)
+    collect(child.stderr, stderrChunks, false)
+
+    // spawn 失败（ENOENT 等）只发 error：终止并立即收束，单次 settle 保证与 close 竞态安全
+    child.on('error', (error: Error) => {
+      spawnError = error
+      kill()
+      finish(() => decide(null, null))
+    })
+    child.on('close', (code, closeSignal) => {
+      finish(() => decide(closeSignal, code))
+    })
+  })
 }
 
 /** XML 实体解码：数值（&#NNN; /&#xNNNN;）+ 5 个命名实体。 */

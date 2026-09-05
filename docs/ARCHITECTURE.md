@@ -48,6 +48,8 @@ DSH 为插件提供四类可观察运行面，Contract Copilot 将其转换为�
 
 DSH Web profile 的案件专属 Agent 只装载本插件 7 个领域工具，不依赖通用文件、shell 或 skill 工具。分析派发前，Host 从受信任的 `ContractSession.contractPath` 提取 OOXML 可见正文，隔离数据边界标记，并按 `workbench.analysisContractTextMaxChars` 的部署配置显式截断；随后把正文数据与最小审查指导注入分析回合。提取失败或正文为空会把 automation 写为 failed，并在 Agent 创建前终止，避免启动一个缺少审查对象的回合。交付回合只消费已保存且经律师批准的计划，不再次携带合同正文。
 
+DOCX 抽取（工作台 document RPC 与分析注入共用）是有界异步子进程（DECISIONS.md Q44）：`extractDocxParts` 以 Promise 形式显式接收 Python 解释器、`workbench.docxExtractionTimeoutMs` 超时上限（默认 30000、允许 1000–300000）和可选 AbortSignal；抽取进行中 Host 事件循环继续调度，超时或上游取消时终止子进程并等待其退出，输出保留 32 MiB 上限。失败语义可区分 aborted / timeout / nonzero-exit / output-too-large / malformed-output：超时与非零退出持久化 automation failed 且不创建 Agent，调用方取消不误报合同损坏、不遗留 active Agent。
+
 ## 3. 模块布局
 
 ```
@@ -61,7 +63,7 @@ src/
 ├── agent-coordinator.ts      # 案件专属 Agent 生命周期、分析上下文注入和命令互斥
 ├── host-api.ts              # Connection RPC + 认证 SSE/下载精确路由
 ├── python-bridge.ts         # 异步 spawn + 退码四分类（success/partial/rejected/error）
-├── docx-view.ts             # OOXML → HTML/可见正文 + 内容派生的稳定批注锚点
+├── docx-view.ts             # OOXML → HTML/可见正文 + 稳定批注锚点 + 有界异步抽取
 ├── progress.ts              # pre-step 注入文案 + 幂等判据
 ├── skill-config.ts          # 读 reviewer_profile / review_memory（Python 独占写入）
 ├── paths.ts                 # ~ 展开 + 合同 key 归一化（与 Python 一致）
@@ -110,6 +112,7 @@ tests/                       # Vitest 单元与真实 Python spawn 集成测试
 - **案件状态与 Agent 轨迹分层**：ContractSession 保存业务事实；DSH session 保存消息、步骤和 tool 轨迹，两者只通过 `dshSessionId` 关联
 - **一个案件一个在途命令**：Coordinator 在进程内拒绝重复分析或交付；取消和插件卸载均等待 Agent 进入 idle 后再报告完成
 - **分析对象必须在派发前可用**：Host 只从业务 session 已保存的本地路径提取合同正文；正文以数据而非指令注入，伪造边界会被隔离，失败或空文本不创建 Agent
+- **DOCX 抽取不冻结事件循环**：预览与 Agent 注入共用的抽取是有界异步子进程——显式超时、可取消（Connection signal 透传）、32 MiB 输出上限；取消（aborted）不等于合同损坏，也不产生 Agent
 - **Word 批注支持两种真实 DOM**：保留带 id 的原生 `.docx-comment-ref` 路径；run-style `.docx_commentreference` 从相邻 `end of comment #id` 注释恢复 id，并增强为可见键盘入口
 
 ## 6. 边界与外部依赖

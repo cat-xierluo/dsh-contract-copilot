@@ -36,10 +36,12 @@
 
 ### CC-V5-004：DOCX 抽取异步化
 
-- 状态：已登记，等待 Wave 2；与 CC-V5-001 共享 `src/docx-view.ts`，本波不并行派发
+- 状态：已交付（Worker 分支 `fix-cc-v5-async-docx-extraction`，待独立审查与 PR）
+- 基线：`origin/feat-v5-quality-hardening` @ `d0bcc97`
 - 目标：将预览和 Agent 正文注入共用的 `spawnSync` 抽取改为有界异步子进程，避免大 DOCX 或慢 Python 冻结 DSH Host 事件循环。
 - 文件边界：`src/docx-view.ts`、`src/host-api.ts`、`src/agent-coordinator.ts`、`src/config.ts`、`src/index.ts` 及对应抽取、Host、分析和配置测试；不修改 Python、Client、工作台协议、apply/finalize 工具链或依赖。
 - 验收：Host RPC 与分析派发均 await 抽取；Connection/request signal 可取消子进程；超时、非零退出、输出过大和 malformed output 路径明确；事件循环可在抽取进行时继续调度；取消不误标合同损坏，分析失败不创建 Agent；`rg -n 'spawnSync' src` 无命中；完整测试和 build 通过。
+- 证据（2026-09-05）：`extractDocxParts` 变为 Promise API（pythonExecutable / timeoutMs / 可选 AbortSignal），单次 settle、超时与取消 SIGKILL 并等待 close、32 MiB 输出上限、临时脚本 finally 清理、失败六分类（aborted/timeout/spawn-failed/nonzero-exit/output-too-large/malformed-output）；Host document RPC 透传 Connection 第三个 AbortSignal；Coordinator 抽取 await + signal 传播，抽取后补查 closing/aborted；新增 `workbench.docxExtractionTimeoutMs`（默认 30000，1000–300000 加载边界校验，index 注入）。成功路径输出与同步版本逐字节一致（含线路格式固定尾部换行）。聚焦测试 110/110、完整测试 289/289、build、`! rg -n 'spawnSync' src`、`git diff --check` 通过；决策记录为 DECISIONS.md Q44。
 
 ### CC-V5-005：项目级文档体检配置
 

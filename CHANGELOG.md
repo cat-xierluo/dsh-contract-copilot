@@ -4,6 +4,15 @@
 
 ## [Unreleased] — 推进中
 
+### Changed（2026-09-05，DOCX 抽取异步化）
+- 工作台文档预览与 Agent 分析正文共用的 DOCX 抽取从同步子进程改为有界异步实现：抽取进行中 DSH Host 事件循环继续调度，大 DOCX 或慢 Python 不再冻结整个 harness
+- 抽取子进程显式受 `workbench.docxExtractionTimeoutMs` 约束（默认 30000，允许 1000–300000）；超时或调用方取消时终止子进程并等待其退出，临时脚本必定清理；stdout/stderr 保留 32 MiB 上限
+- 工作台 document RPC 与 Agent 分析派发均消费 Connection 请求级 AbortSignal；失败语义可区分取消、超时、非零退出、输出过大和输出格式异常——超时与非零退出仍持久化 automation failed 且不创建 Agent，取消不再被误报为合同损坏
+
+### Testing（2026-09-05，DOCX 抽取异步化）
+- 新增抽取进程收束与错误语义回归：超时/取消 SIGKILL 子进程并等待退出、32 MiB 输出上限、malformed output、成功路径输出与同步版本逐字节一致、抽取进行中事件循环可调度、document RPC 与分析派发的取消路径；`tests/docx-view.spec.ts`（PR #2 锚点回归）只运行未修改且继续通过
+- 聚焦测试 110/110、完整测试 289/289、Node/Client build 通过；`rg -n 'spawnSync\\(' src` 零命中（字面 `spawnSync` 在 src 下仅剩 `python-bridge.ts` 既有文档注释一处，该文件超出本任务修改范围）
+
 ### Added（2026-09-05，工作台体验基础）
 - DOCX 批注获得内容派生的稳定锚点和可持久传输的定位元数据；简版正文同步输出可选择的锚点标记，无法精确定位时返回确定性降级原因
 - 新增纯客户端批注导航控制器，统一稳定选择器解析、滚动、焦点、瞬时高亮清理和结构化未命中结果

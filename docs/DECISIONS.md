@@ -168,6 +168,15 @@
 | **影响** | 两种 DOM 共用同一选择、滚动和高亮控制器；只有恢复到有效批注 id 的占位元素才会增强，无法解析时保持未命中而不误跳。可见标记和辅助名称由 typed locale 提供。 |
 | **何时重新评估** | 锁定的 `docx-preview` 版本提供稳定、公开且带 id 的批注引用接口时。 |
 
+## Q44：DOCX 抽取改为有界异步子进程（2026-09-05）
+
+| 字段 | 内容 |
+|---|---|
+| **结论** | 工作台预览与 Agent 分析正文共用的 `extractDocxParts` 从 spawnSync 改为 Promise API：显式接收 `pythonExecutable`、`timeoutMs`（`workbench.docxExtractionTimeoutMs`，默认 30000、允许 1000–300000）与可选 AbortSignal；保留 32 MiB stdout/stderr 上限；超时/上游取消时 SIGKILL 子进程并等待其 close 后才收束；临时脚本在 finally 清理。失败可区分为 aborted / timeout / spawn-failed / nonzero-exit / output-too-large / malformed-output；Host document RPC 透传 Connection handler 的第三个 AbortSignal，Agent 分析链 await 抽取并传播 signal。 |
+| **理由** | Q18 已为 apply CLI 选择异步 spawn，但抽取路径遗留 spawnSync：大 DOCX 或慢 Python 会冻结 DSH Host 事件循环（HMR/UI/监听器全部停摆），且无法被取消。抽取发生在 RPC handler 内，上游断开或超时后必须能止损。 |
+| **影响** | 超时与非零退出仍持久化 automation failed 且不创建 Agent；调用方取消以 `contract-copilot/aborted` 语义收束，不误报合同损坏、不遗留 active Agent；成功路径输出（documentXml/commentsXml，含固定尾部换行的线路格式）逐字节不变。`src` 下不再有 spawnSync。不引入缓存、全局并发队列或新 session 状态。 |
+| **何时重新评估** | Node 提供稳定的进程树终止原语（当前 kill 只及直接子进程）或抽取需要进程内并发上限时。 |
+
 ---
 
 ## 决策索引（按主题）
@@ -181,7 +190,7 @@
 - Q17 / Q18 / Q21 — 状态写盘、异步 spawn、integrity 不自建回滚
 - Q26 / Q27 / Q28 — analyze 必填 summary、re-analyze 状态门、force_edit 授权
 - Q29 — compactUndefinedDeep 适配 lossless JSON
-- Q34 / Q35 / Q38 / Q40 / Q42 — DSH 会话接线、HMR 边界、0.1.2 工作台迁移、专属 Agent 驱动、可观察运行面与分析上下文注入
+- Q34 / Q35 / Q38 / Q40 / Q42 / Q44 — DSH 会话接线、HMR 边界、0.1.2 工作台迁移、专属 Agent 驱动、可观察运行面、分析上下文注入与 DOCX 抽取异步化
 
 **作用域与命名**
 - Q1 / Q5 / Q6 / Q7 / Q9 / Q10 / Q11 — 用户、仓库、scope、GitHub 用户名

@@ -10,7 +10,14 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { ANALYSIS_CONTRACT_TEXT_DEFAULT_CHARS, ANALYSIS_CONTRACT_TEXT_HARD_MAX_CHARS, resolveConfig } from '../src/config.ts'
+import {
+  ANALYSIS_CONTRACT_TEXT_DEFAULT_CHARS,
+  ANALYSIS_CONTRACT_TEXT_HARD_MAX_CHARS,
+  DOCX_EXTRACTION_TIMEOUT_DEFAULT_MS,
+  DOCX_EXTRACTION_TIMEOUT_MAX_MS,
+  DOCX_EXTRACTION_TIMEOUT_MIN_MS,
+  resolveConfig,
+} from '../src/config.ts'
 import { expandHome, normalizeContractKey } from '../src/paths.ts'
 
 describe('normalizeContractKey', () => {
@@ -149,6 +156,39 @@ describe('resolveConfig', () => {
     'analysisContractTextMaxChars 非法值 %p 在加载边界抛错',
     (rawLimit) => {
       expect(() => resolveWithLimit(rawLimit)).toThrow(/analysisContractTextMaxChars/)
+    },
+  )
+
+  // workbench.docxExtractionTimeoutMs：抽取子进程超时上限，部署相关 → 加载边界校验。
+  function resolveWithTimeout(rawTimeout: unknown) {
+    const skill = fakeSkill()
+    try {
+      return resolveConfig({
+        skillRoot: skill,
+        pythonExecutable: 'python3',
+        sessionsDir: skill,
+        injectProgress: true,
+        workbench: { docxExtractionTimeoutMs: rawTimeout } as never,
+      })
+    } finally {
+      rmSync(skill, { recursive: true, force: true })
+    }
+  }
+
+  it('docxExtractionTimeoutMs 缺省走协议默认值', () => {
+    const cfg = resolveWithTimeout(undefined)
+    expect(cfg.workbench.docxExtractionTimeoutMs).toBe(DOCX_EXTRACTION_TIMEOUT_DEFAULT_MS)
+  })
+
+  it('docxExtractionTimeoutMs 合法自定义值透传', () => {
+    const cfg = resolveWithTimeout(120_000)
+    expect(cfg.workbench.docxExtractionTimeoutMs).toBe(120_000)
+  })
+
+  it.each([0, DOCX_EXTRACTION_TIMEOUT_MIN_MS - 1, 1.5, Number.NaN, DOCX_EXTRACTION_TIMEOUT_MAX_MS + 1])(
+    'docxExtractionTimeoutMs 非法值 %p 在加载边界抛错',
+    (rawTimeout) => {
+      expect(() => resolveWithTimeout(rawTimeout)).toThrow(/docxExtractionTimeoutMs/)
     },
   )
 })

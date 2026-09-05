@@ -11,7 +11,7 @@ import type {
 } from '@deepseek-ai/dsh-client-connection'
 import type { PluginConfig } from './config.ts'
 import { AgentCoordinatorError, ContractAgentCoordinator } from './agent-coordinator.ts'
-import { extractDocxParts, parseCommentsXml, renderDocumentWithAnchors } from './docx-view.ts'
+import { DocxExtractionError, extractDocxParts, parseCommentsXml, renderDocumentWithAnchors } from './docx-view.ts'
 import { hasBlockers, resolveIntakeFields } from './intake-fields.ts'
 import { expandHome, normalizeContractKey } from './paths.ts'
 import { approvePlan, PlanReviewError, type FindingDecisionInput } from './plan-review.ts'
@@ -57,7 +57,9 @@ export function registerHostApi(
     const connection = connectionCtx.connection as HostConnectionHandle
     connection.rpc.handle(
       WORKBENCH_RPC_CHANNEL,
-      (endpoint, payload) => handleWorkbenchRpc(config, store, endpoint, payload, coordinator),
+      // Connection 第三个参数是请求级 AbortSignal：document 抽取与 Agent 分析
+      // 派发都消费它，浏览器断开或取消时不再冻结在无界子进程上。
+      (endpoint, payload, signal) => handleWorkbenchRpc(config, store, endpoint, payload, coordinator, signal),
     )
     connection.fetch.register({
       path: WORKBENCH_EVENTS_PATH,
@@ -79,6 +81,7 @@ export async function handleWorkbenchRpc(
   endpoint: string,
   payload: unknown,
   coordinator?: ContractAgentCoordinator,
+  signal?: AbortSignal,
 ): Promise<ConnectionRpcResult<unknown>> {
   try {
     const input = recordPayload(payload)
@@ -88,7 +91,7 @@ export async function handleWorkbenchRpc(
       case 'detail':
         return success(sessionDetail(store, sessionIdFrom(input)))
       case 'document':
-        return success(documentView(config, requireSession(store, sessionIdFrom(input))))
+        return success(await documentView(config, requireSession(store, sessionIdFrom(input)), signal))
       case 'answers': {
         const session = requireSession(store, sessionIdFrom(input))
         store.save({ ...session, pendingAnswers: answersFrom(input.fields) })
@@ -112,11 +115,11 @@ export async function handleWorkbenchRpc(
       case 'run-analysis': {
         const session = requireSession(store, sessionIdFrom(input))
         assertIntakeReady(config, session)
-        return success(await requireCoordinator(coordinator).runAnalysis(session.id))
+        return success(await requireCoordinator(coordinator).runAnalysis(session.id, { signal }))
       }
       case 'run-delivery': {
         const session = requireSession(store, sessionIdFrom(input))
-        return success(await requireCoordinator(coordinator).runDelivery(session.id))
+        return success(await requireCoordinator(coordinator).runDelivery(session.id, { signal }))
       }
       case 'cancel': {
         const session = requireSession(store, sessionIdFrom(input))
@@ -322,9 +325,21 @@ function sessionDetail(store: SessionStore, sessionId: string): SessionDetail {
   }
 }
 
-function documentView(config: PluginConfig, session: ContractSession): DocumentView {
+async function documentView(config: PluginConfig, session: ContractSession, signal?: AbortSignal): Promise<DocumentView> {
   const docxPath = session.outputs.reviewedDocx ?? session.contractPath
-  const { documentXml, commentsXml } = extractDocxParts(docxPath, config.pythonExecutable)
+  let documentXml: string
+  let commentsXml: string
+  try {
+    ({ documentXml, commentsXml } = await extractDocxParts(
+      docxPath,
+      config.pythonExecutable,
+      config.workbench.docxExtractionTimeoutMs,
+      signal,
+    ))
+  } catch (error) {
+    if (error instanceof DocxExtractionError) throw workbenchExtractionError(error)
+    throw error
+  }
   const comments = parseCommentsXml(commentsXml)
   const rendered = renderDocumentWithAnchors(documentXml, comments)
   return {
@@ -333,6 +348,18 @@ function documentView(config: PluginConfig, session: ContractSession): DocumentV
     comments: rendered.comments,
     reviewedDocx: session.outputs.reviewedDocx,
     reportDocx: session.outputs.reportDocx,
+  }
+}
+
+/** 抽取失败 → 稳定 RPC 错误码；取消不是合同损坏，也不得与内部错误混淆。 */
+function workbenchExtractionError(error: DocxExtractionError): WorkbenchRequestError {
+  switch (error.kind) {
+    case 'aborted':
+      return new WorkbenchRequestError('contract-copilot/aborted', '文档抽取已取消。')
+    case 'timeout':
+      return new WorkbenchRequestError('contract-copilot/document-extraction-timeout', error.message)
+    default:
+      return new WorkbenchRequestError('contract-copilot/document-unavailable', error.message)
   }
 }
 

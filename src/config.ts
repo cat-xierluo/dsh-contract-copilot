@@ -25,6 +25,8 @@ export interface WorkbenchConfig {
   readonly enabled: boolean
   /** 分析回合注入提示的合同正文字符上限（部署相关；加载边界校验）。 */
   readonly analysisContractTextMaxChars: number
+  /** 单次 DOCX 抽取子进程的超时上限（毫秒；加载边界校验）。 */
+  readonly docxExtractionTimeoutMs: number
 }
 
 /** 分析回合合同正文注入上限的默认值（覆盖绝大多数中文合同全文）。 */
@@ -33,6 +35,13 @@ export const ANALYSIS_CONTRACT_TEXT_DEFAULT_CHARS = 40_000
 export const ANALYSIS_CONTRACT_TEXT_HARD_MAX_CHARS = 200_000
 /** 下限：低于该值装不下有意义的合同片段。 */
 const ANALYSIS_CONTRACT_TEXT_MIN_CHARS = 1_000
+
+/** DOCX 抽取子进程超时默认值：覆盖慢盘/杀毒扫描下的真实大 DOCX。 */
+export const DOCX_EXTRACTION_TIMEOUT_DEFAULT_MS = 30_000
+/** 抽取超时协议下限：低于 1s 的超时对真实抽取没有意义。 */
+export const DOCX_EXTRACTION_TIMEOUT_MIN_MS = 1_000
+/** 抽取超时协议硬顶：超时必须能在一个可等待的窗口内失败。 */
+export const DOCX_EXTRACTION_TIMEOUT_MAX_MS = 300_000
 
 export const Config: z<PluginConfig> = z.object({
   skillRoot: z.string().required().description(
@@ -47,6 +56,9 @@ export const Config: z<PluginConfig> = z.object({
     enabled: z.boolean().default(true).description('是否在 DSH Web 界面启用内嵌合同审查工作台'),
     analysisContractTextMaxChars: z.number().default(ANALYSIS_CONTRACT_TEXT_DEFAULT_CHARS).description(
       `分析回合注入提示的合同正文字符上限（${ANALYSIS_CONTRACT_TEXT_MIN_CHARS}–${ANALYSIS_CONTRACT_TEXT_HARD_MAX_CHARS}）`,
+    ),
+    docxExtractionTimeoutMs: z.number().default(DOCX_EXTRACTION_TIMEOUT_DEFAULT_MS).description(
+      `单次 DOCX 抽取子进程的超时上限，毫秒（${DOCX_EXTRACTION_TIMEOUT_MIN_MS}–${DOCX_EXTRACTION_TIMEOUT_MAX_MS}）`,
     ),
   }).description('复用 DSH Connection 鉴权、侧栏插槽与 Web 地址的内嵌工作台'),
 })
@@ -71,6 +83,16 @@ export function resolveConfig(raw: PluginConfig): PluginConfig {
       + `${ANALYSIS_CONTRACT_TEXT_MIN_CHARS}–${ANALYSIS_CONTRACT_TEXT_HARD_MAX_CHARS} 之间的整数，收到 ${String(analysisContractTextMaxChars)}`,
     )
   }
+  const docxExtractionTimeoutMs =
+    raw.workbench?.docxExtractionTimeoutMs ?? DOCX_EXTRACTION_TIMEOUT_DEFAULT_MS
+  if (!Number.isInteger(docxExtractionTimeoutMs)
+    || docxExtractionTimeoutMs < DOCX_EXTRACTION_TIMEOUT_MIN_MS
+    || docxExtractionTimeoutMs > DOCX_EXTRACTION_TIMEOUT_MAX_MS) {
+    throw new Error(
+      `contract-copilot: workbench.docxExtractionTimeoutMs 必须是 `
+      + `${DOCX_EXTRACTION_TIMEOUT_MIN_MS}–${DOCX_EXTRACTION_TIMEOUT_MAX_MS} 之间的整数毫秒，收到 ${String(docxExtractionTimeoutMs)}`,
+    )
+  }
   return {
     skillRoot,
     pythonExecutable: raw.pythonExecutable || 'python3',
@@ -79,6 +101,7 @@ export function resolveConfig(raw: PluginConfig): PluginConfig {
     workbench: {
       enabled: raw.workbench?.enabled !== false,
       analysisContractTextMaxChars,
+      docxExtractionTimeoutMs,
     },
   }
 }
