@@ -1,5 +1,49 @@
 # 当前任务
 
+## CC-V5：工作台质量加固波次
+
+- 状态：进行中；Wave 1 准备派发
+- 默认主干：`main`
+- 集成分支：`feat-v5-quality-hardening`
+- 集成目标：Wave 1 worker PR 均以 `feat-v5-quality-hardening` 为 base；里程碑完成后由该分支向 `main` 提最终 PR
+- 集成所有者：当前 PM；固定 Worktree 为 `/Users/maoking/orca/workspaces/dsh-contract-copilot/feat-v5-quality-hardening`
+- 分支生命周期：集成分支 `long-lived`（仅本里程碑期间保留），worker 分支 `ephemeral-worker`
+- 里程碑：修复批注锚点精度边界，建立 DSH 主题 token 漂移门禁，并把真实 `force_edit` 修订产物接入可重复验收；全部交付须绑定独立 reviewer 与最终候选验证
+- 同步策略：本波冻结 `origin/main` 的 `cddba4415057533a0a1b3fa77e091c968c65af26`；存在 open worker PR 时不移动集成基线
+
+### CC-V5-001：异常 OOXML 批注锚点精度修复
+
+- 状态：待派发
+- 目标：当渲染器在计划终点前因异常 OOXML 提前停止时，不得仅因段尾补闭合了部分范围就把批注报告为 `exact`；精确状态必须证明真实终点已被消费。
+- 文件边界：`src/docx-view.ts`、`tests/docx-view.spec.ts`；不修改抽取进程、Host、Client、协议或共享文档。
+- 验收：新增失败回归覆盖“起点已输出、终点未消费、段尾被迫闭合”的路径；此路径稳定降级，正常范围与嵌套范围继续为 `exact`；聚焦测试、完整测试和 build 通过。
+
+### CC-V5-002：DSH 主题 token 运行时漂移门禁
+
+- 状态：待派发
+- 目标：把工作台主题 token 的真实性从源码内自维护 allowlist 提升为对锁定 DSH 客户端包已发布工件的机械核对，防止 DSH 升级后夜间模式因 token 消失而静默退回错误颜色。
+- 文件边界：新增 `scripts/verify-dsh-theme-tokens.mjs` 及其测试，可按需要调整 `tests/workbench-client.spec.ts`；不修改 `src/client/Workbench.tsx` 的视觉设计、不改依赖版本或锁文件。
+- 验收：校验器从当前安装的 `@deepseek-ai/dsh-client-ui-*` 已发布工件提取 token，证明 `DSH_THEME_TOKENS` 全部存在；不存在 token 的负例 fail closed；聚焦测试、client typecheck 和 build 通过。
+
+### CC-V5-003：`force_edit` 修订产物可重复验收
+
+- 状态：待派发
+- 目标：提供可重复工程验收资产，用合成合同和带 `force_edit: true` 的计划生成真实修订 DOCX，并证明工作台数据面输出可见的 `cc-ins`/`cc-del` 修订标记，为后续真实浏览器样例提供固定输入。
+- 文件边界：新增独立 fixture/集成测试或验收脚本，优先位于 `tests/` 与 `scripts/acceptance/`；不修改 Python 脚本、DOCX 渲染器、Host 生产代码、Client 生产代码或共享文档。
+- 验收：真实 Python CLI 生成物同时含 OOXML `w:ins`/`w:del`，再经现有工作台 document 路径投影为 `cc-ins`/`cc-del`；缺少依赖时明确 skip 原因，不能假绿；聚焦测试与完整测试通过。
+
+### CC-V5-004：DOCX 抽取异步化
+
+- 状态：已登记，等待 Wave 2；与 CC-V5-001 共享 `src/docx-view.ts`，本波不并行派发
+- 目标：将预览和 Agent 正文注入共用的 `spawnSync` 抽取改为有界异步子进程，避免大 DOCX 或慢 Python 冻结 DSH Host 事件循环。
+- 验收：Host RPC 与分析派发均 await 抽取；超时、非零退出和取消路径明确；事件循环可在抽取进行时继续调度；完整测试和 build 通过。
+
+### CC-V5-005：项目级文档体检配置
+
+- 状态：已登记，等待后续维护波次
+- 目标：为本项目提供匹配 `status/TASKS.md`、`[Unreleased]` CHANGELOG 和跨仓链接的 doc-curator 配置，替代当前误用 FaroPDF 配置产生的假 hard/adaptive 信号。
+- 验收：历史范围检查不再误报任务源与 CHANGELOG 结构；真实断链负例仍 fail closed；不改变现有文档职责。
+
 ## CC-V4-010：简版文档导航根接线（CC-V4-004 验收退回）
 
 - 状态：已完成；真实浏览器复验与 CC-V4-004 独立 reviewer 合并门均通过
