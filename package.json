@@ -26,7 +26,7 @@
     "build:node": "pnpm run clean && tsc -p tsconfig.json",
     "build:client": "tsdown -c tsdown.client.config.ts",
     "typecheck:client": "tsc -p tsconfig.client.json",
-    "test": "vitest run",
+    "test": "NODE_OPTIONS=--max-old-space-size=2048 vitest run",
     "prepare": "pnpm run build"
   },
   "author": "杨卫薪律师（微信 ywxlaw）",
