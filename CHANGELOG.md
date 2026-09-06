@@ -13,6 +13,12 @@
 - 已知缺口（源自 ADOPTION §1 权威模板与仓库现状的既存冲突，派发指令要求照抄权威文本，留待后续卡/提交补齐）：① package.json 无 `typecheck` 脚本（仅 `typecheck:client`），CI typecheck job 首跑会红；② ci.yml `node-version: 20` 与 engines `>=22` 不一致；③ `pull_request: [opened, synchronize, reopened]` 数组简写不是合法 GH Actions 语法（activity types 须嵌套在 `types:` 下，且这三个恰为默认值）；④ CODEOWNERS 律师路由引用的 4 条路径在仓库内不存在（src 为平铺文件 `plan-review.ts` / `intake-fields.ts` / `host-api.ts`，无 `docs/business-rules/` 目录），按 gitignore 语义这些规则永不命中——律师自动 review 请求不会触发，实际靠兜底 `* @maoking` 与手动 @律师
 - 边界：分支保护勾 `test` / `typecheck` 为 required check、fork/branch PR 实测 CI 与锚点可机读属任务卡验收的后续人工步骤，不在本提交内；不修改任何已有源文件、测试、package.json、tsconfig
 
+### Added（2026-09-06，issue 模板 Phase 1 增补 — TASK-2026-09-06-orca-gov-03）
+- 新增 `.github/ISSUE_TEMPLATE/01-business-rule-review.yml`（杨律师业务规则审核专用）：schema-friendly 必填字段 `rule_version` / `affected_contract_clause` / `repro_docx_path`（字段约束显式要求脱敏/合成 DOCX 样例，防客户敏感信息入库）+ `details` 审核意见；title 前缀 `[Business rule]: ` 与顶层 label `business-rule` 双轨编码
+- 新增 `.github/ISSUE_TEMPLATE/bug_report.yml`：`module` dropdown（intake / plan-review / docx-view / python-bridge / session，字段 description 内置 src 模块映射并引导规则类问题走业务规则审核表单）+ `os` + `details` 必填；`[Bug]: ` 前缀、`type: Bug`、`labels: ["bug"]` 三处冗余编码
+- 依据 `docs/orca-governance-adoption/ISSUE-LIFECYCLE.md` §6.2 落地；按卡 03 边界不建 labeler workflow、不建 other.yml；仓库设置"Issues must be created from a template"与 fork 实测（module dropdown 渲染、CODEOWNERS 路由）需维护者在 GitHub web UI 完成后方可收卡
+- 验证：scoped 自检——两文件存在、三字段 id 与 `module` 五选项/`[Bug]: ` 前缀/`labels` 关键结构齐全（`grep` 逐项核对）；零源码/测试改动，未跑全量测试套件
+
 ### Fixed（2026-09-06，vitest 状态污染根治 — TASK-2026-09-06-orca-gov-02）
 - 新增 `vitest.config.ts`：全局 `hookTimeout: 30_000`——2026-09-05/06 崩溃循环期间 agent-coordinator 6 连败的真实形态是 beforeEach 里派生真实 python3 超过 vitest 默认 10s hook 上限；30s 与真实子进程用例的 testTimeout 对齐，不改 pool/worker 数
 - `tests/docx-extract.spec.ts` 重写隔离契约：beforeEach 把进程级 TMPDIR 重定向进独占 mkdtemp 目录，afterEach 还原环境后断言零 `cc-docx-*` 残留——残留从"事后观察"变为确定性断言，且不受历史运行（进程被杀来不及清理）留在系统临时目录的陈旧条目影响；fixture 生成改用 `docx-fixture.ts` 的 python3 stdlib zipfile（旧 makeDocx 的 `|| true ||` 回退分支永不执行，python-docx 缺失时静默产出缺失文件）；真实子进程用例显式 30s 超时

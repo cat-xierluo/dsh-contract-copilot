@@ -1,0 +1,44 @@
+# 杨律师业务规则审核专用表单（Phase 1 增补）
+# 权威来源：docs/orca-governance-adoption/ISSUE-LIFECYCLE.md §6.2
+# 触发条件：用户投诉合同审查逻辑错 / 律师提出规则改进
+# 字段 id 保持 schema-friendly 英文，便于后续 AI reviewer / 内部 PM 消费
+name: 业务规则审核
+description: 杨律师专用——合同审查业务规则的纠错与改进（审查逻辑投诉 / 规则改进提议）
+title: '[Business rule]: '
+labels: ["business-rule"]
+body:
+  - type: input
+    id: rule_version
+    attributes:
+      label: 业务规则版本
+      description: 该规则对应的版本戳（SKILL.md 版本号，如 1.6.3）或规则条目编号。
+      placeholder: 例如 1.6.3
+    validations:
+      required: true
+  - type: input
+    id: affected_contract_clause
+    attributes:
+      label: 受影响合同条款
+      description: 该规则作用的合同条款或抽取字段（如"违约金上限""主体资格字段"）。
+      placeholder: 例如 违约金上限 30%
+    validations:
+      required: true
+  - type: input
+    id: repro_docx_path
+    attributes:
+      label: 复现用 DOCX 路径
+      description: 能触发该规则的合同样例路径；请使用脱敏或合成样例，勿提交含客户敏感信息的合同原件。
+      placeholder: 例如 samples/synthetic-contract.docx
+    validations:
+      required: true
+  - type: textarea
+    id: details
+    attributes:
+      label: 审核意见
+      description: 现行规则哪里不对/期望怎么改——触发场景 → 现行行为 → 期望行为。
+      placeholder: |
+        触发场景：…
+        现行规则的行为：…
+        期望行为/改法：…
+    validations:
+      required: true

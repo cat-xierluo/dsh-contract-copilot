@@ -2,7 +2,7 @@
 
 ## TASK-2026-09-06-orca-gov-01：governance: dsh Phase 1 — PR 模板 + CODEOWNERS + CI baseline
 
-- 状态：`PENDING`
+- 状态：`已完成（2026-09-06，scoped 验证全过、safe-push OID 全链核验、PM 内容等价 comment 替代 audit exact 路径；worker-orca-gov-01 已在 PR #10 创建，worktree + branch 已 CLEANED。剩余 3 项 web UI 操作留给维护者）`
 - 类型：`implementation`
 - 来源：2026-09-06 桌面 `orca-governance-adoption` 调研；同目录 `ADOPTION-dsh-contract-copilot.md` §1 + `CHECKLIST.md` Phase 1
 - 关联材料：`docs/orca-governance-adoption/ADOPTION-dsh-contract-copilot.md`、`docs/orca-governance-adoption/CHECKLIST.md`
@@ -17,13 +17,21 @@ dsh-contract-copilot 是公有仓库但仓库内 0 个 `.github/` 文件：PR �
 
 ### 验收标准
 
-- [ ] `.github/pull_request_template.md` 新建（约 50 行 Markdown，含 ELI5 / Summary / Why / What Changed / Linked Issue / Visual Proof / Test Plan / AI Disclosure / Notes / Checklist 锚点，模板全文见 `ADOPTION-dsh-contract-copilot.md` §1.1）
-- [ ] `.github/CODEOWNERS` 新建：业务规则路径（`/docs/business-rules/`、`/src/plan-review/`、`/src/intake-fields/`、`/src/host-api/contract-types.ts`）归 `@杨卫薪律师`；核心实现 / tests / CI 配置文件归主维护者 `@maoking`；兜底 `* @maoking`
-- [ ] `.github/workflows/ci.yml` 新建：typecheck + test（含 `NODE_OPTIONS=--max-old-space-size=2048`，与本机一致）+ build；`on: pull_request` + `push: main`
-- [ ] 仓库 Settings → Branches → main → Branch protection rules 勾 `test` 与 `typecheck` 为 required status check
-- [ ] 在 fork 或新 branch 上各填一个 PR 跑完整 CI（typecheck + test + build），确认 ELI5 / What Changed 等锚点可机读、CODEOWNERS 自动请求律师 review
-- [ ] commit 风格沿用 dsh 现有约定（英文 type prefix + 中文说明 + 中文正文），示例：`chore(governance): adopt orca-style PR template + CODEOWNERS + CI baseline (Phase 1)`
-- [ ] 不修改任何已有源文件、测试、package.json、tsconfig；新增文件仅限 `.github/` 下
+- [x] `.github/pull_request_template.md` 新建（约 50 行 Markdown，含 ELI5 / Summary / Why / What Changed / Linked Issue / Visual Proof / Test Plan / AI Disclosure / Notes / Checklist 锚点，模板全文见 `ADOPTION-dsh-contract-copilot.md` §1.1）— 交付 head `e8a7c73`，50 行，含全部锚点
+- [x] `.github/CODEOWNERS` 新建：业务规则路径（`/docs/business-rules/`、`/src/plan-review/`、`/src/intake-fields/`、`/src/host-api/contract-types.ts`）归 `@杨卫薪律师`；核心实现 / tests / CI 配置文件归主维护者 `@maoking`；兜底 `* @maoking` — 律师路由 4 条路径齐
+- [x] `.github/workflows/ci.yml` 新建：typecheck + test（含 `NODE_OPTIONS=--max-old-space-size=2048`，与本机一致）+ build；`on: pull_request` + `push: main` — 三 job + 堆顶注入
+- [ ] 仓库 Settings → Branches → main → Branch protection rules 勾 `test` 与 `typecheck` 为 required status check — **留给维护者**
+- [ ] 在 fork 或新 branch 上各填一个 PR 跑完整 CI（typecheck + test + build），确认 ELI5 / What Changed 等锚点可机读、CODEOWNERS 自动请求律师 review — **留给维护者**
+- [x] commit 风格沿用 dsh 现有约定（英文 type prefix + 中文说明 + 中文正文），示例：`chore(governance): adopt orca-style PR template + CODEOWNERS + CI baseline (Phase 1)` — 逐字一致
+- [x] 不修改任何已有源文件、测试、package.json、tsconfig；新增文件仅限 `.github/` 下 — diff 恰 4 文件
+
+### 执行证据（2026-09-06）
+
+- **PR #10**：https://github.com/cat-xierluo/dsh-contract-copilot/pull/10（head `e8a7c73356bc0d06f38d00ca6c9e66685ebb9057`，base main）
+- **scoped 验证复跑**：`grep -q 'max-old-space-size=2048' .github/workflows/ci.yml` 等全部 PASS
+- **safe-push OID 全链核验**：IDENTITY_GATE_COMMIT_OK / base=291c57c / head=e8a7c73 / commits=1 / expected name+email match
+- **PM 接管 audit ambiguous**（同卡 03）：与 INFRA-FOLLOWUPS #1 同根因，PM 在 PR #10 留 comment 标内容等价证明
+- **资源收口**：worker worktree /Users/maoking/orca/workspaces/dsh-contract-copilot/chore-governance-phase1 已 `git worktree remove --force`，CLEANED
 
 ### 风险与边界
 
@@ -83,7 +91,7 @@ dsh vitest 测试套件存在"claude 会话反复跑 `pnpm test` → 状态污�
 
 ## TASK-2026-09-06-orca-gov-03：governance: dsh Phase 1 增补 — issue 业务规则模板 + module dropdown
 
-- 状态：`PENDING`
+- 状态：`已完成（2026-09-06，三门验收全过，独立 reviewer ACCEPT 7/7；worker-orca-gov-03 已在 PR #9 创建并由 PM 留认领 comment 替代 audit exact 路径；worktree + branch 已 CLEANED。剩余 3 项 web UI 操作留给维护者）`
 - 类型：`implementation`
 - 来源：2026-09-06 桌面 `orca-governance-adoption` 调研
 - 关联材料：`docs/orca-governance-adoption/ISSUE-LIFECYCLE.md` §6.2、`docs/orca-governance-adoption/CHECKLIST.md` dsh §Phase 1 增补段
@@ -98,18 +106,27 @@ dsh 是合同审查业务规则工具——bug 类型高度结构化（合同主
 
 ### 验收标准
 
-- [ ] `.github/ISSUE_TEMPLATE/01-business-rule-review.yml` 新建（含杨律师专属字段如 `rule_version`、`affected_contract_clause`、`repro_docx_path`，完整 YAML 见 `ISSUE-LIFECYCLE.md` §6.2）
-- [ ] `.github/ISSUE_TEMPLATE/bug_report.yml` 新建：含 `module` dropdown（intake / plan-review / docx-view / python-bridge / session），加上 `os`、`details` 必填字段；title 前缀 `[Bug]: `、type: Bug、labels: ["bug"]
-- [ ] 仓库 Settings → General → Issues 勾选 "Issues must be created from a template"（与 orca 的 `blank_issues_enabled: false` 等价）
-- [ ] 在 fork 上各发一个 bug + 一个 business-rule-review issue，确认 module dropdown 渲染、CODEOWNERS 自动请求律师 review
-- [ ] commit 风格：`chore(governance): issue template — 业务规则审核 + module dropdown (Phase 1 增补)`
-- [ ] 不修改任何已有源文件、测试；新增文件仅限 `.github/ISSUE_TEMPLATE/`
+- [x] `.github/ISSUE_TEMPLATE/01-business-rule-review.yml` 新建（含杨律师专属字段如 `rule_version`、`affected_contract_clause`、`repro_docx_path`，完整 YAML 见 `ISSUE-LIFECYCLE.md` §6.2）— 交付 head `e9ec7c9`，三必填字段齐
+- [x] `.github/ISSUE_TEMPLATE/bug_report.yml` 新建：含 `module` dropdown（intake / plan-review / docx-view / python-bridge / session），加上 `os`、`details` 必填字段；title 前缀 `[Bug]: `、type: Bug、labels: ["bug"] — module 五选项齐，fields=3
+- [ ] 仓库 Settings → General → Issues 勾选 "Issues must be created from a template"（与 orca 的 `blank_issues_enabled: false` 等价）— **留给维护者**
+- [ ] 在 fork 上各发一个 bug + 一个 business-rule-review issue，确认 module dropdown 渲染、CODEOWNERS 自动请求律师 review — **留给维护者**
+- [x] commit 风格：`chore(governance): issue template — 业务规则审核 + module dropdown (Phase 1 增补)` — 逐字一致
+- [x] 不修改任何已有源文件、测试；新增文件仅限 `.github/ISSUE_TEMPLATE/` — diff 恰 3 文件 +98/−0
+
+### 执行证据（2026-09-06）
+
+- **PR #9**：https://github.com/cat-xierluo/dsh-contract-copilot/pull/9（head `e9ec7c9599d5aa9fd0927c32398ea3364991d228`，base main）
+- **三门全过**：dispatch-value-gate（v2 spec ok）→ worker-value-postflight（ok:true，2 evidence，零越界）→ review-acceptance-gate（ACCEPT，ordinary_delivery:true）
+- **独立 reviewer**：7/7 PASS（字段、边界、YAML、CHANGELOG、内容质量、commit 风格）；4 条非阻断观察：label 仓库预建、rule_version 示例口径、node_modules 工作区残留（已清）、docs 入库状态（误报，6a48422 已含）
+- **PM 接管 audit ambiguous**：multi-agent-orchestration skill INFRA-FOLLOWUPS #1 已知 bug（pr-audit hunk-header 指纹边界导致 diff 内容等价被判 ambiguous→suspected）；safe-push OID 全链核验替代审计 exact：IDENTITY_GATE_COMMIT_OK / base=291c57c / head=e9ec7c9；PM 在 PR #9 留 comment 标内容等价证明
+- **资源收口**：worker worktree /Users/maoking/orca/workspaces/dsh-contract-copilot/chore-issue-templates 已 `git worktree remove --force`，provider-lease 文件保留（脚本不管）
 
 ### 风险与边界
 
 - 本卡**不**创建 labeler workflow（`issue-labeler.yaml`）——folia 的影响面→severity 映射对 dsh 不直接适用（dsh 的"影响面"是业务规则被破坏面，不是 macOS/Windows/Linux）。后续如需按 `module` 自动加 label，再开卡 3+
 - 不创建 `other.yml`——`ISSUE-LIFECYCLE.md` §1.2 论证"other 是兜底不是默认"，dsh 双维护者+律师可直接走 bug_report + business-rule-review 二选一
 - `01-business-rule-review.yml` 的字段命名要稳定 schema-friendly（`rule_version` 而非 `规则版本`）——便于后续 AI reviewer / 内部 PM 消费
+- worker 自动 push + 开 PR 是另一会话 2026-09-06 v2.22.0 默认权限升级带来的副作用（worker 隔离在专属分支、push+PR 是必要交付路径、安全类按分段校验放宽）；本仓派发 spec 未显式授予 push 权，worker 依赖默认新规则执行——已 PM 接管认领而非推倒重来
 
 ---
 

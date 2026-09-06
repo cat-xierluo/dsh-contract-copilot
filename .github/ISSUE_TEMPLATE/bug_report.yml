@@ -1,0 +1,48 @@
+# dsh-contract-copilot bug 报告表单（Phase 1 增补）
+# 权威来源：docs/orca-governance-adoption/ISSUE-LIFECYCLE.md §6.2
+# title 前缀 + 顶层 labels + schema-friendly 字段 id 三处冗余编码 issue 类型
+name: Bug report
+description: 报告 dsh-contract-copilot 的问题（崩溃、渲染异常、审查结果不对等）
+title: '[Bug]: '
+labels: ["bug"]
+type: Bug
+body:
+  - type: dropdown
+    id: module
+    attributes:
+      label: 涉及模块
+      description: >-
+        对应仓库源码模块：intake=前置信息/字段抽取（src/intake-fields.ts、src/tools/intake.ts）、
+        plan-review=计划审核/律师决策门（src/plan-review.ts）、docx-view=Word 渲染与批注（src/docx-view.ts）、
+        python-bridge=Python CLI 桥（src/python-bridge.ts）、session=会话状态机（src/session.ts）。
+        业务规则本身的对错请改用"业务规则审核"表单。
+      options:
+        - intake
+        - plan-review
+        - docx-view
+        - python-bridge
+        - session
+    validations:
+      required: true
+  - type: dropdown
+    id: os
+    attributes:
+      label: 操作系统
+      options:
+        - macOS
+        - Windows
+        - Linux
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: details
+    attributes:
+      label: 问题详情
+      description: 输入什么 → 期望什么 → 实际什么；请附报错输出或截图。
+      placeholder: |
+        1. 上传/操作了 …
+        2. 期望 …
+        3. 实际 …（含报错信息）
+    validations:
+      required: true
