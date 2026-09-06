@@ -149,7 +149,7 @@ dsh Phase 1（卡 1）装完三件套后，docs-only PR 仍会跑完整的 typec
 
 ## TASK-2026-09-06-orca-gov-05：investigation: 完成 orca 治理调研的全套对照 — 从 dsh 出发探索 folia 同款落地
 
-- 状态：`PENDING`
+- 状态：`已完成（2026-09-06，落地部分随 6a48422 提交；原"本卡显式不 commit"验收项被用户 2026-09-06 下午授权推进推翻）`；跨仓库对照（dsh ↔ folia，Phase 4）不在本卡范围、未做
 - 类型：`investigation`
 - 来源：2026-09-06 桌面 `orca-governance-adoption` 调研
 - 关联材料：`docs/orca-governance-adoption/` 全部 11 份文件、本卡 1–4
