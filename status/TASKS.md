@@ -36,7 +36,7 @@ dsh-contract-copilot 是公有仓库但仓库内 0 个 `.github/` 文件：PR �
 
 ## TASK-2026-09-06-orca-gov-02：test: 根治 dsh vitest 状态污染循环 — 临时目录严格隔离 + claude 工作流限定
 
-- 状态：`已完成（2026-09-06，验收证据见卡内"执行证据"）`；待办：独立 reviewer 复跑（见验收第 5 条）
+- 状态：`已完成（2026-09-06，验收证据见卡内"执行证据"；独立 reviewer 复跑通过，7/7 验收项全勾）`
 - 类型：`implementation`
 - 来源：2026-09-06 桌面 `orca-governance-adoption` 调研 + 同日 `orca-oom-crash-loop.md` 末段 16:32 全套件长跑归因
 - 关联材料：`docs/orca-governance-adoption/CHECKLIST.md`（dsh Phase 1 注解段）、`docs/orca-governance-adoption/ADOPTION-dsh-contract-copilot.md` §1.3 堆上限注解
@@ -60,7 +60,7 @@ dsh vitest 测试套件存在"claude 会话反复跑 `pnpm test` → 状态污�
 - [x] hook 超时上限 ≥30s：落地为新增 `vitest.config.ts` 全局 `hookTimeout: 30_000`（卡内明示允许的全局方案），覆盖 agent-coordinator 及所有在 hook 里派生真实 python3 的 spec
 - [x] `AGENTS.md` 新增"claude 会话跑测试的限定"段：禁止 agent 会话直接 `pnpm test` 跑全量；推荐 `pnpm vitest run tests/<single-spec>` 或 `--bail 1` 早停
 - [x] 受控环境（机器空闲、单 runner、堆顶在位）3 连跑 16 个 spec 完整套件：266/266 全绿 ×3（每轮 ~1.4s）、零临时目录残留断言失败、零崩溃报告；`$TMPDIR` 无新增残留
-- [ ] 提交后由独立 reviewer 在 PM 同一 commit 上复跑一次，确认结果一致（待 PM 流程执行）
+- [x] 提交后由独立 reviewer 在 PM 同一 commit 上复跑一次，确认结果一致（2026-09-06 通过：独立会话在 507aaef / HEAD 6a48422 上静态核对 hookTimeout 与 TMPDIR 隔离断言后全量复跑 2 次，均 266/266 全绿、退出码 0、零崩溃、零 hook 超时；cc-docx-extract- 计数运行前后均 5、零新增，mtime 确认全为历史遗留。结论：验收通过）
 - [x] 提交信息沿用 dsh 风格：`test: dsh vitest 状态污染根治 — 临时目录隔离 + hook 超时 + claude 工作流限定`
 - [x] 不修改 product 源码（`src/`）；只动 `tests/docx-extract.spec.ts`、`vitest.config.ts`（新建）、`AGENTS.md`
 
