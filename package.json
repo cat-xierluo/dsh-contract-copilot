@@ -25,6 +25,7 @@
     "build": "pnpm run clean && tsc -p tsconfig.json && tsc -p tsconfig.client.json && tsdown -c tsdown.client.config.ts",
     "build:node": "pnpm run clean && tsc -p tsconfig.json",
     "build:client": "tsdown -c tsdown.client.config.ts",
+    "typecheck": "tsc -p tsconfig.json",
     "typecheck:client": "tsc -p tsconfig.client.json",
     "test": "NODE_OPTIONS=--max-old-space-size=2048 vitest run",
     "prepare": "pnpm run build"

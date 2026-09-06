@@ -19,11 +19,11 @@ dsh-contract-copilot 是公有仓库但仓库内 0 个 `.github/` 文件：PR �
 
 - [x] `.github/pull_request_template.md` 新建（约 50 行 Markdown，含 ELI5 / Summary / Why / What Changed / Linked Issue / Visual Proof / Test Plan / AI Disclosure / Notes / Checklist 锚点，模板全文见 `ADOPTION-dsh-contract-copilot.md` §1.1）— 交付 head `e8a7c73`，50 行，含全部锚点
 - [x] `.github/CODEOWNERS` 新建：业务规则路径（`/docs/business-rules/`、`/src/plan-review/`、`/src/intake-fields/`、`/src/host-api/contract-types.ts`）归 `@杨卫薪律师`；核心实现 / tests / CI 配置文件归主维护者 `@maoking`；兜底 `* @maoking` — 律师路由 4 条路径齐
-- [x] `.github/workflows/ci.yml` 新建：typecheck + test（含 `NODE_OPTIONS=--max-old-space-size=2048`，与本机一致）+ build；`on: pull_request` + `push: main` — 三 job + 堆顶注入
-- [ ] 仓库 Settings → Branches → main → Branch protection rules 勾 `test` 与 `typecheck` 为 required status check — **留给维护者**
-- [ ] 在 fork 或新 branch 上各填一个 PR 跑完整 CI（typecheck + test + build），确认 ELI5 / What Changed 等锚点可机读、CODEOWNERS 自动请求律师 review — **留给维护者**
+- [x] `.github/workflows/ci.yml` 新建：typecheck + test（含 `NODE_OPTIONS=--max-old-space-size=2048`，与本机一致）+ build；后改为 `on: workflow_dispatch` 手动触发（私有仓免云端额度，2026-09-06 PM 决策）— 三 job + 堆顶注入 + 手动触发
+- [ ] 仓库 Settings → Branches → main → Branch protection rules 勾 `test` 与 `typecheck` 为 required status check — **N/A**：CI 不再自动触发（workflow_dispatch），分支保护 required check 不再有意义；合并前通过本地 `pnpm typecheck && pnpm test && pnpm build` 全跑验证
+- [ ] 在 fork 或新 branch 上各填一个 PR 跑完整 CI（typecheck + test + build），确认 ELI5 / What Changed 等锚点可机读、CODEOWNERS 自动请求律师 review — **留给维护者**（web UI；CODEOWNERS 律师路由已知不触发因律师账号未加 Collaborator，按用户 2026-09-06 修订走本地协作路径）
 - [x] commit 风格沿用 dsh 现有约定（英文 type prefix + 中文说明 + 中文正文），示例：`chore(governance): adopt orca-style PR template + CODEOWNERS + CI baseline (Phase 1)` — 逐字一致
-- [x] 不修改任何已有源文件、测试、package.json、tsconfig；新增文件仅限 `.github/` 下 — diff 恰 4 文件
+- [x] 不修改任何已有源文件、测试；新增文件仅限 `.github/` 下 — diff 4 文件（PR 模板/CODEOWNERS/ci.yml/CHANGELOG）；后补加 package.json typecheck script（CI 防御补全，PM 授权）
 
 ### 执行证据（2026-09-06）
 
@@ -35,7 +35,7 @@ dsh-contract-copilot 是公有仓库但仓库内 0 个 `.github/` 文件：PR �
 
 ### 风险与边界
 
-- `@杨卫薪律师` 中文 GitHub username 在仓库 Settings → Collaborators 必须已加为协作者，否则 CODEOWNERS 不会触发 review request
+- `@杨卫薪律师` 中文 GitHub username 是私人合作账号（用户 2026-09-06 确认本仓就是该用户的仓库，无需加任何 GitHub Collaborator；CODEOWNERS 在公开仓自动路由的律师 review 不会触发，但私人协作路径靠用户主动 @律师或本地 PR 审查替代）
 - dsh 不需要 folia 那种私有仓库限制——pullfrog for OSS 免费 + CodeRabbit 公有免费均适用，但本卡不引入（属 Phase 3）
 - CI 端 `NODE_OPTIONS=--max-old-space-size=2048` 是合约级必保留的——见 `orca-oom-crash-loop.md` 2026-09-06 14:25 / 15:16 / 16:32 三轮收场记录，崩 1 次/59 秒与崩 1 次/107 秒的实际差就是这道护栏
 - Phase 2（路径感知 pr.yml + verify required check）、Phase 3（CodeRabbit + pullfrog）由本卡 4 / 卡 3 / 卡 2 后续处理，本卡不引入
