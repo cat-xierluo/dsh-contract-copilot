@@ -4,6 +4,15 @@
 
 ## [Unreleased] — 推进中
 
+### Added（2026-09-06，治理三件套 Phase 1 — TASK-2026-09-06-orca-gov-01）
+
+- 新增 `.github/pull_request_template.md`：ELI5 / Summary / Why / What Changed / Linked Issue / Visual Proof / Test Plan / AI Disclosure / Notes / Checklist 十段锚点，PR 描述从纯自由文本变为可机读（模板全文权威来源：`docs/orca-governance-adoption/ADOPTION-dsh-contract-copilot.md` §1.1）
+- 新增 `.github/CODEOWNERS`：业务规则层（`/docs/business-rules/`、`/src/plan-review/`、`/src/intake-fields/`、`/src/host-api/contract-types.ts`）路由 `@杨卫薪律师` 审核；核心实现、`/tests/`、CI 与发布配置归 `@maoking`；兜底 `* @maoking`（§1.2）
+- 新增 `.github/workflows/ci.yml`：`typecheck` / `test` / `build` 三 job，`on: pull_request` + `push: main`；test job 显式 `NODE_OPTIONS=--max-old-space-size=2048`，把 `7eae439` 的堆顶止血从本机合约固化到 CI runner（§1.3）
+- 验证（scoped，不跑全量测试——.github-only 改动不影响测试，全量归宿为 GitHub Actions runner）：三文件存在；ci.yml 含 `max-old-space-size=2048` 与 `typecheck`；CODEOWNERS 含律师路由；`git status` 确认仅新增三文件 + 本条 CHANGELOG，零已有文件改动
+- 已知缺口（源自 ADOPTION §1 权威模板与仓库现状的既存冲突，派发指令要求照抄权威文本，留待后续卡/提交补齐）：① package.json 无 `typecheck` 脚本（仅 `typecheck:client`），CI typecheck job 首跑会红；② ci.yml `node-version: 20` 与 engines `>=22` 不一致；③ `pull_request: [opened, synchronize, reopened]` 数组简写不是合法 GH Actions 语法（activity types 须嵌套在 `types:` 下，且这三个恰为默认值）；④ CODEOWNERS 律师路由引用的 4 条路径在仓库内不存在（src 为平铺文件 `plan-review.ts` / `intake-fields.ts` / `host-api.ts`，无 `docs/business-rules/` 目录），按 gitignore 语义这些规则永不命中——律师自动 review 请求不会触发，实际靠兜底 `* @maoking` 与手动 @律师
+- 边界：分支保护勾 `test` / `typecheck` 为 required check、fork/branch PR 实测 CI 与锚点可机读属任务卡验收的后续人工步骤，不在本提交内；不修改任何已有源文件、测试、package.json、tsconfig
+
 ### Fixed（2026-09-06，vitest 状态污染根治 — TASK-2026-09-06-orca-gov-02）
 - 新增 `vitest.config.ts`：全局 `hookTimeout: 30_000`——2026-09-05/06 崩溃循环期间 agent-coordinator 6 连败的真实形态是 beforeEach 里派生真实 python3 超过 vitest 默认 10s hook 上限；30s 与真实子进程用例的 testTimeout 对齐，不改 pool/worker 数
 - `tests/docx-extract.spec.ts` 重写隔离契约：beforeEach 把进程级 TMPDIR 重定向进独占 mkdtemp 目录，afterEach 还原环境后断言零 `cc-docx-*` 残留——残留从"事后观察"变为确定性断言，且不受历史运行（进程被杀来不及清理）留在系统临时目录的陈旧条目影响；fixture 生成改用 `docx-fixture.ts` 的 python3 stdlib zipfile（旧 makeDocx 的 `|| true ||` 回退分支永不执行，python-docx 缺失时静默产出缺失文件）；真实子进程用例显式 30s 超时
