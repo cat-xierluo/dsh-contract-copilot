@@ -27,6 +27,12 @@
 - Python 脚本一行不改（项目硬约束）；插件只做外壳。
 - 任何已完成的提交都必须写到 `CHANGELOG.md`；涌现任务先登记到 `status/TASKS.md`，规模可控则一并处理。
 
+## claude 会话跑测试的限定（TASK-2026-09-06-orca-gov-02）
+
+- 2026-09-05/06 崩溃循环的负载来源是多 worktree 里 agent 会话并发跑全量 `pnpm test`（归因见 `status/TASKS.md` 卡 02 与 `docs/orca-governance-adoption/`）。
+- claude/agent 会话验证代码跑单 spec：`pnpm vitest run tests/<name>.spec.ts`，或 `pnpm vitest run --bail 1` 早停；不要直接 `pnpm test` 跑全量。
+- 全量套件只在与 CI 一致的受控场景执行（机器空闲、单 runner）；`NODE_OPTIONS=--max-old-space-size=2048` 堆顶是合约级护栏，任何场景不得移除。
+
 ## 范围边界（v1）
 
 - ✅ 审查流程（SKILL.md §3.2 四步 + §九 9.1–9.4 操作细则）
