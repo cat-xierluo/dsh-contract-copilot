@@ -91,7 +91,7 @@ dsh vitest 测试套件存在"claude 会话反复跑 `pnpm test` → 状态污�
 
 ## TASK-2026-09-06-orca-gov-03：governance: dsh Phase 1 增补 — issue 业务规则模板 + module dropdown
 
-- 状态：`已完成（2026-09-06，三门验收全过，独立 reviewer ACCEPT 7/7；worker-orca-gov-03 已在 PR #9 创建并由 PM 留认领 comment 替代 audit exact 路径；worktree + branch 已 CLEANED。剩余 3 项 web UI 操作留给维护者）`
+- 状态：`已完成（2026-09-06，已合并到 main，三门验收全过，独立 reviewer ACCEPT 7/7；worker-orca-gov-03 已在 PR #9 创建并由 PM 留认领 comment 替代 audit exact 路径；本地解 CHANGELOG 冲突后 push 合并）`
 - 类型：`implementation`
 - 来源：2026-09-06 桌面 `orca-governance-adoption` 调研
 - 关联材料：`docs/orca-governance-adoption/ISSUE-LIFECYCLE.md` §6.2、`docs/orca-governance-adoption/CHECKLIST.md` dsh §Phase 1 增补段
