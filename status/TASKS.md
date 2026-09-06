@@ -1,5 +1,194 @@
 # 当前任务
 
+## TASK-2026-09-06-orca-gov-01：governance: dsh Phase 1 — PR 模板 + CODEOWNERS + CI baseline
+
+- 状态：`PENDING`
+- 类型：`implementation`
+- 来源：2026-09-06 桌面 `orca-governance-adoption` 调研；同目录 `ADOPTION-dsh-contract-copilot.md` §1 + `CHECKLIST.md` Phase 1
+- 关联材料：`docs/orca-governance-adoption/ADOPTION-dsh-contract-copilot.md`、`docs/orca-governance-adoption/CHECKLIST.md`
+
+### 问题
+
+dsh-contract-copilot 是公有仓库但仓库内 0 个 `.github/` 文件：PR 描述纯自由文本（无机读锚点）、业务规则路径无 CODEOWNERS 路由、完全无 CI——`ADOPTION-dsh-contract-copilot.md` 现状盘点已把"完全没有 CI"列为最大缺口。协作律师 `@杨卫薪律师` 对业务规则有审核资格但代码层 ownership 未声明，PR review 只能靠口头找人。
+
+### 目标
+
+按 orca-style 给 dsh 装最小可用的入口与门禁三件套，让 PR 描述可机读、协作律师自动进入 review 圈、CI 在合并前必跑 typecheck + test + build（含 `NODE_OPTIONS=--max-old-space-size=2048` 堆顶防护，与本机 vitest 堆顶一致，固化 `7eae439` 的止血措施到 CI runner）。
+
+### 验收标准
+
+- [ ] `.github/pull_request_template.md` 新建（约 50 行 Markdown，含 ELI5 / Summary / Why / What Changed / Linked Issue / Visual Proof / Test Plan / AI Disclosure / Notes / Checklist 锚点，模板全文见 `ADOPTION-dsh-contract-copilot.md` §1.1）
+- [ ] `.github/CODEOWNERS` 新建：业务规则路径（`/docs/business-rules/`、`/src/plan-review/`、`/src/intake-fields/`、`/src/host-api/contract-types.ts`）归 `@杨卫薪律师`；核心实现 / tests / CI 配置文件归主维护者 `@maoking`；兜底 `* @maoking`
+- [ ] `.github/workflows/ci.yml` 新建：typecheck + test（含 `NODE_OPTIONS=--max-old-space-size=2048`，与本机一致）+ build；`on: pull_request` + `push: main`
+- [ ] 仓库 Settings → Branches → main → Branch protection rules 勾 `test` 与 `typecheck` 为 required status check
+- [ ] 在 fork 或新 branch 上各填一个 PR 跑完整 CI（typecheck + test + build），确认 ELI5 / What Changed 等锚点可机读、CODEOWNERS 自动请求律师 review
+- [ ] commit 风格沿用 dsh 现有约定（英文 type prefix + 中文说明 + 中文正文），示例：`chore(governance): adopt orca-style PR template + CODEOWNERS + CI baseline (Phase 1)`
+- [ ] 不修改任何已有源文件、测试、package.json、tsconfig；新增文件仅限 `.github/` 下
+
+### 风险与边界
+
+- `@杨卫薪律师` 中文 GitHub username 在仓库 Settings → Collaborators 必须已加为协作者，否则 CODEOWNERS 不会触发 review request
+- dsh 不需要 folia 那种私有仓库限制——pullfrog for OSS 免费 + CodeRabbit 公有免费均适用，但本卡不引入（属 Phase 3）
+- CI 端 `NODE_OPTIONS=--max-old-space-size=2048` 是合约级必保留的——见 `orca-oom-crash-loop.md` 2026-09-06 14:25 / 15:16 / 16:32 三轮收场记录，崩 1 次/59 秒与崩 1 次/107 秒的实际差就是这道护栏
+- Phase 2（路径感知 pr.yml + verify required check）、Phase 3（CodeRabbit + pullfrog）由本卡 4 / 卡 3 / 卡 2 后续处理，本卡不引入
+
+---
+
+## TASK-2026-09-06-orca-gov-02：test: 根治 dsh vitest 状态污染循环 — 临时目录严格隔离 + claude 工作流限定
+
+- 状态：`已完成（2026-09-06，验收证据见卡内"执行证据"）`；待办：独立 reviewer 复跑（见验收第 5 条）
+- 类型：`implementation`
+- 来源：2026-09-06 桌面 `orca-governance-adoption` 调研 + 同日 `orca-oom-crash-loop.md` 末段 16:32 全套件长跑归因
+- 关联材料：`docs/orca-governance-adoption/CHECKLIST.md`（dsh Phase 1 注解段）、`docs/orca-governance-adoption/ADOPTION-dsh-contract-copilot.md` §1.3 堆上限注解
+
+### 问题
+
+dsh vitest 测试套件存在"claude 会话反复跑 `pnpm test` → 状态污染 → 失败 → 重试 → 崩溃循环"的真实事故链。`orca-oom-crash-loop.md` 2026-09-06 16:32 全套件长跑 24 分钟终版归因：113 个测试里 25 失败 / 7 个 spec 失败、**零新崩溃报告**（堆顶 + 后台 I/O 双保险已让 OOM 假说不成立）。真正根因是**会话侧状态污染而非 OOM**：
+- `docx-extract` 4 个失败：30s test timeout（后台优先级下 Python 子进程慢）+ 临时目录 fixture ID 残留（`expected [] to deeply equal ['cc-docx-65575-...']`）——跨 spec 临时目录不隔离
+- `agent-coordinator` 6 个失败：全 10s `beforeEach` hook 超时，启动 DSH 进程派生在后台优先级下被卡
+- 崩 1 次/59 秒是被 `NODE_OPTIONS=--max-old-space-size=2048`（commit `7eae439`）截断的**次生现象**，根因是会话侧并发 + 临时目录不隔离 + 真实 Python/DSH 子进程派生叠加
+
+`AGENTS.md` / `CLAUDE.md` 没有限定 claude 工作流（"不要让 claude 跑 `pnpm test` 全量"），导致 claude 会话继续触发同款循环。
+
+### 目标
+
+把 16:32 终版归因的"真正根因"在 dsh 仓库内修掉：① 给关键 spec 加 `beforeEach` / `afterAll` 临时目录严格隔离；② 提到 `agent-coordinator.spec.ts` 的 hook 超时上限 ≥30s；③ 在 `AGENTS.md` / `CLAUDE.md` 加 claude 工作流限定——让 claude 跑单 spec 或 `--bail` 早停，不跑全量。
+
+### 验收标准
+
+- [x] `tests/docx-extract.spec.ts` 加临时目录严格隔离：beforeEach 把进程级 TMPDIR 重定向进独占 mkdtemp 目录，afterEach 还原环境后断言零 `cc-docx-*` 残留（守卫自检注入假残留验证过断言会红）；勘误：卡内引用的失败信息实际顺序为 `expected ['cc-docx-...'] to deeply equal []`（vitest 打印"实际 to deeply equal 期望"），语义即"发现残留"，归因方向不变
+- [x] hook 超时上限 ≥30s：落地为新增 `vitest.config.ts` 全局 `hookTimeout: 30_000`（卡内明示允许的全局方案），覆盖 agent-coordinator 及所有在 hook 里派生真实 python3 的 spec
+- [x] `AGENTS.md` 新增"claude 会话跑测试的限定"段：禁止 agent 会话直接 `pnpm test` 跑全量；推荐 `pnpm vitest run tests/<single-spec>` 或 `--bail 1` 早停
+- [x] 受控环境（机器空闲、单 runner、堆顶在位）3 连跑 16 个 spec 完整套件：266/266 全绿 ×3（每轮 ~1.4s）、零临时目录残留断言失败、零崩溃报告；`$TMPDIR` 无新增残留
+- [ ] 提交后由独立 reviewer 在 PM 同一 commit 上复跑一次，确认结果一致（待 PM 流程执行）
+- [x] 提交信息沿用 dsh 风格：`test: dsh vitest 状态污染根治 — 临时目录隔离 + hook 超时 + claude 工作流限定`
+- [x] 不修改 product 源码（`src/`）；只动 `tests/docx-extract.spec.ts`、`vitest.config.ts`（新建）、`AGENTS.md`
+
+### 执行证据（2026-09-06）
+
+- 根因物证：`$TMPDIR` 内 5 个 `cc-docx-extract-*` 残留目录（含 noisy-python / term-ok-python / garbage-python fixture 与 `cc-docx-<pid>-<rand>` 子目录），时间戳与 8 份 node OOM 崩溃报告（09-05 21:29/21:41/21:57/22:53/23:02 + 09-06 14:25/15:05/15:12/15:31）一一对应；另有 7 个 `cc-bridge-term-*` 残留
+- 基线：main 空闲机器全量 266/266 全绿、1.59s——证明失败为负载诱导（并发全量跑 → python3 派生超 hook/test 上限 → 在飞清理泄漏 → 残留断言失败），非确定性 bug
+- 修复验证：守卫自检（注入 `cc-docx-999999-injected.py` → 断言红，失败信息含注入文件名）→ 删除自检文件；全量 3 连跑 266/266；dsh-plugin-lint 已跑（10 FAIL 均为 §5 client 构建产物存量问题，与本次无关，§8 卫生 PASS）
+- 附带修复：docx-extract fixture 不再依赖 python-docx（旧 makeDocx 的 `|| true ||` 回退永不执行）；决策记录 Q45
+
+### 风险与边界
+
+- 本卡**不**移除 `NODE_OPTIONS=--max-old-space-size=2048`——堆顶是与 CI 共享的合约级护栏（见卡 1 §1.3 验证）
+- 临时目录隔离是治本方向；不引"减少 vitest worker 数量"——用户已拒绝该方案（本卡原记录 [[no-worker-count-limits]]）
+- 16:32 归因已确认 vitest OOM 假说不成立——本卡不重做 OOM 调查，避免循环
+- 如 3 次复跑仍出现 docx-extract 临时目录残留，可能需要 `mkdtemp` 串行化（不直接动 worker 数）——超出本卡，留作后置观察
+- CC-V5-004 异步抽取（DECISIONS Q44，feat-v5 波次）合入 main 后，docx-extract.spec 以该分支的异步版为准（其 mkdtemp-per-run + TMPDIR 重定向设计与本卡同构）
+
+---
+
+## TASK-2026-09-06-orca-gov-03：governance: dsh Phase 1 增补 — issue 业务规则模板 + module dropdown
+
+- 状态：`PENDING`
+- 类型：`implementation`
+- 来源：2026-09-06 桌面 `orca-governance-adoption` 调研
+- 关联材料：`docs/orca-governance-adoption/ISSUE-LIFECYCLE.md` §6.2、`docs/orca-governance-adoption/CHECKLIST.md` dsh §Phase 1 增补段
+
+### 问题
+
+dsh 是合同审查业务规则工具——bug 类型高度结构化（合同主体 / 计划审核 / 字段抽取 / docx 渲染 / Python 桥），但仓库内 0 个 issue 表单、0 个 issue labeler、0 张业务规则专用 issue 模板。用户/律师直接打 issue 没有结构化表单，CODEOWNERS 路由靠"@律师"手动提及，template 字段缺失导致 reviewer 第一次回复常常是"麻烦告诉我这是哪条规则"（见 `ISSUE-LIFECYCLE.md` §6.2 的对偶论证）。
+
+### 目标
+
+按 `ISSUE-LIFECYCLE.md` §6.2 的"业务规则审核专用版"落地两个文件：① 新建 `01-business-rule-review.yml`（杨律师专属，触发条件=用户投诉合同审查逻辑错/律师提出改进）；② 在 `bug_report.yml`（新建）加 `module` dropdown（intake / plan-review / docx-view / python-bridge / session），让 CODEOWNERS 自动路由 + 模板字段双重定位。
+
+### 验收标准
+
+- [ ] `.github/ISSUE_TEMPLATE/01-business-rule-review.yml` 新建（含杨律师专属字段如 `rule_version`、`affected_contract_clause`、`repro_docx_path`，完整 YAML 见 `ISSUE-LIFECYCLE.md` §6.2）
+- [ ] `.github/ISSUE_TEMPLATE/bug_report.yml` 新建：含 `module` dropdown（intake / plan-review / docx-view / python-bridge / session），加上 `os`、`details` 必填字段；title 前缀 `[Bug]: `、type: Bug、labels: ["bug"]
+- [ ] 仓库 Settings → General → Issues 勾选 "Issues must be created from a template"（与 orca 的 `blank_issues_enabled: false` 等价）
+- [ ] 在 fork 上各发一个 bug + 一个 business-rule-review issue，确认 module dropdown 渲染、CODEOWNERS 自动请求律师 review
+- [ ] commit 风格：`chore(governance): issue template — 业务规则审核 + module dropdown (Phase 1 增补)`
+- [ ] 不修改任何已有源文件、测试；新增文件仅限 `.github/ISSUE_TEMPLATE/`
+
+### 风险与边界
+
+- 本卡**不**创建 labeler workflow（`issue-labeler.yaml`）——folia 的影响面→severity 映射对 dsh 不直接适用（dsh 的"影响面"是业务规则被破坏面，不是 macOS/Windows/Linux）。后续如需按 `module` 自动加 label，再开卡 3+
+- 不创建 `other.yml`——`ISSUE-LIFECYCLE.md` §1.2 论证"other 是兜底不是默认"，dsh 双维护者+律师可直接走 bug_report + business-rule-review 二选一
+- `01-business-rule-review.yml` 的字段命名要稳定 schema-friendly（`rule_version` 而非 `规则版本`）——便于后续 AI reviewer / 内部 PM 消费
+
+---
+
+## TASK-2026-09-06-orca-gov-04：governance: dsh Phase 2 — 路径感知 PR workflow + verify 必为 required check
+
+- 状态：`PENDING`
+- 类型：`implementation`
+- 来源：2026-09-06 桌面 `orca-governance-adoption` 调研
+- 关联材料：`docs/orca-governance-adoption/ADOPTION-dsh-contract-copilot.md` §2.1–§2.2、`docs/orca-governance-adoption/PR-LIFECYCLE.md` §3.3 反直觉警示、`docs/orca-governance-adoption/PR-LIFECYCLE.md` §6 信任脚本模式
+
+### 问题
+
+dsh Phase 1（卡 1）装完三件套后，docs-only PR 仍会跑完整的 typecheck + test + build——贵 CI 不必要，PR 生命周期被拖长；更重要的是 `PR-LIFECYCLE.md` §3.3 实证发现：orca 的 `verify` 实际**可能是 advisory**（org 级别 branch protection 在 repo API 看不到，PR #19030 头 SHA 只看到 track-community-pr + pullfrog 两个 check），用 CI 流水线不等于真把 PR 拦在门外——**分支保护里勾选哪些 check 是 required 才决定 CI 实际拦不拦 PR**。
+
+### 目标
+
+按 `ADOPTION-dsh-contract-copilot.md` §2.1 实现 detect → fan-out → verify 聚合模式，docs-only PR 跳过贵 job（typecheck / test / build 全 skipped，verify 打印"docs-only"消息后通过）。**关键补丁**：分支保护必须显式把 `verify` 勾为 required check（避免 orca 那种"有 CI 但拦不住 PR"的反例）。`pr-test-loc.yml` 写权限 workflow 脚本从 default branch 拉（不执行 PR head），照搬 `PR-LIFECYCLE.md` §6 的"高权限 workflow 不执行 PR 代码"原则。
+
+### 验收标准
+
+- [ ] `.github/workflows/pr.yml` 新建：detect job（按 `git diff --name-only origin/main...HEAD` 输出 `src_changed` / `docs_only` / `worktree_only` 三个布尔）→ fan-out（`typecheck` / `test` / `build` 三 job 按 `src_changed` 触发）→ verify 聚合 job（`needs: [detect, typecheck, test, build]` + `if: always()`；docs-only PR 走"docs-only"快速通过路径）
+- [ ] `.github/workflows/pr-test-loc.yml` 新建：测试 vs 实现 LoC 比值评论到 PR；**关键安全设计**——脚本通过 Files API 从 default branch（`main`）拉取（`actions/checkout@v6` with `ref: main`），不执行 PR head 代码（参考 `PR-LIFECYCLE.md` §6 完整 YAML）
+- [ ] 仓库 Settings → Branches → main → Require status checks 显式勾 `verify` 为 required check（**不**只勾 `typecheck` / `test`——这是 orca 反例的核心教训）
+- [ ] 提交一个 docs-only PR（如改 `README.md` 单行），确认 typecheck / test / build 全部 skipped、verify 通过
+- [ ] 提交一个 src 改动 PR，确认 typecheck / test / build 全跑、verify 通过
+- [ ] commit 风格：`chore(governance): path-aware PR workflow + verify required check (Phase 2)`
+- [ ] 不修改任何已有源文件、测试、Phase 1 装的 `ci.yml`（pr.yml 是新增，ci.yml 保留 push:main 的常规 CI）
+
+### 风险与边界
+
+- **不照搬 orca 的 e2e 红态降级逻辑**——`PR-LIFECYCLE.md` §2.2 明确建议"folia / dsh 不应照搬 orca 的 e2e 红态降级"，除非 e2e 稳定绿 1 个月。dsh 没有 e2e，不涉及
+- 关键安全点：pr-test-loc.yml 持 `pull-requests: write`，必须从 default branch 拉脚本，否则恶意 PR 可借 workflow 篡改度量逻辑或发垃圾评论
+- 本卡**不**引入 CodeRabbit / pullfrog——属 Phase 3
+- 分支保护勾 verify 这一步必须在 GitHub web UI 手动操作（API 在 org 级别不可见），PR 验证前请 reviewer 截图保留
+
+---
+
+## TASK-2026-09-06-orca-gov-05：investigation: 完成 orca 治理调研的全套对照 — 从 dsh 出发探索 folia 同款落地
+
+- 状态：`PENDING`
+- 类型：`investigation`
+- 来源：2026-09-06 桌面 `orca-governance-adoption` 调研
+- 关联材料：`docs/orca-governance-adoption/` 全部 11 份文件、本卡 1–4
+
+### 问题
+
+2026-09-06 桌面 `orca-governance-adoption/` 11 份文件是 orca 治理体系的完整调研（2782 行），但桌面文件夹未来可能不可达。dsh 仓库需要的不是"读完桌面文件再决定怎么做"，而是"一打开仓库就能找到所有调研材料并继续工作"。本卡是元任务——保证接手 agent 在 dsh 仓库内能完成"定位调研材料 + 理解 4 张实现卡 + 跨仓库对照（dsh ↔ folia）"的完整链路。
+
+### 目标
+
+让接手 agent 在 dsh 仓库内能完成三件事：① 找到 `docs/orca-governance-adoption/` 11 份文件并按 `HANDOFF.md` 文件清单顺序读；② 按 `status/TASKS.md` 顶部 4 张实现卡的卡序（卡 1 → 卡 2 → 卡 3 → 卡 4）领卡；③ 在 dsh 落地过程中能对照 `ADOPTION-folia.md` 验证 folia 同款机制（如 `_test` / `_lint` 路径分支、squash merge 配置），把 folia 已验证的 YAML / 配置直接复用为 dsh 起点。
+
+### 验收标准
+
+- [ ] `docs/orca-governance-adoption/` 下 11 份文件全部到位（与桌面源 byte-identical，已验证 11/11 OK）
+- [ ] `status/TASKS.md` 顶部按时间倒序追加 5 张新任务卡（本卡 1–5），时间前缀 `TASK-2026-09-06-orca-gov-XX` 保持 dsh 既有 `CC-V4-XXX` 编号风格
+- [ ] `docs/orca-governance-adoption/HANDOFF.md` 顶部插入"dsh 仓库入口声明"，显式指向本目录 + `status/TASKS.md` 5 张卡
+- [ ] `CHANGELOG.md` 顶部 `[Unreleased]` 段加 2026-09-06 条目"增加 orca 治理调研材料 + 5 个待办任务卡"——**不**修改版本号
+- [ ] `git status` 仅显示 11 份 `docs/orca-governance-adoption/` 新文件 + 1 份 `status/TASKS.md` 改动 + 1 份 `CHANGELOG.md` 改动 + 1 份 `docs/orca-governance-adoption/HANDOFF.md` 头部加 1 句（13 项新增 + 2 项编辑）
+- [ ] `git diff --stat` 输出确认 0 个 src/、tests/、package.json、tsconfig、ci 配置被修改
+- [ ] 接手 agent 跑 `git log --format='%s'` 仍能看到 0 个新 commit（用户未授权 commit；本卡显式不 commit）
+- [ ] 不创建任何新源码、测试、CI workflow、PR/issue 模板——这些是卡 1 / 卡 3 / 卡 4 的产物
+
+### 风险与边界
+
+- 桌面 `orca-governance-adoption/` 是只读参照源，本仓库内的副本是"dsh 接受 orca 治理调研的完整入口"——**复制而非引用**，避免桌面不可达时丢上下文
+- 本卡 5 与卡 1/2/3/4 是元-实现关系：先有本卡 5 把材料落到 dsh，再派发卡 1/2/3/4
+- 跨仓库对照（dsh ↔ folia）属 Phase 4 探索——不在本卡 5 范围
+- 用户授权（DEC-046）下"自动推进策略"对 5 张卡的派发：默认 `converge` 模式全局同时活跃 worker ≤3、docs-only 必须至少推动 `DRAFT → READY`；本卡 1 / 卡 3 / 卡 4 是 implementation，卡 2 是 test，卡 5 是 investigation — 任何一张派发前确认与 CC-V5 / CC-V4-* 在途任务的资源/分支不冲突
+
+---
+
+## CC-V5：工作台质量加固波次（搁浅恢复，2026-09-06 PM 接管）
+
+- 状态：进行中；波次定义与任务卡权威在集成分支 `feat-v5-quality-hardening` 的 status/TASKS.md（PR #2/#3/#5/#6/#7/#8 已合入该分支，PR #4 OPEN 待审）
+- 2026-09-05 会话中断导致波次搁浅：R3 现场（TERM→KILL + mkdtemp，Q44 修订）已保全为 `fix-cc-v5-async-docx-extraction` 上的 WIP commit `56d2805`
+- 2026-09-06：接管 worker `ccv5-004-r4-glm53`（分支 `fix-cc-v5-async-r4`，run_ec2d75ac4f4f）完成 R4 收尾；后续 PM 走 PR #4 审合 → 里程碑 PR（feat-v5-quality-hardening → main）
+- 独立佐证：`package.json` vitest 堆顶止血已落 main（`7eae439`）
+
 ## CC-V4-010：简版文档导航根接线（CC-V4-004 验收退回）
 
 - 状态：已完成；真实浏览器复验与 CC-V4-004 独立 reviewer 合并门均通过

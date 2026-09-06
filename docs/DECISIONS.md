@@ -170,6 +170,17 @@
 
 ---
 
+## Q45：vitest 状态污染根治落在测试层三件套（2026-09-06）
+
+| 字段 | 内容 |
+|---|---|
+| **结论** | 2026-09-05/06 测试崩溃循环的修复不追加大堆顶、不砍并发 worker，落三件套：全局 `hookTimeout: 30_000`（新建 `vitest.config.ts`）、docx-extract 的 TMPDIR 重定向隔离 + afterEach 零残留断言、`AGENTS.md` 限定 claude 会话跑单 spec / `--bail 1` 不跑全量。 |
+| **理由** | 16:32 全套件长跑归因确认 OOM 假说不成立（堆顶 + 后台 I/O 双保险下零新崩溃报告）；真实失败形态是负载诱导：beforeEach 派生真实 python3 超 vitest 默认 10s hook 上限（agent-coordinator 6 连败）、测试超时后在飞抽取的临时目录漏清理触发残留断言。$TMPDIR 内 5 个 `cc-docx-extract-*` 残留现场与 8 份崩溃报告时间戳一一对应，为直接物证；main 空闲机器 266/266 全绿（1.59s）证明非确定性 bug。worker 数缩减已被用户拒绝（TASKS 卡 02 风险段原记录），堆顶 2048 是与 CI 共享的合约级护栏。 |
+| **影响** | 真实 python3 派生的 spec 获得与 30s testTimeout 对齐的 hook 上限；docx-extract 残留从"事后观察"变为确定性断言（守卫自检注入假残留验证过会红），且不再受历史运行留在系统临时目录的陈旧条目影响；agent 会话全量跑测试被规则禁止，负载源收敛。附带修复 docx-extract fixture 对 python-docx 的隐性依赖（旧回退分支永不执行）。 |
+| **何时重新评估** | CC-V5-004 异步抽取（Q44，feat-v5 波次）合入 main 时，docx-extract.spec 以该分支异步版为准（同构的 TMPDIR 重定向 + mkdtemp-per-run 设计）；若受控 3 连跑再出现残留类失败，考虑 mkdtemp 串行化（不动 worker 数）。 |
+
+---
+
 ## 决策索引（按主题）
 
 **产品形态**
@@ -189,3 +200,4 @@
 
 **脚本与产物**
 - Q19 / Q24 — 进度粒度、归档位置
+- Q45 — vitest 状态污染根治落在测试层三件套（hookTimeout / TMPDIR 隔离断言 / claude 工作流限定）

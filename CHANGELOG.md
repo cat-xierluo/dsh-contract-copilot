@@ -4,6 +4,19 @@
 
 ## [Unreleased] — 推进中
 
+### Fixed（2026-09-06，vitest 状态污染根治 — TASK-2026-09-06-orca-gov-02）
+- 新增 `vitest.config.ts`：全局 `hookTimeout: 30_000`——2026-09-05/06 崩溃循环期间 agent-coordinator 6 连败的真实形态是 beforeEach 里派生真实 python3 超过 vitest 默认 10s hook 上限；30s 与真实子进程用例的 testTimeout 对齐，不改 pool/worker 数
+- `tests/docx-extract.spec.ts` 重写隔离契约：beforeEach 把进程级 TMPDIR 重定向进独占 mkdtemp 目录，afterEach 还原环境后断言零 `cc-docx-*` 残留——残留从"事后观察"变为确定性断言，且不受历史运行（进程被杀来不及清理）留在系统临时目录的陈旧条目影响；fixture 生成改用 `docx-fixture.ts` 的 python3 stdlib zipfile（旧 makeDocx 的 `|| true ||` 回退分支永不执行，python-docx 缺失时静默产出缺失文件）；真实子进程用例显式 30s 超时
+- `AGENTS.md` 新增"claude 会话跑测试的限定"：agent 会话跑单 spec 或 `--bail 1` 早停，不直接 `pnpm test` 跑全量；全量留给与 CI 一致的受控场景；`NODE_OPTIONS=--max-old-space-size=2048` 堆顶为合约级护栏不得移除
+- 验证：守卫自检（注入假 `cc-docx-*` 残留）确认断言会红后删除自检文件；受控环境全量 3 连跑 266/266 全绿（每轮 ~1.4s）、零残留断言失败、零崩溃报告；`$TMPDIR` 无新增残留（历史现场 5 个 `cc-docx-extract-*` 与崩溃报告时间戳一一对应，为归因物证）；dsh-plugin-lint 已跑，10 FAIL 均为 §5 client 构建产物存量问题、与本次改动无关
+- 边界：不动 `src/` 产品代码；不移除堆顶；CC-V5-004 异步抽取（Q44）合入后 docx-extract.spec 以该分支异步版为准
+
+### Planning（2026-09-06，orca 治理调研材料落库）
+- 新增 `docs/orca-governance-adoption/` 目录，包含 11 份调研文件（`HANDOFF.md` / `SUMMARY.md` / `CHECKLIST.md` / `REPORT.md` / `ISSUE-LIFECYCLE.md` / `PR-LIFECYCLE.md` / `RELEASE-GOVERNANCE.md` / `MAINTAINER-WORKFLOW.md` / `UPDATE-INDEX.md` / `ADOPTION-folia.md` / `ADOPTION-dsh-contract-copilot.md`，与桌面源 byte-identical，共 2782 行）；为 orca 治理体系在 dsh 仓库的完整归口，桌面 `~/Desktop/orca-governance-adoption/` 未来不可达不影响
+- `status/TASKS.md` 顶部追加 5 张任务卡（`TASK-2026-09-06-orca-gov-01`–`05`）：PR 模板+CODEOWNERS+CI baseline / vitest 状态污染根治 / issue 业务规则模板+module dropdown / 路径感知 pr.yml+verify required / 元调研收口——不修改版本号、不实现任何源码或 workflow 改动
+- 调研背景：dsh vitest 套件 2026-09-05 深夜 + 09-06 14:25 / 15:16 / 15:31 / 16:32 四轮 OOM 崩溃循环的真正根因已定位为"会话侧状态污染"（22% 失败率 + docx-extract 临时目录残留 + agent-coordinator hook 超时），堆顶防护（commit `7eae439`，`NODE_OPTIONS=--max-old-space-size=2048`）是合约级保留的次生防护；根治方向由 `status/TASKS.md` 卡 02 跟踪
+- `docs/orca-governance-adoption/HANDOFF.md` 顶部加 dsh 仓库入口声明：显式指向本目录 + 5 张任务卡，让接手 agent 一打开仓库即能找到完整调研材料
+
 ### Added（2026-09-05，工作台体验基础）
 - DOCX 批注获得内容派生的稳定锚点和可持久传输的定位元数据；简版正文同步输出可选择的锚点标记，无法精确定位时返回确定性降级原因
 - 新增纯客户端批注导航控制器，统一稳定选择器解析、滚动、焦点、瞬时高亮清理和结构化未命中结果
