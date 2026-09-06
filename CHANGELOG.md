@@ -4,6 +4,12 @@
 
 ## [Unreleased] — 推进中
 
+### Added（2026-09-06，issue 模板 Phase 1 增补 — TASK-2026-09-06-orca-gov-03）
+- 新增 `.github/ISSUE_TEMPLATE/01-business-rule-review.yml`（杨律师业务规则审核专用）：schema-friendly 必填字段 `rule_version` / `affected_contract_clause` / `repro_docx_path`（字段约束显式要求脱敏/合成 DOCX 样例，防客户敏感信息入库）+ `details` 审核意见；title 前缀 `[Business rule]: ` 与顶层 label `business-rule` 双轨编码
+- 新增 `.github/ISSUE_TEMPLATE/bug_report.yml`：`module` dropdown（intake / plan-review / docx-view / python-bridge / session，字段 description 内置 src 模块映射并引导规则类问题走业务规则审核表单）+ `os` + `details` 必填；`[Bug]: ` 前缀、`type: Bug`、`labels: ["bug"]` 三处冗余编码
+- 依据 `docs/orca-governance-adoption/ISSUE-LIFECYCLE.md` §6.2 落地；按卡 03 边界不建 labeler workflow、不建 other.yml；仓库设置"Issues must be created from a template"与 fork 实测（module dropdown 渲染、CODEOWNERS 路由）需维护者在 GitHub web UI 完成后方可收卡
+- 验证：scoped 自检——两文件存在、三字段 id 与 `module` 五选项/`[Bug]: ` 前缀/`labels` 关键结构齐全（`grep` 逐项核对）；零源码/测试改动，未跑全量测试套件
+
 ### Fixed（2026-09-06，vitest 状态污染根治 — TASK-2026-09-06-orca-gov-02）
 - 新增 `vitest.config.ts`：全局 `hookTimeout: 30_000`——2026-09-05/06 崩溃循环期间 agent-coordinator 6 连败的真实形态是 beforeEach 里派生真实 python3 超过 vitest 默认 10s hook 上限；30s 与真实子进程用例的 testTimeout 对齐，不改 pool/worker 数
 - `tests/docx-extract.spec.ts` 重写隔离契约：beforeEach 把进程级 TMPDIR 重定向进独占 mkdtemp 目录，afterEach 还原环境后断言零 `cc-docx-*` 残留——残留从"事后观察"变为确定性断言，且不受历史运行（进程被杀来不及清理）留在系统临时目录的陈旧条目影响；fixture 生成改用 `docx-fixture.ts` 的 python3 stdlib zipfile（旧 makeDocx 的 `|| true ||` 回退分支永不执行，python-docx 缺失时静默产出缺失文件）；真实子进程用例显式 30s 超时
