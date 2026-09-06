@@ -205,6 +205,8 @@ dsh Phase 1（卡 1）装完三件套后，docs-only PR 仍会跑完整的 typec
 - 2026-09-05 会话中断导致波次搁浅：R3 现场（TERM→KILL + mkdtemp，Q44 修订）已保全为 `fix-cc-v5-async-docx-extraction` 上的 WIP commit `56d2805`
 - 2026-09-06：接管 worker `ccv5-004-r4-glm53`（分支 `fix-cc-v5-async-r4`，run_ec2d75ac4f4f）完成 R4 收尾；后续 PM 走 PR #4 审合 → 里程碑 PR（feat-v5-quality-hardening → main）
 - 独立佐证：`package.json` vitest 堆顶止血已落 main（`7eae439`）
+- 2026-09-07 分支清理（用户确认）：删除 6 个 stale 分支及 worktree——`chore-governance-phase1`（PR #10 MERGED，cherry 证内容全在 main）、`fix/pr9-rebase-changelog`（issue template 内容与 main 逐字节一致）、`fix-cc-v5-async-r4`（内容被 r10 完全包含）、`fix-cc-v5-async-r8`（堆顶 2048→4096 与合约级护栏冲突，废弃尝试）、`fix-cc-v5-doc-curator-config` / `fix-cc-v5-lint-declarations`（零独有提交的空 worker 槽）。**r10 保留本地**（feat-v5 tip 基线 +747 行，与远端 PR #4 平行的异步化路线），待与 PR #4 对比后定收编方式；`contract-copilot-v301-assets` 按 docs/acceptance/2026-09-05 §59 声明保留
+- 2026-09-07 审计发现：远端 PR #4（`066270d`）base 落后 feat-v5 tip——其基线只含到 #2，缺 #3/#5/#6/#7/#8 约 3129 行，审合前须先 update branch 或 rebase 到最新集成分支
 
 ## CC-V4-010：简版文档导航根接线（CC-V4-004 验收退回）
 
