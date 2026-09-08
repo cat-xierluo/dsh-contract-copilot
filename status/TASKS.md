@@ -3,10 +3,11 @@
 ## WAVE-2026-09-08：GLM 审计整改与独立验收
 
 - Heartbeat：用户于 2026-09-08 明确要求自动回访验收；当前任务已启用 `contract-copilot-glm`（Contract Copilot GLM 成果验收），每 10 分钟执行一次。仅跟进本波三个任务的交付、必要修复、独立 GLM review、已授权 Git 收口和上下文更新；无实质变化保持安静。完成收口或出现需要用户处理的阻塞时暂停并报告。不重复派单、不扩展新波次，也不把定时回访宣称为已验证的 L2/L3 持久控制器。
-- 状态：INDEPENDENT_REVIEW（2026-09-08 23:40）。23:35 新鲜 GLM 额度已恢复到 98%，原等待解除；没有使用重置卡。生命周期与进度隔离已分别启动独立 GLM 5.3 Flash reviewer，尚未收到 ACCEPT，不能标为验收完成。治理仍保留原 Dispatch 及未提交改动；rendered screen 确认停在 429 后的空输入提示符，但恢复脚本仍返回 UNKNOWN/no_actionable_quota_evidence，已向用户请求一次原终端“继续”的明确授权，未绕过脚本注入或新派重复 Worker。
-- 独立 review 派发：生命周期 `task_20dd70cb276f` / `ctx_f7b1b13977f3` / `cc-lifecycle-review-0908` / 分支 `codex-cc-lifecycle-review-0908`，冻结 `c0c973378ca6d623c974c4914a940747bb813afb`；进度隔离 `task_9cc39bdac119` / `ctx_697af9f99a67` / `cc-isolation-review-0908` / 分支 `codex-cc-isolation-review-0908`，冻结 `94818478d2470429b9c0d76e7ebbb4fba99ea855`。同 Run，价值/额度/内存门通过，独立 worktree 与 local 依赖，role=reviewer 且仅自身 Session Context 可写。合同为 `orchestration/cc-audit-20260908/review-spec.json`、`review-manifest.json`、`review-receipt.json`；生命周期 review 只验本轮 R10 之后的修复，不冒充远端旧 PR #4 整体已通过。
-- 本轮验收证据：生命周期 head `c0c973378ca6d623c974c4914a940747bb813afb`，5 个 spec 共 66/66、Host noEmit 与 diff-check 退出 0；进度隔离 head `94818478d2470429b9c0d76e7ebbb4fba99ea855`，3 个 spec 共 30/30、Host noEmit 与 diff-check 退出 0，[PR #11](https://github.com/cat-xierluo/dsh-contract-copilot/pull/11) 为 OPEN，base 为 feat-v5-quality-hardening，远端 head 一致。PM 实际命令日志及结构化 executed[] 证据保存于 Git common-dir 的 `orchestration/cc-audit-20260908/pm-{lifecycle,isolation}-verification.json`；两份 worker-value-postflight 均通过，未做独立 review/merge、全量、真实 Web 或发布验收。
-- 资源与恢复：两个已完成 Worker 的精确外部终端已关闭，随后 worker-release 返回 released，provider lease 已释放；其分支/worktree 保留待独立 review。治理终端与脏 worktree 保留；限流恢复脚本只读审计返回 UNKNOWN/no_actionable_quota_evidence，故未注入继续或重启。下一步先复核额度，再为上述冻结候选派独立 GLM reviewer，并在正式恢复证据充分时续接治理。控制面工件曾因 Worker 写范围无法落盘，PM 已用实际复跑补齐 machine-readable 验证证据，不能将作者原 commands[] 自报直接当 postflight 通过证据。
+- 统筹：2026-09-09 用户指定当前 Codex 任务为唯一 PM；原 GLM PM 已交接并停止自主派发、恢复、合并和清理。Run `run_fce28ffada88` 已绑定新控制端 `term_6edfaa2a-c511-4d7c-846a-4d4d6f99fcf0`（coordinator generation 2）。Heartbeat 曾因双 PM 归属冲突暂停，交接确认后已恢复；交接与控制权证据为 Git common-dir 下的 `orchestration/cc-audit-20260908/pm-handoff-to-codex-20260909.json`、`codex-pm-control-20260909.json`。
+- 状态：REVIEW_RECEIVED / MERGE_HELD（2026-09-09）。两项独立 GLM review 已收到 ACCEPT，但不等于工作台或 PR 整体交付完成。生命周期 N1：Agent 已启动后 upstream abort 先设置 cancelled，后续用户 cancel 可能跳过 agent.cancel；合并前必须完成明确处置及相应证据。治理仍保留原 Dispatch 和未提交改动；现场停在 429 后的空输入提示符，恢复脚本返回 UNKNOWN/no_actionable_quota_evidence，原终端一次“继续”的授权仍待明确。指定 PM 不视为限流恢复豁免；未使用重置卡、未重复派治理 Worker。
+- 独立 review：生命周期 `task_20dd70cb276f` / `ctx_f7b1b13977f3` / `cc-lifecycle-review-0908`，冻结 `c0c973378ca6d623c974c4914a940747bb813afb`，报告 ACCEPT、66/66，另有上述 N1。进度隔离原 `ctx_697af9f99a67` 未形成有效验收；实际交付为同一 `task_9cc39bdac119` 的 `ctx_43e3b330a1d0` / `cc-isolation-review-r2-0908` / worktree `codex-cc-isolation-review-r2`，HEAD 为 `94818478d2470429b9c0d76e7ebbb4fba99ea855`，报告 ACCEPT、30/30，PM 已核对 HEAD 与 review-acceptance-gate。该 reviewer 首次在错误 main 基线上的 21/21 作废，不计入验收；修正后包含新隔离 spec 的 30/30 才是有效证据。两份报告及命令日志保存在各自 Session Context；生命周期 review 仅覆盖本轮 R10 后修复，不代表远端旧 PR #4 全部通过。
+- 本轮验收证据：生命周期 head `c0c973378ca6d623c974c4914a940747bb813afb`，5 个 spec 共 66/66、Host noEmit 与 diff-check 退出 0；进度隔离 head `94818478d2470429b9c0d76e7ebbb4fba99ea855`，3 个 spec 共 30/30、Host noEmit 与 diff-check 退出 0，[PR #11](https://github.com/cat-xierluo/dsh-contract-copilot/pull/11) 为 OPEN，base 为 feat-v5-quality-hardening，远端 head 一致。PM 实际命令日志及结构化 executed[] 证据保存于 Git common-dir 的 `orchestration/cc-audit-20260908/pm-{lifecycle,isolation}-verification.json`；两份 worker-value-postflight 均通过，独立 review 结果见上项；尚未合并，未做全量、真实 Web 或发布验收。
+- 资源与恢复：两个实现 Worker 已释放。2026-09-09，PM 核对交付归属与空闲状态后关闭生命周期 reviewer 和进度隔离 r2 reviewer 的精确终端；两 Dispatch 的 worker-release 均返回 released，pm-orchestrate 确认 provider lease 已释放。实现及 review 分支/worktree 全部保留待 PR 收口；治理终端及脏 worktree 保留，未注入继续或重启。下一步由当前 PM 统筹 N1 处置、治理合法续接、真实工作台验收及 PR 收口，不再重派已完成的相同 review。控制面不能将作者 commands[] 自报当作 PM 的 executed[] 验证证据。
 - 派发记录：生命周期 `task_88b4b4615cc5` / `ctx_8741cee94aed` / `cc-lifecycle-0908`；进度隔离 `task_194a37866137` / `ctx_080e0819b0c5` / `cc-isolation-0908`；治理 `task_fe0add259621` / `ctx_9381ff22b07f` / `cc-governance-0908`。模型合同为 `glm-5.3-flash[1M]`，Claude Code backend；内存/额度 preflight 均通过。生命周期基线 `99d6243`、进度隔离 `35527c2`、治理 `02fe756`。
 - 文件/依赖隔离：生命周期修复从 R10 `99d6243` 起步，拥有 coordinator/host-api 及对应测试；进度隔离从集成 `35527c2` 起步，拥有 index/session/progress 及对应测试；治理修复从本地主干（含本次审计文档，代码与远端 main 一致）起步，拥有 CODEOWNERS/CI/package.json/配置回归测试。三者不能共用一个检出版本，因此建立独立 worktree；文档仅改各自受影响小节。
 - 任务：`CC-V5-009-R1` → `codex-cc-command-lifecycle-0908`；`CC-V5-008-R1` → `codex-cc-agent-progress-isolation-0908`；`GOV-01-R1` → `codex-cc-governance-repair-0908`。Orca/spawn 将分支名中的斜杠规范为连字符，记录实际分支名。
@@ -256,14 +257,14 @@ dsh 是合同审查业务规则工具——bug 类型高度结构化（合同主
 
 ### CC-V5-008：恢复 Agent 专属进度注入任务
 
-- 状态：待整改；此前会话中的临时 spec 当前不可达，现有分支任务源未收录，不能视为已派发或完成。
+- 状态：实现及独立 review 已交付；冻结 head、30/30 有效证据与资源结算见本页 WAVE-2026-09-08。PR #11 尚未合并，真实多 Agent Web 路径仍为 NOT_VERIFIED，任务不关闭。
 - 目标：pre-step 按事件 Agent id 精确查找 dshSessionId 对应案件；无关联案件不注入，不消费其他案件进度水位。
 - 范围：`src/index.ts`、`src/session.ts`、`src/progress.ts` 与对应测试/受影响文档；不改 Python 或律师授权规则。
 - 验收：A/B 案件与无关联 Agent 的交错 pre-step、相同案件重复步、冷启动/resume 均隔离且可恢复；绑定最终候选的独立审查与代表性 DSH 路径。诊断依据见本次审计表。
 
 ### CC-V5-009：恢复 Agent 命令生命周期与复核入口任务
 
-- 状态：待整改；优先收口本次已复现的准入/取消/关闭问题。原统一 beginRecheck 方案需补全任务合同再派发，不能仅按历史标题实现。
+- 状态：本轮准入/取消/关闭修复及独立 review 已交付，合并前仍须处置 reviewer N1；证据和剩余范围见本页 WAVE-2026-09-08。原统一 beginRecheck 方案需补全任务合同再派发，不能仅按历史标题实现。
 - 目标：一个案件从抽取开始即由一条命令拥有；cancel/dispose 覆盖抽取及 Agent 创建，并等待所拥有的异步工作收束。
 - 范围：`src/agent-coordinator.ts`、`src/host-api.ts` 及对应测试/文档；复核相关 SessionStore/Tool 改动在补齐合同后纳入，避免漏掉旧计划与批准失效语义。
 - 验收：两个请求在首次 await 前后交错只能接受一个；抽取中 cancel 有效；create/resume 未完成时 dispose 不遗留 handle、迟到 followup 或错误持久状态；相关失败有界且零归属资源残留。不得仅以现有“首次 runAnalysis await 完成后再发第二次”的 busy 用例代替并发验证。

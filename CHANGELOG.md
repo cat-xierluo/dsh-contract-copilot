@@ -4,6 +4,10 @@
 
 ## [Unreleased] — 推进中
 
+### Maintenance（2026-09-09，PM 交接与验收状态）
+
+- 当前 Codex 任务接任唯一 PM，完成原 GLM PM 交接并恢复 10 分钟 heartbeat；任务源补齐两份独立 review 的有效提交与证据、已完成 reviewer 的资源释放，以及合并前仍待处置的取消路径和治理续接问题。未合并或发布产品变更。
+
 ### Maintenance（2026-09-08，交付审计）
 
 - 校正治理与 V5 任务的交付状态，记录并发命令、案件进度隔离、CODEOWNERS 与 CI 环境缺口，并建立 GLM 实现及独立验收任务；已按用户要求接入当前任务的 10 分钟 heartbeat 回访验收，整改完成情况以 `status/TASKS.md` 为准。
