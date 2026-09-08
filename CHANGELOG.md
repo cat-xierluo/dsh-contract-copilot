@@ -4,6 +4,10 @@
 
 ## [Unreleased] — 推进中
 
+### Maintenance（2026-09-08，交付审计）
+
+- 校正治理与 V5 任务的交付状态，记录并发命令、案件进度隔离、CODEOWNERS 与 CI 环境缺口，并建立 GLM 实现及独立验收任务；整改完成情况以 `status/TASKS.md` 为准。
+
 ### Added（2026-09-06，治理三件套 Phase 1 — TASK-2026-09-06-orca-gov-01）
 
 - 新增 `.github/pull_request_template.md`：ELI5 / Summary / Why / What Changed / Linked Issue / Visual Proof / Test Plan / AI Disclosure / Notes / Checklist 十段锚点，PR 描述从纯自由文本变为可机读（模板全文权威来源：`docs/orca-governance-adoption/ADOPTION-dsh-contract-copilot.md` §1.1）
