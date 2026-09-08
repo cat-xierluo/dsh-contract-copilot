@@ -2,7 +2,8 @@
 
 ## WAVE-2026-09-08：GLM 审计整改与独立验收
 
-- 状态：READY，正在建立 Orca Run/Task；用户已授权由本会话担任 PM，GLM 5.3 Flash 实现，另派独立 reviewer 验收。以下三项完成定义为“代码与受影响行为验收”，不以 Worker 自报代替。
+- 状态：DISPATCHED。Orca Run `run_fce28ffada88` 已启动三个 GLM 5.3 Flash Worker，已确认独立 worktree、local 依赖模式与 Dispatch 绑定；尚未收到实现或独立验收结果。用户已授权由本会话担任 PM，另派独立 reviewer；以下三项完成定义为“代码与受影响行为验收”，不以 Worker 自报代替。
+- 派发记录：生命周期 `task_88b4b4615cc5` / `ctx_8741cee94aed` / `cc-lifecycle-0908`；进度隔离 `task_194a37866137` / `ctx_080e0819b0c5` / `cc-isolation-0908`；治理 `task_fe0add259621` / `ctx_9381ff22b07f` / `cc-governance-0908`。模型合同为 `glm-5.3-flash[1M]`，Claude Code backend；内存/额度 preflight 均通过。生命周期基线 `99d6243`、进度隔离 `35527c2`、治理 `02fe756`。
 - 文件/依赖隔离：生命周期修复从 R10 `99d6243` 起步，拥有 coordinator/host-api 及对应测试；进度隔离从集成 `35527c2` 起步，拥有 index/session/progress 及对应测试；治理修复从本地主干（含本次审计文档，代码与远端 main 一致）起步，拥有 CODEOWNERS/CI/package.json/配置回归测试。三者不能共用一个检出版本，因此建立独立 worktree；文档仅改各自受影响小节。
 - 任务：`CC-V5-009-R1` → `codex-cc-command-lifecycle-0908`；`CC-V5-008-R1` → `codex-cc-agent-progress-isolation-0908`；`GOV-01-R1` → `codex-cc-governance-repair-0908`。Orca/spawn 将分支名中的斜杠规范为连字符，记录实际分支名。
 - 设计约束：命令在首个 await 前取得案件所有权，统一取消/关闭并等待收束；进度只按触发 Agent 的 dshSessionId 关联；治理只修有效账号/路径与受支持 Node，保留手动 Actions 和现有律师授权门。beginRecheck 功能扩展、自动 CI、Python 修改不进入本波。
