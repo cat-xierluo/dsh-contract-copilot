@@ -88,6 +88,45 @@ export class SessionStore {
     this.currentId = id
   }
 
+  /**
+   * 按关联的 DSH agent session id 精确查找唯一案件（pre-step 进度注入用，CC-V5-008）。
+   *
+   * - 命中 0 个（无关联）或多于 1 个（关联重复）都返回 undefined，调用方不得注入、
+   *   不得消耗任何案件的注入水位：歧义时宁可少注入，也不把进度注给错误案件；
+   *   结果与遍历顺序无关（确定性）。
+   * - 冷启动：内存未覆盖的 session 文件从磁盘扫描并惰性加载，进程重启后 resume 的
+   *   专属 Agent 仍能找回关联案件。
+   * - 单个损坏文件不阻塞扫描（§6.4 的改名留证与报错留给直接访问该案件的路径）。
+   */
+  findByDshSessionId(dshSessionId: string): ContractSession | undefined {
+    const wanted = dshSessionId.trim()
+    if (wanted === '') return undefined
+    let matched: ContractSession | undefined
+    for (const id of new Set([...this.sessions.keys(), ...this.diskSessionIds()])) {
+      let session: ContractSession | undefined
+      try {
+        session = this.get(id)
+      } catch {
+        continue
+      }
+      if (session?.dshSessionId !== wanted) continue
+      if (matched !== undefined) return undefined
+      matched = session
+    }
+    return matched
+  }
+
+  /** 磁盘上的 session id 全集（<id>.json 文件名；冷启动扫描用）。 */
+  private diskSessionIds(): string[] {
+    try {
+      return readdirSync(this.dir)
+        .filter((name) => name.endsWith('.json'))
+        .map((name) => name.slice(0, -'.json'.length))
+    } catch {
+      return []
+    }
+  }
+
   /** 状态跃迁 + 历史记录 + 原子落盘；progressCounter 递增。 */
   transition(id: string, tool: string, to: SessionState, mutate?: (session: ContractSession) => void): ContractSession {
     const session = this.get(id)

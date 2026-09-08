@@ -103,7 +103,7 @@ tests/                       # Vitest 单元与真实 Python spawn 集成测试
 - **Python 脚本一行不动**（项目硬约束）
 - **session 文件原子写**：临时文件 + rename；损坏时改名留证后按 created 重建
 - **tool 返回值必须 lossless JSON 合规**：每个 tool 在 return 前包 `compactUndefinedDeep`
-- **pre-step 进度注入幂等**：仅在 `progressCounter > lastInjectedCounter` 时注入
+- **pre-step 进度注入幂等且按 Agent 关联**：仅对触发事件 `agent.id` 精确匹配 `dshSessionId` 的唯一案件、且 `progressCounter > lastInjectedCounter` 时注入；无关联或关联歧义的 Agent 不注入、不消耗任何案件的注入水位
 - **apply 全量显式传参**：不依赖 Python 非交互默认值（review_intensity 缺失静默"强势"）
 - **律师批准不可绕过**：analyze 生成 `awaiting-decisions` 计划；apply 仅接受逐项决定、已批准且文件 hash 未变化的计划
 - **决策与执行分离**：律师备注只进入追加式审计历史；四种决定确定性投影到 Python plan，不把内部备注混入对外文书

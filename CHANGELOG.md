@@ -4,6 +4,9 @@
 
 ## [Unreleased] — 推进中
 
+### Fixed（2026-09-08，pre-step 进度按 Agent 精确关联）
+- `agent/pre-step` 进度注入不再读全局"当前案件"，改为按触发事件的 `agent.id` 精确匹配 `dshSessionId` 关联的唯一案件：无关联或关联歧义的 Agent 不注入进度、也不消耗任何案件的注入水位；水位按案件持久化，进程重启或 Agent resume 后关联从磁盘恢复
+
 ### Testing（2026-09-05，`force_edit` 验收可靠性）
 - 真实合成合同验收确认 OOXML `w:ins`/`w:del` 经工作台 document 路径投影为可见 `cc-ins`/`cc-del` 修订标记。
 - 取消、超时及父进程先退出时，进程树均按 TERM→KILL→settle 有界收束；负控等待后代 ready marker 后再触发，并以唯一 marker 的强制清理和枚举证明零残留。

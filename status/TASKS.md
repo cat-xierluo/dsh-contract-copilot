@@ -55,6 +55,14 @@
 - 验收：真实组件行为回归（最小 React 挂载器，非源码字符串）覆盖 roving 快照、ArrowLeft/Right/Home/End 焦点迁移、点击激活语义、busy 三入口不卸载且关闭按钮状态可感知、空闲三入口关闭与 launcher 焦点归还；聚焦测试、client typecheck、build、`git diff --check` 通过。
 - 证据：先写回归后实现，4 个新行为用例在实现前按预期失败（tabIndex 缺失、无焦点迁移、End 不切换、无 aria-disabled 门）；实现后聚焦 vitest 63/63、全量 294/294（本任务新增 7 项）、build 通过、`git diff --check` 干净。`dsh-plugin-lint` 报 `10 FAIL / 3 WARN / 2 NOT_VERIFIED`，经 stash 对比在干净基线 `64a23c6` 上完全一致——均为新版 lint harness 对 `tsdown.client.config.ts` external 声明与主题 harness 的既有要求，非本任务引入；涉事文件超出本任务文件边界，留待 PM 在集成侧处置。
 
+### CC-V5-008-R1：pre-step 进度注入按事件 Agent 精确关联案件
+
+- 状态：已交付待独立审查；分支 `codex-cc-agent-progress-isolation-0908` 自集成分支 `35527c2` 起步，PR base `feat-v5-quality-hardening`（对应 AUDIT-2026-09-08 P1 项）
+- 目标：pre-step 不再读 `store.current()`，改为按触发事件的 `agent.id` 精确匹配 `dshSessionId` 关联的唯一案件；无关联或关联歧义的 Agent 不注入、不消耗任何案件的 `lastInjectedCounter`；沿用 DSH 可记录消息机制（plugin snapshot user message），不引入隐藏模型状态
+- 文件边界：`src/index.ts`、`src/session.ts`、新增 `tests/agent-progress-isolation.spec.ts`（`src/progress.ts` 经核无需改动）；随行 `status/TASKS.md`、`CHANGELOG.md`、`docs/ARCHITECTURE.md`
+- 验收：新增 6 项用例全部经 `apply()` 实际注册的 pre-step listener 驱动——A/B Agent 交错各自注入且不互耗水位、无关联不注入（`setCurrent` 指向 pending 案件也不回退）、next 拒绝/turn 中止不消耗水位且恢复后正常注入、重复步幂等且内容反映最新状态、重复关联同一 DSH session 确定性不误注入、冷启动重建 SessionStore 后 resume 的 Agent 按磁盘关联注入且水位落盘；关联命中 0 个或多于 1 个一律返回 undefined（确定性、宁可不注入不误注入）
+- 证据（2026-09-08）：先写测试后实现，新用例在实现前按预期失败（旧实现无 dshSessionId 关联路径）；scoped `vitest run tests/agent-progress-isolation.spec.ts tests/progress.spec.ts tests/session.spec.ts --bail 1` 30/30 通过、`tsc -p tsconfig.json --noEmit` 通过、`git diff --check` 干净。多 Agent 真实 DSH Web 路径 `NOT_VERIFIED`，留待 PM 集成验收
+
 ## CC-V4-010：简版文档导航根接线（CC-V4-004 验收退回）
 
 - 状态：已完成；真实浏览器复验与 CC-V4-004 独立 reviewer 合并门均通过

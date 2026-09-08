@@ -56,11 +56,15 @@ export function apply(ctx: Context, raw: PluginConfig): void {
   // ToolOutputError），所以不能做统一拦截。
 
   if (config.injectProgress) {
-    // 能力 C：每步注入审查进度（幂等：仅状态变化后注入一次）
-    ctx.on('agent/pre-step', async ({ signal }, next): Promise<PreStepDecision> => {
+    // 能力 C：每步注入审查进度（幂等：仅状态变化后注入一次）。
+    // 进度只跟随触发本步的 Agent：按事件 agent.id 精确匹配 dshSessionId 关联的
+    // 案件（CC-V5-008）。无关联或关联歧义的 Agent 不注入、不消耗任何案件的
+    // lastInjectedCounter；禁止回退 store.current()——那会把"当前案件"的进度
+    // 和注入水位泄漏给无关 Agent。
+    ctx.on('agent/pre-step', async ({ agent, signal }, next): Promise<PreStepDecision> => {
       const decision = await next()
       if (decision.kind === 'reject' || signal.aborted) return decision
-      const session = store.current()
+      const session = store.findByDshSessionId(String(agent.id))
       if (session === undefined || !progressChangedSinceLastInjection(session)) return decision
       session.lastInjectedCounter = session.progressCounter
       store.save(session)
