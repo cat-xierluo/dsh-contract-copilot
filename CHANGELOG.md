@@ -6,7 +6,7 @@
 
 ### Maintenance（2026-09-08，交付审计）
 
-- 校正治理与 V5 任务的交付状态，记录并发命令、案件进度隔离、CODEOWNERS 与 CI 环境缺口，并建立 GLM 实现及独立验收任务；整改完成情况以 `status/TASKS.md` 为准。
+- 校正治理与 V5 任务的交付状态，记录并发命令、案件进度隔离、CODEOWNERS 与 CI 环境缺口，并建立 GLM 实现及独立验收任务；已按用户要求接入当前任务的 10 分钟 heartbeat 回访验收，整改完成情况以 `status/TASKS.md` 为准。
 
 ### Added（2026-09-06，治理三件套 Phase 1 — TASK-2026-09-06-orca-gov-01）
 

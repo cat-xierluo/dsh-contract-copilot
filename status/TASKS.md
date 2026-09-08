@@ -2,6 +2,7 @@
 
 ## WAVE-2026-09-08：GLM 审计整改与独立验收
 
+- Heartbeat：用户于 2026-09-08 明确要求自动回访验收；当前任务已启用 `contract-copilot-glm`（Contract Copilot GLM 成果验收），每 10 分钟执行一次。仅跟进本波三个任务的交付、必要修复、独立 GLM review、已授权 Git 收口和上下文更新；无实质变化保持安静。完成收口或出现需要用户处理的阻塞时暂停并报告。不重复派单、不扩展新波次，也不把定时回访宣称为已验证的 L2/L3 持久控制器。
 - 状态：DISPATCHED。Orca Run `run_fce28ffada88` 已启动三个 GLM 5.3 Flash Worker，已确认独立 worktree、local 依赖模式与 Dispatch 绑定；尚未收到实现或独立验收结果。用户已授权由本会话担任 PM，另派独立 reviewer；以下三项完成定义为“代码与受影响行为验收”，不以 Worker 自报代替。
 - 派发记录：生命周期 `task_88b4b4615cc5` / `ctx_8741cee94aed` / `cc-lifecycle-0908`；进度隔离 `task_194a37866137` / `ctx_080e0819b0c5` / `cc-isolation-0908`；治理 `task_fe0add259621` / `ctx_9381ff22b07f` / `cc-governance-0908`。模型合同为 `glm-5.3-flash[1M]`，Claude Code backend；内存/额度 preflight 均通过。生命周期基线 `99d6243`、进度隔离 `35527c2`、治理 `02fe756`。
 - 文件/依赖隔离：生命周期修复从 R10 `99d6243` 起步，拥有 coordinator/host-api 及对应测试；进度隔离从集成 `35527c2` 起步，拥有 index/session/progress 及对应测试；治理修复从本地主干（含本次审计文档，代码与远端 main 一致）起步，拥有 CODEOWNERS/CI/package.json/配置回归测试。三者不能共用一个检出版本，因此建立独立 worktree；文档仅改各自受影响小节。
