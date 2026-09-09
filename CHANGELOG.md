@@ -18,6 +18,7 @@
 - 首个安全脚本任务通过价值门，但 GLM 额度为 0% 时派发在零资源副作用阶段被拒；任务保持 ready，改由 heartbeat 在额度恢复后重试同一冻结合同，不绕过判停线或换用其他模型。
 - GLM 额度恢复后已按原冻结合同派发安全脚本 Worker；独立 worktree、Dispatch、终端与 provider lease 身份已核对，未授予安装或启动运行时服务的权限。
 - 安全脚本候选通过静态交付门并完成资源结算，随后已交给不同 Dispatch/Session 的 GLM reviewer 做只读安全审查；脚本尚未执行，PR #11 运行时仍未验收。
+- 安全脚本独立复审正式 ACCEPT 并完成资源结算；随后派发新的 GLM Worker，只在冻结候选上准备 tarball、全新私有 DSH profile 与可复核 manifest。安装、manifest 复核和 runtime 启动保持串行分离，当前仍未执行脚本或形成真实工作台通过结论。
 
 ### Maintenance（2026-09-08，交付审计）
 
