@@ -269,6 +269,7 @@ dsh 是合同审查业务规则工具——bug 类型高度结构化（合同主
 - 输入：PR #11 候选 `94818478d2470429b9c0d76e7ebbb4fba99ea855`、集成 base `35527c2bc39e969bed807c7b67f3dc64ce83f182`；已接受源码 review 与 30/30 证据复用，不重复逐行审查。
 - 所有权：独立 GLM 5.3 Flash reviewer，实际 session `cc-pr11-runtime-review-0909`、短分支/worktree `codex-cc-pr11-runtime-review-0909`。仅写自己的 Session Context；冻结依赖安装和构建可生成本树 node_modules/ignored lib，所有 tracked 文件、Python、用户 DSH 配置及其他 worktree 禁止修改。不 push/开 PR/合并；Codex PM 验收并统一写回。
 - 目标：从候选打包件而非源码链接启动独立 DSH profile，以本地合成案件与 replay 验证 A/B Agent 交错、无关联 Agent、同案重复步、冷启动及重启恢复。真实 session/请求日志证明案件关联与注入水位，Web DOM/截图证明工作台入口、切换和恢复；缺任何必需路径均保留 NOT_VERIFIED，不以单测替代。
+- 2026-09-09 15:51 执行补充：PM 已回复 worker 问询 `msg_0ba2e9c47883`，现场未发现其他测试/构建入口在飞，可立即串行 build/pack。缺少可安全复用的录制时，允许自身 Session Context 内、仅监听 `127.0.0.1` 的确定性 HTTP/SSE 服务替代 replay，真实 DSH adapter/profile/插件链保持不变；仅用子进程假 key，禁止外部 fallback 和读取用户 session。A/B 分配须可核验而非依赖全局请求顺序；注入内容必须来自候选插件，不能由 fixture 伪造。此方案不证明模型质量或与录制 replay 完全等价。详细授权及检查证据见 `pr11-runtime-local-provider-approval.json`；未修改运行权限 guard。
 - 验证：3 个 scoped spec（`--bail 1`）、串行 build/pack、Session Context 内 runtime-gate.mjs、diff-check；所有 Node 保留 2048 MiB 堆顶。精确命令、冻结依赖安装授权和资源边界见 Git common-dir 的 `orchestration/cc-audit-20260908/pr11-runtime-{spec.json,prompt.md}`，派发价值门 PASS。额外 profile 安装需向 PM 提交精确命令及私有目标。
 - 交付/失效：精确 head/base、tarball SHA256、DSH 版本、executed[] 退出码、逐项真实路径证据及 ACCEPT/REJECT；停止所拥有服务/浏览器，提供资源零净增量证明。head/base 变化即失效，最迟 2026-09-16 复核。正式 worker_done/Delivery 后由 PM 过验收门再结算资源；不声明全产品发布验收完成。
 
