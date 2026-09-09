@@ -19,6 +19,7 @@
 - GLM 额度恢复后已按原冻结合同派发安全脚本 Worker；独立 worktree、Dispatch、终端与 provider lease 身份已核对，未授予安装或启动运行时服务的权限。
 - 安全脚本候选通过静态交付门并完成资源结算，随后已交给不同 Dispatch/Session 的 GLM reviewer 做只读安全审查；脚本尚未执行，PR #11 运行时仍未验收。
 - 安全脚本独立复审正式 ACCEPT 并完成资源结算；随后派发新的 GLM Worker，只在冻结候选上准备 tarball、全新私有 DSH profile 与可复核 manifest。安装、manifest 复核和 runtime 启动保持串行分离，当前仍未执行脚本或形成真实工作台通过结论。
+- profile 准备首轮在候选包生成后因安装命令 shell allowlist 快照缺口 fail-closed；已结算该 Worker，并以全新 Task/Dispatch 只续做私有 profile 与 manifest。资源复查同时收束两个此前遗漏的旧 unsafe runtime 孤儿进程及其回环监听器；未删除旧证据、未启动当前 runtime gate。
 
 ### Maintenance（2026-09-08，交付审计）
 
