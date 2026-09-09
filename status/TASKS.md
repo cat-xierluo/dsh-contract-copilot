@@ -272,11 +272,11 @@ dsh 是合同审查业务规则工具——bug 类型高度结构化（合同主
 
 ### CC-V5-009-R2：上游中止后的取消与结果投影（N1 返修）
 
-- 状态：QUEUED_FOR_CAPACITY（2026-09-09）；本波第 1 个返修 episode，预算上限 2。acceptance-recovery 判为 internal_recoverable / repair，dispatch-value-gate 通过。当前全局 3 个 Dispatch 均 exactWorker/live（本波治理及其他项目各一），达到默认上限，尚未启动新 Worker；空出名额再复查额度/内存/身份后派发，不关闭他人资源。
+- 状态：DISPATCHED（2026-09-09 08:22）；本波第 1 个返修 episode，预算上限 2。并发名额已空出，派发前全局仅 1 个 live Dispatch；重新通过价值/恢复/额度/内存门，未使用任何 override。GLM 5.3 Flash Worker 已接受任务，尚无完成证据。
 - 输入：已审候选 `c0c973378ca6d623c974c4914a940747bb813afb` 及生命周期 reviewer 报告 N1。原 ACCEPT 作为历史保留，PM 将 N1 纳入合并前阻断。
 - 目标：accepted/followup 后的 upstream abort 不得抑制后续用户 cancel，也不得把仍正常执行的成功交付误投影为 idle；中止、cancel、dispose 交错必须具有一致语义、幂等取消和唯一句柄释放。
 - 范围：仅 `src/agent-coordinator.ts`、`tests/agent-command-lifecycle.spec.ts`、`tests/agent-coordinator.spec.ts`；随行更新本任务与 CHANGELOG、受影响 ARCHITECTURE。不改 Python、Client、SessionStore、依赖或律师批准门，不增加 beginRecheck。
-- 派发合同：Git common-dir 的 `orchestration/cc-audit-20260908/lifecycle-n1-{spec.json,prompt.md,recovery.json,receipt.json}`。同 Run 子任务 `task_4ce88f2a778c` 已 READY，无 Dispatch，后续复用该 Task 不重建。计划 GLM 5.3 Flash / `cc-lifecycle-n1-0909`，短分支 `codex-cc-lifecycle-n1-0909` 从上述冻结候选起步，保留旧分支及 reviewer 树；不可基于 main 误跑。仅本地提交，独立复审后纳入既有 PR #4，不新开重复 PR。
+- 派发合同：Git common-dir 的 `orchestration/cc-audit-20260908/lifecycle-n1-{spec.json,prompt.md,recovery.json,receipt.json}`。复用同 Run 子任务 `task_4ce88f2a778c`，实际 Dispatch `ctx_b54c55728b44` / Session `cc-lifecycle-n1-0909` / 终端 `term_7b87f064-259c-4731-97d7-adbba39abdea`；spawn 退出 0、dispatch_bind=ok。短分支/worktree `codex-cc-lifecycle-n1-0909` 的 HEAD 已核对为上述冻结候选，独立 local 依赖及自身 Session Context 写权限已显式配置；保留旧分支及 reviewer 树。仅本地提交，独立复审后纳入既有 PR #4，不新开重复 PR。
 - 验收：受控 Promise/AbortController 新回归先在修复前失败，再在修复后通过；沿用 R1 五个 scoped spec、Host noEmit、diff-check 三条精确命令（2048 MiB 堆顶）。以最终 40 位 head、executed[] 日志和不同 Dispatch/Session 的独立复审收口；真实 Web 仍须单独验证。
 
 ## CC-V4-010：简版文档导航根接线（CC-V4-004 验收退回）
