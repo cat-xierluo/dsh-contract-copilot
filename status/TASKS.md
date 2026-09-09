@@ -263,6 +263,15 @@ dsh 是合同审查业务规则工具——bug 类型高度结构化（合同主
 - 范围：`src/index.ts`、`src/session.ts`、`src/progress.ts` 与对应测试/受影响文档；不改 Python 或律师授权规则。
 - 验收：A/B 案件与无关联 Agent 的交错 pre-step、相同案件重复步、冷启动/resume 均隔离且可恢复；绑定最终候选的独立审查与代表性 DSH 路径。诊断依据见本次审计表。
 
+### CC-V5-008-RUNTIME-GATE：PR #11 打包与多 Agent 真实入口验收
+
+- 状态：DISPATCHED（2026-09-09 15:21）；Task `task_2ea8577937a4` / Dispatch `ctx_0268cd8d81c2` 已接受任务，spawn 退出 0、dispatch_bind=ok，实际 HEAD 与输入候选一致且 tracked 树干净。10 分钟 heartbeat 已绑定跟进本任务及阻塞请求；尚无 Delivery，不能称验收通过。此项不依赖 PR #4 或 GOV 的暂停会话。
+- 输入：PR #11 候选 `94818478d2470429b9c0d76e7ebbb4fba99ea855`、集成 base `35527c2bc39e969bed807c7b67f3dc64ce83f182`；已接受源码 review 与 30/30 证据复用，不重复逐行审查。
+- 所有权：独立 GLM 5.3 Flash reviewer，实际 session `cc-pr11-runtime-review-0909`、短分支/worktree `codex-cc-pr11-runtime-review-0909`。仅写自己的 Session Context；冻结依赖安装和构建可生成本树 node_modules/ignored lib，所有 tracked 文件、Python、用户 DSH 配置及其他 worktree 禁止修改。不 push/开 PR/合并；Codex PM 验收并统一写回。
+- 目标：从候选打包件而非源码链接启动独立 DSH profile，以本地合成案件与 replay 验证 A/B Agent 交错、无关联 Agent、同案重复步、冷启动及重启恢复。真实 session/请求日志证明案件关联与注入水位，Web DOM/截图证明工作台入口、切换和恢复；缺任何必需路径均保留 NOT_VERIFIED，不以单测替代。
+- 验证：3 个 scoped spec（`--bail 1`）、串行 build/pack、Session Context 内 runtime-gate.mjs、diff-check；所有 Node 保留 2048 MiB 堆顶。精确命令、冻结依赖安装授权和资源边界见 Git common-dir 的 `orchestration/cc-audit-20260908/pr11-runtime-{spec.json,prompt.md}`，派发价值门 PASS。额外 profile 安装需向 PM 提交精确命令及私有目标。
+- 交付/失效：精确 head/base、tarball SHA256、DSH 版本、executed[] 退出码、逐项真实路径证据及 ACCEPT/REJECT；停止所拥有服务/浏览器，提供资源零净增量证明。head/base 变化即失效，最迟 2026-09-16 复核。正式 worker_done/Delivery 后由 PM 过验收门再结算资源；不声明全产品发布验收完成。
+
 ### CC-V5-009：恢复 Agent 命令生命周期与复核入口任务
 
 - 状态：本轮准入/取消/关闭及 N1 返修已局部独立验收；完整 PR #4 源码候选、打包与真实工作台仍未验收，详情见下方 R2 和 CANDIDATE-GATE 卡。原统一 beginRecheck 方案需补全任务合同再派发，不能仅按历史标题实现。
