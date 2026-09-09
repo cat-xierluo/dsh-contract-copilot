@@ -2,7 +2,7 @@
 
 ## WAVE-2026-09-08：GLM 审计整改与独立验收
 
-- Heartbeat：用户于 2026-09-08 明确要求自动回访验收；`contract-copilot-glm`（Contract Copilot GLM 成果验收）原每 10 分钟跟进本波任务，现已因 CC-V5-008-RUNTIME-GATE 安全未知暂停（2026-09-09）。须用户明确后续方向才恢复；不自动重试、扩展波次或删除证据。PR #4 和 GOV 的既有泊车状态保持不变。
+- Heartbeat：用户于 2026-09-08 明确要求自动回访验收；`contract-copilot-glm`（Contract Copilot GLM 成果验收）原每 10 分钟跟进本波任务。CC-V5-008-RUNTIME-GATE 安全未知发生后曾暂停；用户于 2026-09-09 明确要求当前 PM 接手并先稳定运行，现按新的安全脚本阶段恢复。旧 unsafe worker 不重启、不删除证据；PR #4 和 GOV 的既有泊车状态保持不变。
 - 统筹：2026-09-09 用户指定当前 Codex 任务为唯一 PM；原 GLM PM 已交接并停止自主派发、恢复、合并和清理。Run `run_fce28ffada88` 已绑定新控制端 `term_6edfaa2a-c511-4d7c-846a-4d4d6f99fcf0`（coordinator generation 2）。Heartbeat 曾因双 PM 归属冲突暂停，交接确认后已恢复；交接与控制权证据为 Git common-dir 下的 `orchestration/cc-audit-20260908/pm-handoff-to-codex-20260909.json`、`codex-pm-control-20260909.json`。
 - 08:08 回访：N1 返修已建同 Run 子任务 `task_4ce88f2a778c`，排队原因及完整边界见 CC-V5-009-R2；无新 Dispatch，不能称已派 Worker。进度隔离 r2 的独立角色门、交付价值后门均 PASS（提取其已有 executed[]，并非本轮重跑测试），证据 `isolation-r2-postflight-evidence.json`。PR #11 仍 OPEN / MERGEABLE / CLEAN，head 未变，但云端 checks 为空、真实 Web 未验，不据此直接合并。治理恢复复查仍 UNKNOWN/no_actionable_quota_evidence，无唤醒输入。
 - 状态：SCOPED_REVIEWS_ACCEPTED / MERGE_HELD（2026-09-09）。N1 返修已独立验收，详情以 CC-V5-009-R2 及其 REVIEW 卡为准；进度隔离局部 review 同样通过，但尚不等于工作台或 PR 整体交付完成。下一门禁为 CC-V5-PR4-CANDIDATE-GATE，再做打包及真实工作台验收。治理仍保留原 Dispatch 和未提交改动，恢复脚本为 UNKNOWN/no_actionable_quota_evidence；未获一次“继续”的明确授权，不重复派单或使用重置卡。
@@ -269,6 +269,7 @@ dsh 是合同审查业务规则工具——bug 类型高度结构化（合同主
 - 安全检查：PM 在 16:16 发送纠正消息 `msg_64f9c0a5b4f3`，随后发现脚本仍执行内嵌 profile 安装、全量 skill 复制及清除旧运行目录的逻辑；消息是否已被 worker 读取未确认。允许执行验收脚本不等于批准其中额外安装，PM 派发和脚本执行护栏未能阻止该越界。安装落于自身 Session Context，复制目录按元数据统计 664 个文件，其中 archive 路径 475 个、config 5 个；未读取内容，敏感性及外传情况 NOT_VERIFIED。保留本地副本、日志和候选包，不删除证据。
 - 资源结算：核对精确终端及 incarnation 后，worker-stop 撤销 capability 但未关闭外部终端，PM 再关闭该精确终端。按 cwd/argv/父子关系确认的两个 runtime-gate 进程及一个 DSH 子进程已 SIGTERM；对应三个监听端口复查为空。Dispatch 为 failed，worker-release 为 released，provider lease 已释放；两棵既有暂停 worker 树未干预。控制面证据见 `pr11-runtime-receipt.json` 与 `pr11-runtime-safety-recovery.json`。
 - 后续门禁：acceptance-recovery 分类为 safety_unknown / park。待用户授权先修验收脚本与材料隔离，再由独立 GLM 重验；建议仅使用合成 fixture 和必要的公开静态资源、将精确安装单独审批、每次运行保留独立目录。当前不将此前 build/pack 或 30/30 自报扩大为运行时通过结论。
+- 恢复 R1：用户于 2026-09-09 授权当前 PM 接手后续任务并优先稳定运行。新建同 Run 子任务 `task_6a5214f8049a`（CC-V5-008-RUNTIME-GATE-SAFE-DESIGN），先由全新 GLM 5.3 Flash worktree 仅编写执行前脚本候选；本阶段禁止安装、build/pack、启动 DSH/浏览器/模型服务、读取真实 skill 或旧复制件，也不执行候选脚本。静态策略门由 Git common-dir 的 `runtime-gate-static-policy.mjs` 提供，派发价值门 PASS。完成后必须换不同 Dispatch/Session 独立审查，获准后才另建真实运行任务。
 - 输入：PR #11 候选 `94818478d2470429b9c0d76e7ebbb4fba99ea855`、集成 base `35527c2bc39e969bed807c7b67f3dc64ce83f182`；已接受源码 review 与 30/30 证据复用，不重复逐行审查。
 - 所有权：独立 GLM 5.3 Flash reviewer，实际 session `cc-pr11-runtime-review-0909`、短分支/worktree `codex-cc-pr11-runtime-review-0909`。仅写自己的 Session Context；冻结依赖安装和构建可生成本树 node_modules/ignored lib，所有 tracked 文件、Python、用户 DSH 配置及其他 worktree 禁止修改。不 push/开 PR/合并；Codex PM 验收并统一写回。
 - 目标：从候选打包件而非源码链接启动独立 DSH profile，以本地合成案件与 replay 验证 A/B Agent 交错、无关联 Agent、同案重复步、冷启动及重启恢复。真实 session/请求日志证明案件关联与注入水位，Web DOM/截图证明工作台入口、切换和恢复；缺任何必需路径均保留 NOT_VERIFIED，不以单测替代。
