@@ -272,12 +272,21 @@ dsh 是合同审查业务规则工具——bug 类型高度结构化（合同主
 
 ### CC-V5-009-R2：上游中止后的取消与结果投影（N1 返修）
 
-- 状态：DISPATCHED（2026-09-09 08:22）；本波第 1 个返修 episode，预算上限 2。并发名额已空出，派发前全局仅 1 个 live Dispatch；重新通过价值/恢复/额度/内存门，未使用任何 override。GLM 5.3 Flash Worker 已接受任务，尚无完成证据。
+- 状态：DELIVERY_RECEIVED / RE_REVIEW_QUEUED（2026-09-09 08:50）；本波第 1 个返修 episode，预算上限 2。收到真实 worker_done，最终候选 `058ce80c8ae5c317cc2a83dd9980425acbb286ca`；PM 核对干净工作树、两提交身份和允许文件，worker-value-postflight PASS。作者在最终树提供 71/71、Host noEmit、diff-check 的 executed[]；独立复审尚未完成，不能据此合并。
 - 输入：已审候选 `c0c973378ca6d623c974c4914a940747bb813afb` 及生命周期 reviewer 报告 N1。原 ACCEPT 作为历史保留，PM 将 N1 纳入合并前阻断。
 - 目标：accepted/followup 后的 upstream abort 不得抑制后续用户 cancel，也不得把仍正常执行的成功交付误投影为 idle；中止、cancel、dispose 交错必须具有一致语义、幂等取消和唯一句柄释放。
 - 范围：仅 `src/agent-coordinator.ts`、`tests/agent-command-lifecycle.spec.ts`、`tests/agent-coordinator.spec.ts`；随行更新本任务与 CHANGELOG、受影响 ARCHITECTURE。不改 Python、Client、SessionStore、依赖或律师批准门，不增加 beginRecheck。
 - 派发合同：Git common-dir 的 `orchestration/cc-audit-20260908/lifecycle-n1-{spec.json,prompt.md,recovery.json,receipt.json}`。复用同 Run 子任务 `task_4ce88f2a778c`，实际 Dispatch `ctx_b54c55728b44` / Session `cc-lifecycle-n1-0909` / 终端 `term_7b87f064-259c-4731-97d7-adbba39abdea`；spawn 退出 0、dispatch_bind=ok。短分支/worktree `codex-cc-lifecycle-n1-0909` 的 HEAD 已核对为上述冻结候选，独立 local 依赖及自身 Session Context 写权限已显式配置；保留旧分支及 reviewer 树。仅本地提交，独立复审后纳入既有 PR #4，不新开重复 PR。
 - 验收：受控 Promise/AbortController 新回归先在修复前失败，再在修复后通过；沿用 R1 五个 scoped spec、Host noEmit、diff-check 三条精确命令（2048 MiB 堆顶）。以最终 40 位 head、executed[] 日志和不同 Dispatch/Session 的独立复审收口；真实 Web 仍须单独验证。
+- 资源：实现 Dispatch 已 settled/succeeded；PM 关闭匹配 incarnation 的精确终端并 release，provider lease 已释放，再 ack `delivery_ab8c947f9dbd`。分支/worktree 保留待复审及 PR 收口，未 push 或修改 PR。
+
+### CC-V5-009-R2-REVIEW：N1 返修独立复审
+
+- 状态：READY / QUEUED_FOR_CAPACITY（2026-09-09 08:54）；同 Run 子任务 `task_7c78851fc4f5` 已建立，价值门 PASS，全局 3 个活跃 Dispatch 已达到上限，本轮尚未派 Worker。下一次派发必须重查全局并发及新鲜额度/内存，不借用其他项目终端或关闭其 Worker。
+- 输入：冻结 `058ce80c8ae5c317cc2a83dd9980425acbb286ca`；实现身份 `ctx_b54c55728b44` / `cc-lifecycle-n1-0909`。审 N1 增量 `c0c9733..058ce80`，同时核对 R10 后累计生命周期互动；不把本次审查扩大为远端旧 PR #4 或整个工作台验收。
+- 范围：GLM 5.3 Flash，独立短分支/worktree `codex-cc-lifecycle-n1-review-0909`，Session `cc-lifecycle-n1-review-0909`；只读实现和受影响文档，只写自身 Session Context，禁止修代码、提交、push 或新开 PR。安装沿用本波精确 local 命令，不共享依赖。
+- 验收：最终 HEAD 一致；Agent 登记/followup 时序、上游中止与 cancel/dispose 交错、结果投影、早期中止及唯一释放均有具体审查结论；独立复跑 R2 同三条命令，交付 review-acceptance.json 与 postflight-evidence.json 及真实日志。不同 Dispatch/Session、角色门和价值后门通过才可接纳；真实 Web 仍 NOT_VERIFIED。
+- 合同：Git common-dir `orchestration/cc-audit-20260908/lifecycle-n1-review-{spec.json,prompt.md,receipt.json}`。消费方为当前 Codex PM，目标为既有 PR #4 纳入决策；head 改变旧 review 即失效。派发与资源身份以 receipt 为准。
 
 ## CC-V4-010：简版文档导航根接线（CC-V4-004 验收退回）
 
