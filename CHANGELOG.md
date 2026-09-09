@@ -26,6 +26,7 @@
 - 第四次 Orca 重启前，治理 Worker 已提交 `988d344` 并正式交付；PM 独立复跑 17 项配置测试、Host/Client noEmit 与 diff-check 均通过并结算资源，后续仍需不同 GLM reviewer。PR #4 与 runtime Worker 因控制面中断暂停；当前系统负载高于恢复阈值，各测试 worktree 同步 Q46 堆顶护栏前不再恢复重负载任务。
 - 2026-09-09 晚注销风暴事故排查收口：受控复现确认治理恢复 worktree 无固有 OOM 测试（283/283 全绿，`--bail 1` + 2048 堆顶），21:22/21:52 两次 vitest worker V8 `FatalProcessOutOfMemory` 定性为负载诱导——ORCA 会话恢复路径拉起的全量 vitest 绕过了 `pnpm test` 入口的堆顶护栏（裸入口 fork worker 默认可到 ~4GB）。据此把 2048MiB 合约护栏下沉到 `vitest.config.ts` 的 `poolOptions.forks.execArgv`，任何入口跑测试每个 worker 都带 2048 顶、单 worker 爆只死自己；裸入口以临时 spec 断言 `process.execArgv` 实测生效。见 DECISIONS Q46。
 - 分支与 worktree 批量清理（用户确认）：删除 11 个已收口 worker worktree 与 10 个分支 ref（worktree 22→11、本地分支 22→12），判定依据为编排 receipt 终态与 tip 可达性；各 session 证据先归档至 `.git/orchestration/cc-audit-20260908/archive-<session>/` 再删树。保留全部活跃 worker 现场、PR #4/#11 交付链分支、集成分支与远端素材分支；详见同目录 `branch-cleanup-20260909.json` 与 `status/TASKS.md` CC-V5 清理记录。无产品代码变更。
+- 负载门曾连续两个 heartbeat 通过后，PM 将 Q46 的 2048MiB worker 堆顶及致命错误诊断报告配置等价同步至治理、PR #4、PR #11 runtime 三个保留 worktree，并把 Run 重绑为 generation 8；派发前负载回升至 27.86，故未启动新 Worker。三个 Q46 同步提交只改变各自验收环境，不改变冻结业务候选或合并结论。
 
 ### Maintenance（2026-09-08，交付审计）
 
