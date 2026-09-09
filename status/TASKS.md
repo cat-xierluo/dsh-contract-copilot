@@ -257,6 +257,7 @@ dsh 是合同审查业务规则工具——bug 类型高度结构化（合同主
 - 独立佐证：`package.json` vitest 堆顶止血已落 main（`7eae439`）
 - 2026-09-07 分支清理记录保留：6 个 stale 分支及 worktree 已清理；`contract-copilot-v301-assets` 按原验收记录保留。2026-09-08 校正：R10 是 PR #4 head `066270d` 的后代，含 merge-forward `dda96bc` 及集成 tip `35527c2`，不是平行路线；继续保留待修复/审查，不需把集成 PR 补丁平铺重放。本次未执行清理。
 - 2026-09-07 审计发现：远端 PR #4（`066270d`）base 落后 feat-v5 tip——其基线只含到 #2，缺 #3/#5/#6/#7/#8 约 3129 行，审合前须先 update branch 或 rebase 到最新集成分支
+- 2026-09-09 分支清理（用户确认，worktree 22→11、本地分支 22→12）：删除 11 个已收口 worker worktree 及 10 个分支 ref——isolation-review-0908/r2（r1 force-settle 留待收口、r2 ACCEPT 30/30 已进 main）、command-lifecycle-0908 + lifecycle-review-0908（R1 交付 c0c9733 已是 R2 交付 058ce80 祖先）、lifecycle-n1-review-0909 与 pr4-candidate-review-0909（同 tip 058ce80，ref 可删）、pr11-runtime-safe-design/safe-review/profile-manifest-review-0909 及 PARKED 的 pr11-runtime-review-0909（已被 safe→prep→execution 链取代）。**保留**：`codex-cc-lifecycle-n1-0909` 分支（058ce80 为 PR #4 收口交付头）、三个活跃 GLM worker 现场（governance-r2 / pr4-candidate-r2 / execution-r1）、governance-repair-0908（只读恢复输入）、prep-r1/r2（execution-r1 依赖）、`codex-cc-agent-progress-isolation-0908`（PR #11 head）、r10 / docx-extraction（PR #4 链）、feat-v5（集成分支）、远端 v301-assets（用户决定保留）。各 session 证据已归档至 `.git/orchestration/cc-audit-20260908/archive-<session>/`，清理 receipt 同目录 `branch-cleanup-20260909.json`；分支删除均按 expected-tip 绑定（仅 isolation-review-r2 因已进 main 用 `-d`）。
 
 ### CC-V5-008：恢复 Agent 专属进度注入任务
 
