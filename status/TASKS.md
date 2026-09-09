@@ -4,6 +4,7 @@
 
 - Heartbeat：用户于 2026-09-08 明确要求自动回访验收；当前任务已启用 `contract-copilot-glm`（Contract Copilot GLM 成果验收），每 10 分钟执行一次。仅跟进本波三个任务的交付、必要修复、独立 GLM review、已授权 Git 收口和上下文更新；无实质变化保持安静。完成收口或出现需要用户处理的阻塞时暂停并报告。不重复派单、不扩展新波次，也不把定时回访宣称为已验证的 L2/L3 持久控制器。
 - 统筹：2026-09-09 用户指定当前 Codex 任务为唯一 PM；原 GLM PM 已交接并停止自主派发、恢复、合并和清理。Run `run_fce28ffada88` 已绑定新控制端 `term_6edfaa2a-c511-4d7c-846a-4d4d6f99fcf0`（coordinator generation 2）。Heartbeat 曾因双 PM 归属冲突暂停，交接确认后已恢复；交接与控制权证据为 Git common-dir 下的 `orchestration/cc-audit-20260908/pm-handoff-to-codex-20260909.json`、`codex-pm-control-20260909.json`。
+- 08:08 回访：N1 返修已建同 Run 子任务 `task_4ce88f2a778c`，排队原因及完整边界见 CC-V5-009-R2；无新 Dispatch，不能称已派 Worker。进度隔离 r2 的独立角色门、交付价值后门均 PASS（提取其已有 executed[]，并非本轮重跑测试），证据 `isolation-r2-postflight-evidence.json`。PR #11 仍 OPEN / MERGEABLE / CLEAN，head 未变，但云端 checks 为空、真实 Web 未验，不据此直接合并。治理恢复复查仍 UNKNOWN/no_actionable_quota_evidence，无唤醒输入。
 - 状态：REVIEW_RECEIVED / MERGE_HELD（2026-09-09）。两项独立 GLM review 已收到 ACCEPT，但不等于工作台或 PR 整体交付完成。生命周期 N1：Agent 已启动后 upstream abort 先设置 cancelled，后续用户 cancel 可能跳过 agent.cancel；合并前必须完成明确处置及相应证据。治理仍保留原 Dispatch 和未提交改动；现场停在 429 后的空输入提示符，恢复脚本返回 UNKNOWN/no_actionable_quota_evidence，原终端一次“继续”的授权仍待明确。指定 PM 不视为限流恢复豁免；未使用重置卡、未重复派治理 Worker。
 - 独立 review：生命周期 `task_20dd70cb276f` / `ctx_f7b1b13977f3` / `cc-lifecycle-review-0908`，冻结 `c0c973378ca6d623c974c4914a940747bb813afb`，报告 ACCEPT、66/66，另有上述 N1。进度隔离原 `ctx_697af9f99a67` 未形成有效验收；实际交付为同一 `task_9cc39bdac119` 的 `ctx_43e3b330a1d0` / `cc-isolation-review-r2-0908` / worktree `codex-cc-isolation-review-r2`，HEAD 为 `94818478d2470429b9c0d76e7ebbb4fba99ea855`，报告 ACCEPT、30/30，PM 已核对 HEAD 与 review-acceptance-gate。该 reviewer 首次在错误 main 基线上的 21/21 作废，不计入验收；修正后包含新隔离 spec 的 30/30 才是有效证据。两份报告及命令日志保存在各自 Session Context；生命周期 review 仅覆盖本轮 R10 后修复，不代表远端旧 PR #4 全部通过。
 - 本轮验收证据：生命周期 head `c0c973378ca6d623c974c4914a940747bb813afb`，5 个 spec 共 66/66、Host noEmit 与 diff-check 退出 0；进度隔离 head `94818478d2470429b9c0d76e7ebbb4fba99ea855`，3 个 spec 共 30/30、Host noEmit 与 diff-check 退出 0，[PR #11](https://github.com/cat-xierluo/dsh-contract-copilot/pull/11) 为 OPEN，base 为 feat-v5-quality-hardening，远端 head 一致。PM 实际命令日志及结构化 executed[] 证据保存于 Git common-dir 的 `orchestration/cc-audit-20260908/pm-{lifecycle,isolation}-verification.json`；两份 worker-value-postflight 均通过，独立 review 结果见上项；尚未合并，未做全量、真实 Web 或发布验收。
@@ -268,6 +269,15 @@ dsh 是合同审查业务规则工具——bug 类型高度结构化（合同主
 - 目标：一个案件从抽取开始即由一条命令拥有；cancel/dispose 覆盖抽取及 Agent 创建，并等待所拥有的异步工作收束。
 - 范围：`src/agent-coordinator.ts`、`src/host-api.ts` 及对应测试/文档；复核相关 SessionStore/Tool 改动在补齐合同后纳入，避免漏掉旧计划与批准失效语义。
 - 验收：两个请求在首次 await 前后交错只能接受一个；抽取中 cancel 有效；create/resume 未完成时 dispose 不遗留 handle、迟到 followup 或错误持久状态；相关失败有界且零归属资源残留。不得仅以现有“首次 runAnalysis await 完成后再发第二次”的 busy 用例代替并发验证。
+
+### CC-V5-009-R2：上游中止后的取消与结果投影（N1 返修）
+
+- 状态：QUEUED_FOR_CAPACITY（2026-09-09）；本波第 1 个返修 episode，预算上限 2。acceptance-recovery 判为 internal_recoverable / repair，dispatch-value-gate 通过。当前全局 3 个 Dispatch 均 exactWorker/live（本波治理及其他项目各一），达到默认上限，尚未启动新 Worker；空出名额再复查额度/内存/身份后派发，不关闭他人资源。
+- 输入：已审候选 `c0c973378ca6d623c974c4914a940747bb813afb` 及生命周期 reviewer 报告 N1。原 ACCEPT 作为历史保留，PM 将 N1 纳入合并前阻断。
+- 目标：accepted/followup 后的 upstream abort 不得抑制后续用户 cancel，也不得把仍正常执行的成功交付误投影为 idle；中止、cancel、dispose 交错必须具有一致语义、幂等取消和唯一句柄释放。
+- 范围：仅 `src/agent-coordinator.ts`、`tests/agent-command-lifecycle.spec.ts`、`tests/agent-coordinator.spec.ts`；随行更新本任务与 CHANGELOG、受影响 ARCHITECTURE。不改 Python、Client、SessionStore、依赖或律师批准门，不增加 beginRecheck。
+- 派发合同：Git common-dir 的 `orchestration/cc-audit-20260908/lifecycle-n1-{spec.json,prompt.md,recovery.json,receipt.json}`。同 Run 子任务 `task_4ce88f2a778c` 已 READY，无 Dispatch，后续复用该 Task 不重建。计划 GLM 5.3 Flash / `cc-lifecycle-n1-0909`，短分支 `codex-cc-lifecycle-n1-0909` 从上述冻结候选起步，保留旧分支及 reviewer 树；不可基于 main 误跑。仅本地提交，独立复审后纳入既有 PR #4，不新开重复 PR。
+- 验收：受控 Promise/AbortController 新回归先在修复前失败，再在修复后通过；沿用 R1 五个 scoped spec、Host noEmit、diff-check 三条精确命令（2048 MiB 堆顶）。以最终 40 位 head、executed[] 日志和不同 Dispatch/Session 的独立复审收口；真实 Web 仍须单独验证。
 
 ## CC-V4-010：简版文档导航根接线（CC-V4-004 验收退回）
 
