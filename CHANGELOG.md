@@ -22,7 +22,8 @@
 - profile 准备首轮在候选包生成后因安装命令 shell allowlist 快照缺口 fail-closed；已结算该 Worker，并以全新 Task/Dispatch 只续做私有 profile 与 manifest。资源复查同时收束两个此前遗漏的旧 unsafe runtime 孤儿进程及其回环监听器；未删除旧证据、未启动当前 runtime gate。
 - 恢复 Worker 已从冻结 tarball 建立全新私有 DSH web profile，并通过实体哈希、realpath、依赖与资源零增量检查；准备者资源已结算。现由不同 GLM reviewer 只读复核 manifest 与运行前假设，脚本仍未执行。
 - profile/manifest 独立复审正式 ACCEPT；Orca runtime 两次重启后由唯一 PM 恢复 generation 4 控制面，并在保全 worktree 进度的前提下并行续接三个 GLM 5.3 Flash Worker：PR #4 完整源码候选复审、治理候选恢复提交、PR #11 单次真实 runtime gate。三者均使用独立 worktree 和冻结合同，当前仅表示任务已启动，不表示产品验收或合并完成。
-- Orca 随后第三次重启，三个恢复 Worker 同时失去终端且均无正式 Delivery；PM 已重绑 generation 5、保全治理四文件 diff及其余工作树，并确认 runtime gate 未留下 owned 进程或指定端口监听。为避免无界重启，三个业务任务进入一个 heartbeat 周期的控制面稳定性观察，未记为产品失败。
+- Orca 随后第三次重启，三个恢复 Worker 同时失去终端且均无正式 Delivery；PM 重绑 generation 5、保全治理四文件 diff及其余工作树，并确认 runtime gate 未留下 owned 进程或指定端口监听。新 runtime 连续一个 heartbeat 周期保持 ready 后，三个 GLM Worker 已在原 worktree 有界恢复，未把控制面中断记为产品失败。
+- 2026-09-09 晚注销风暴事故排查收口：受控复现确认治理恢复 worktree 无固有 OOM 测试（283/283 全绿，`--bail 1` + 2048 堆顶），21:22/21:52 两次 vitest worker V8 `FatalProcessOutOfMemory` 定性为负载诱导——ORCA 会话恢复路径拉起的全量 vitest 绕过了 `pnpm test` 入口的堆顶护栏（裸入口 fork worker 默认可到 ~4GB）。据此把 2048MiB 合约护栏下沉到 `vitest.config.ts` 的 `poolOptions.forks.execArgv`，任何入口跑测试每个 worker 都带 2048 顶、单 worker 爆只死自己；裸入口以临时 spec 断言 `process.execArgv` 实测生效。见 DECISIONS Q46。
 
 ### Maintenance（2026-09-08，交付审计）
 

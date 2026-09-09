@@ -181,6 +181,17 @@
 
 ---
 
+## Q46：vitest 堆顶护栏下沉到 worker 启动参数（2026-09-09）
+
+| 字段 | 内容 |
+|---|---|
+| **结论** | 把 2048MiB 堆顶护栏从 `pnpm test` 入口的 `NODE_OPTIONS` 下沉到 `vitest.config.ts` 的 `poolOptions.forks.execArgv`：任何入口（ORCA 会话恢复、裸 `npx vitest`、agent 会话）跑测试，每个 fork worker 都强制带 `--max-old-space-size=2048`。不改 pool 类型与 worker 数（Q45 边界内）。 |
+| **理由** | 2026-09-09 注销风暴中，ORCA 守护进程自动恢复会话并重跑全量 vitest（governance 恢复 worktree 21:42 重建、21:48 续写四文件 diff、21:51 拉起测试），该路径绕过入口护栏，两个 `com.stablyai.orca` 资源组的 vitest worker（默认堆顶 ~4GB）相继 V8 `FatalProcessOutOfMemory`，加速全机内存耗尽。同日受控复现（空闲机器、2048 堆顶、`--bail 1`）该 worktree 283/283 全绿，确认非测试固有缺陷，维持 Q45「负载诱导」定性——缺口不在测试而在护栏覆盖面：Q45 三件套约束了 claude 会话，未约束 ORCA 自动恢复路径。 |
+| **影响** | 裸入口下 worker 也被锁 2048 顶：单 worker 爆堆只死自己、vitest 报一条失败，不再 4GB×N 拖垮 64GB 全机；`pnpm test` 入口双保险不变（环境变量与 execArgv 同值共存）。已实测：临时 spec 断言 worker `process.execArgv` 含该参数（通过后即删），裸入口跑 agent-coordinator/docx-extract 全过。全量套件因当晚机器负载未在本会话跑（遵循 AGENTS.md 限定），留待 PM/CI 串行验收。 |
+| **何时重新评估** | 合法大 fixture 场景在 2048 顶下被误杀（worker 正常跑到顶被终止）时，按 spec 粒度评估放宽；vitest 大版本升级改变 forks pool 参数传递行为时复核；ORCA 提供恢复路径的负载/并发控制选项后，可重新权衡是否保留双保险。 |
+
+---
+
 ## 决策索引（按主题）
 
 **产品形态**
@@ -201,3 +212,4 @@
 **脚本与产物**
 - Q19 / Q24 — 进度粒度、归档位置
 - Q45 — vitest 状态污染根治落在测试层三件套（hookTimeout / TMPDIR 隔离断言 / claude 工作流限定）
+- Q46 — vitest 2048MiB 堆顶护栏下沉到 forks worker 启动参数（覆盖 ORCA 恢复等裸入口）

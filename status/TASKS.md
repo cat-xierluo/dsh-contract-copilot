@@ -2,11 +2,11 @@
 
 ## WAVE-2026-09-08：GLM 审计整改与独立验收
 
-- Heartbeat：用户于 2026-09-08 明确要求自动回访验收；`contract-copilot-glm`（Contract Copilot GLM 成果验收）每 10 分钟跟进本波任务。2026-09-09 22:20 Orca 再次重启，三个恢复 Dispatch `ctx_75a8d05811d6`、`ctx_8ac8b2c775a7`、`ctx_17b3285706b1` 同时 terminal_missing；heartbeat 先观察新 runtime 稳定性，不立即进行第四次并发重启，只在稳定恢复、再次重启或需要决策时通知。
+- Heartbeat：用户于 2026-09-08 明确要求自动回访验收；`contract-copilot-glm`（Contract Copilot GLM 成果验收）每 10 分钟跟进本波任务。第三次 Orca 重启后，新 runtime 完成一个 heartbeat 周期稳定观察；当前跟踪 PR #4 reviewer `ctx_3e706ba83c71`、治理 implementer `ctx_54ef8fb95dec`、PR #11 runtime verifier `ctx_2327323e5c12`，只在正式 Delivery、失败、资源异常或需要决策时通知。
 - 统筹：2026-09-09 用户指定当前 Codex 任务为唯一 PM；原 GLM PM 已交接并停止自主派发、恢复、合并和清理。Orca 连续三次重启使 generation 2–4 控制端与对应 Worker 终端失效；PM 每次均保全业务证据和 worktree 进度，当前 Run `run_fce28ffada88` 已重绑 `term_01614826-b6e0-41b1-b4cb-4ffe0d6dd71e`（coordinator generation 5，runtime `7db1df2c-7bca-4c86-a887-c8460ce85563`）。旧 manifest reviewer 已 ACCEPT；三项业务任务未形成正式 Delivery，不能写成业务 REJECT。恢复与控制权证据见 Git common-dir 的 `orchestration/cc-audit-20260908/orca-runtime-recovery-20260909.json`、`pm-handoff-to-codex-20260909.json`、`codex-pm-control-20260909.json`。
 - 并行波次 R2：三项任务文件边界正交，均通过 quota、内存、价值、隔离、dispatch_bind 与 input accepted 门，模型合同为 `glm-5.3-flash[1M]` 且未使用 override。PR #4 reviewer 只读 18 文件候选；治理 implementer 在全新 worktree 只读导入旧脏树的四个候选文件，旧树不写不删；runtime verifier 只允许一次冻结命令并独占其启动的 DSH/浏览器/本地模型资源。结构化 receipt 分别为 `pr4-candidate-r2-receipt.json`、`governance-r2-receipt.json`、`pr11-runtime-execution-r1-receipt.json`。
 - 08:08 回访：N1 返修已建同 Run 子任务 `task_4ce88f2a778c`，排队原因及完整边界见 CC-V5-009-R2；无新 Dispatch，不能称已派 Worker。进度隔离 r2 的独立角色门、交付价值后门均 PASS（提取其已有 executed[]，并非本轮重跑测试），证据 `isolation-r2-postflight-evidence.json`。PR #11 仍 OPEN / MERGEABLE / CLEAN，head 未变，但云端 checks 为空、真实 Web 未验，不据此直接合并。治理恢复复查仍 UNKNOWN/no_actionable_quota_evidence，无唤醒输入。
-- 状态：CONTROL_PLANE_RECOVERY_HOLD / MERGE_HELD（2026-09-09 22:27）。N1 与进度隔离局部 review 已通过；PR #4 完整源码门、PR #11 真实 runtime gate 和治理恢复实现因第三次 Orca runtime 重启暂停。三棵 worktree 均保留，治理四文件 diff 未丢，runtime 未发现 owned 进程或 43187/53849 监听；待新 runtime 至少稳定一个 heartbeat 周期后再有界恢复。
+- 状态：THREE_DISPATCHES_RECOVERED / MERGE_HELD（2026-09-09 22:44）。新 runtime 连续一个 heartbeat 周期保持 ready 后，三个 GLM Worker 已在原 worktree 有界恢复；均为 input accepted、exactWorker live。治理四文件 diff 未丢，runtime 单次执行预算未消费；任何单项完成仍不自动形成合并许可。
 - 独立 review：生命周期 `task_20dd70cb276f` / `ctx_f7b1b13977f3` / `cc-lifecycle-review-0908`，冻结 `c0c973378ca6d623c974c4914a940747bb813afb`，报告 ACCEPT、66/66，另有上述 N1。进度隔离原 `ctx_697af9f99a67` 未形成有效验收；实际交付为同一 `task_9cc39bdac119` 的 `ctx_43e3b330a1d0` / `cc-isolation-review-r2-0908` / worktree `codex-cc-isolation-review-r2`，HEAD 为 `94818478d2470429b9c0d76e7ebbb4fba99ea855`，报告 ACCEPT、30/30，PM 已核对 HEAD 与 review-acceptance-gate。该 reviewer 首次在错误 main 基线上的 21/21 作废，不计入验收；修正后包含新隔离 spec 的 30/30 才是有效证据。两份报告及命令日志保存在各自 Session Context；生命周期 review 仅覆盖本轮 R10 后修复，不代表远端旧 PR #4 全部通过。
 - 本轮验收证据：生命周期 head `c0c973378ca6d623c974c4914a940747bb813afb`，5 个 spec 共 66/66、Host noEmit 与 diff-check 退出 0；进度隔离 head `94818478d2470429b9c0d76e7ebbb4fba99ea855`，3 个 spec 共 30/30、Host noEmit 与 diff-check 退出 0，[PR #11](https://github.com/cat-xierluo/dsh-contract-copilot/pull/11) 为 OPEN，base 为 feat-v5-quality-hardening，远端 head 一致。PM 实际命令日志及结构化 executed[] 证据保存于 Git common-dir 的 `orchestration/cc-audit-20260908/pm-{lifecycle,isolation}-verification.json`；两份 worker-value-postflight 均通过，独立 review 结果见上项；尚未合并，未做全量、真实 Web 或发布验收。
 - 资源与恢复：已完成的实现/reviewer 资源均释放；generation 2 的 PR #4 与治理旧 Dispatch 在 runtime 重启后按 terminal_missing 结算并释放。旧治理脏 worktree 只读保留为恢复输入，新治理 Worker 在独立树中工作。当前三项 active worker 各有独立 terminal、worktree 与 provider lease；控制面不能将作者 commands[] 自报当作 PM 的 executed[] 验证证据。
@@ -51,7 +51,7 @@
 
 ## TASK-2026-09-06-orca-gov-01：governance: dsh Phase 1 — PR 模板 + CODEOWNERS + CI baseline
 
-- 状态：`CONTROL_PLANE_HOLD（2026-09-09 22:20）：Dispatch ctx_8ac8b2c775a7 因 Orca runtime 重启 terminal_missing；四文件 diff 保留在恢复 worktree，最初旧脏 worktree 继续只读保留。待 runtime 稳定后续接验证与提交，之后仍需不同 reviewer。`
+- 状态：`RECOVERY_IMPLEMENTATION_IN_PROGRESS（2026-09-09 22:44）：Task task_527fb2840ffe / Dispatch ctx_54ef8fb95dec 已在保留四文件 diff 的原恢复 worktree 续接；最初旧脏 worktree 继续只读保留。交付后仍需不同 reviewer。`
 - 类型：`implementation`
 - 来源：2026-09-06 桌面 `orca-governance-adoption` 调研；同目录 `ADOPTION-dsh-contract-copilot.md` §1 + `CHECKLIST.md` Phase 1
 - 关联材料：`docs/orca-governance-adoption/ADOPTION-dsh-contract-copilot.md`、`docs/orca-governance-adoption/CHECKLIST.md`
@@ -266,7 +266,7 @@ dsh 是合同审查业务规则工具——bug 类型高度结构化（合同主
 
 ### CC-V5-008-RUNTIME-GATE：PR #11 打包与多 Agent 真实入口验收
 
-- 状态：CONTROL_PLANE_HOLD / RUNTIME_NOT_EXECUTED（2026-09-09 22:20）；安全脚本、私有 profile 与 manifest 已通过独立复审，但 Dispatch `ctx_17b3285706b1` 因 Orca runtime 重启 terminal_missing。未发现 runtime-gate owned 进程或 43187/53849 监听；单次执行预算继续保留。真实工作台仍 NOT_VERIFIED。
+- 状态：RUNTIME_EXECUTION_IN_PROGRESS（2026-09-09 22:44）；Task `task_09980cb9a380` / Dispatch `ctx_2327323e5c12` 已在原隔离 worktree 续接。恢复前确认无 runtime-gate owned 进程或 43187/53849 监听；单次执行预算继续保留。真实工作台仍 NOT_VERIFIED。
 - 旧 unsafe 现场：PM 在 16:16 发送纠正消息 `msg_64f9c0a5b4f3`，随后发现旧脚本仍执行内嵌 profile 安装、全量 skill 复制及清除旧运行目录；旧任务因此按 safety_unknown 停止，精确进程、端口、Dispatch 与 lease 已结算，证据保留在 `pr11-runtime-receipt.json` 与 `pr11-runtime-safety-recovery.json`。该旧结果不作为当前门禁证据。
 - 恢复决策：用户授权继续稳定性恢复后，脚本设计、静态复审、profile 准备、manifest 复审已串行完成；当前 runtime Worker 只使用合成 fixture、已验收 tarball/manifest 与独立运行目录。允许执行一次冻结验收命令不扩大为额外安装、真实 skill 读取或外网访问授权。
 - 恢复 R1：用户于 2026-09-09 授权当前 PM 接手后续任务并优先稳定运行。新建同 Run 子任务 `task_6a5214f8049a`（CC-V5-008-RUNTIME-GATE-SAFE-DESIGN），先由全新 GLM 5.3 Flash worktree 仅编写执行前脚本候选；本阶段禁止安装、build/pack、启动 DSH/浏览器/模型服务、读取真实 skill 或旧复制件，也不执行候选脚本。静态策略门由 Git common-dir 的 `runtime-gate-static-policy.mjs` 提供，派发价值门 PASS。完成后必须换不同 Dispatch/Session 独立审查，获准后才另建真实运行任务。
@@ -313,7 +313,7 @@ dsh 是合同审查业务规则工具——bug 类型高度结构化（合同主
 
 ### CC-V5-PR4-CANDIDATE-GATE：既有 PR #4 完整源码候选门
 
-- 状态：CONTROL_PLANE_HOLD（2026-09-09 22:20）；Dispatch `ctx_75a8d05811d6` 因第三次 Orca runtime 重启 terminal_missing，未形成正式 Delivery，不构成代码 REJECT。冻结 head/base 与唯一 worktree 保留，待 runtime 稳定后续接。
+- 状态：REVIEW_R4_IN_PROGRESS（2026-09-09 22:44）；Task `task_c33d6e694ed2` / Dispatch `ctx_3e706ba83c71` 已在原唯一 worktree 对冻结 head/base 续接完整源码门；不复用中断时的半截输出，尚无正式 Delivery。
 - 启动记录：09:54 价值、额度和内存门通过后启动独立 reviewer；09:52 全局 3 个活跃 Dispatch 时曾排队，启动前复查已降为 1。属于本波 PR4 收口，不扩功能波次。
 - 派发：原 Task `task_d4ca2b743ab9` / Dispatch `ctx_6b110df3f89d` 及首次恢复 `task_e3ce5eceb635` / `ctx_b7a1b61464dc` 的中断证据保留；当前同 Run Task `task_b8eb352b633a` / Dispatch `ctx_75a8d05811d6` 已核对实际 worktree HEAD 为候选 `058ce80`、任务输入 accepted、exactWorker live。活性不代表审查完成，仍等待正式 Delivery。
 - 输入：base `35527c2bc39e969bed807c7b67f3dc64ce83f182`、候选 `058ce80c8ae5c317cc2a83dd9980425acbb286ca`，共 18 文件。既有 PR4 仍用旧 head `066270d`；候选是其后代，不建重复 PR。
@@ -473,3 +473,15 @@ dsh 是合同审查业务规则工具——bug 类型高度结构化（合同主
 - 目标：把“DSH 的 Agent、Session、Tools 和状态事件支撑细粒度工作台交互”的判断写入项目权威上下文，并明确不展示模型隐藏思维链。
 - 验收：README 提供产品说明；ARCHITECTURE 记录运行面到工作台职责的映射；DECISIONS 记录约束与重新评估条件；CHANGELOG 留痕。
 - 证据：2026-09-04 新增 ARCHITECTURE §2.1 与 DECISIONS Q40，并同步 README 和 CHANGELOG。
+
+## TASK-2026-09-09-oom-guard-sink：vitest 堆顶护栏下沉到 config 层
+
+- 状态：已完成（2026-09-09 晚，claude 会话；用户在排查收口后指定"现在落地"）。
+- 类型：implementation（测试基建）。
+- 来源：2026-09-09 晚注销风暴 vitest OOM 事故排查。21:21 GUI 注销进行中，ORCA 会话恢复机制在 21:42 重建 governance 恢复 worktree（`codex-cc-governance-r2-0909`）、21:48 续写四文件 diff、21:51 拉起全量 vitest，21:22/21:52 两个 worker（`com.stablyai.orca` 资源组）V8 `FatalProcessOutOfMemory`。受控复现（空闲机器、`--bail 1`、2048 堆顶）283/283 全绿 ⇒ 非测试固有缺陷，定性负载诱导（Q45 同族）；真实缺口是护栏只挂 `pnpm test` 入口，自动恢复路径的裸 vitest worker 默认堆顶 ~4GB。
+- 边界：只改 `vitest.config.ts`（新增 `poolOptions.forks.execArgv: ['--max-old-space-size=2048']`）；不动 pool 类型、worker 数（Q45）、任何测试文件与 Python 脚本。
+- 验收与证据：
+  - 临时 spec 断言 worker `process.execArgv` 含 `--max-old-space-size=2048`，裸入口（无 NODE_OPTIONS，等价 ORCA 恢复场景）通过后即删；
+  - 裸入口 `pnpm vitest run tests/agent-coordinator.spec.ts tests/docx-extract.spec.ts` 6/6 + 2/2 通过；
+  - 全量套件当晚因机器负载未跑（AGENTS.md 限定），留待 PM/CI 串行验收；`git status` 仅 `vitest.config.ts` 一处改动。
+- 关联：DECISIONS Q46、CHANGELOG（2026-09-09 Maintenance）；事故诊断档案存 claude 会话记忆 `vitest-oom-orca-recovery-loop`。两份 .ips 崩溃报告原件已被系统清理（Retired 22:04），未留存。
