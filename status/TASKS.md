@@ -272,7 +272,7 @@ dsh 是合同审查业务规则工具——bug 类型高度结构化（合同主
 
 ### CC-V5-009-R2：上游中止后的取消与结果投影（N1 返修）
 
-- 状态：DELIVERY_RECEIVED / RE_REVIEW_QUEUED（2026-09-09 08:50）；本波第 1 个返修 episode，预算上限 2。收到真实 worker_done，最终候选 `058ce80c8ae5c317cc2a83dd9980425acbb286ca`；PM 核对干净工作树、两提交身份和允许文件，worker-value-postflight PASS。作者在最终树提供 71/71、Host noEmit、diff-check 的 executed[]；独立复审尚未完成，不能据此合并。
+- 状态：DELIVERY_RECEIVED / RE_REVIEW_RUNNING（2026-09-09 09:07）；本波第 1 个返修 episode，预算上限 2。收到真实 worker_done，最终候选 `058ce80c8ae5c317cc2a83dd9980425acbb286ca`；PM 核对干净工作树、两提交身份和允许文件，worker-value-postflight PASS。作者在最终树提供 71/71、Host noEmit、diff-check 的 executed[]；独立复审尚未完成，不能据此合并。
 - 输入：已审候选 `c0c973378ca6d623c974c4914a940747bb813afb` 及生命周期 reviewer 报告 N1。原 ACCEPT 作为历史保留，PM 将 N1 纳入合并前阻断。
 - 目标：accepted/followup 后的 upstream abort 不得抑制后续用户 cancel，也不得把仍正常执行的成功交付误投影为 idle；中止、cancel、dispose 交错必须具有一致语义、幂等取消和唯一句柄释放。
 - 范围：仅 `src/agent-coordinator.ts`、`tests/agent-command-lifecycle.spec.ts`、`tests/agent-coordinator.spec.ts`；随行更新本任务与 CHANGELOG、受影响 ARCHITECTURE。不改 Python、Client、SessionStore、依赖或律师批准门，不增加 beginRecheck。
@@ -282,7 +282,7 @@ dsh 是合同审查业务规则工具——bug 类型高度结构化（合同主
 
 ### CC-V5-009-R2-REVIEW：N1 返修独立复审
 
-- 状态：READY / QUEUED_FOR_CAPACITY（2026-09-09 08:54）；同 Run 子任务 `task_7c78851fc4f5` 已建立，价值门 PASS，全局 3 个活跃 Dispatch 已达到上限，本轮尚未派 Worker。下一次派发必须重查全局并发及新鲜额度/内存，不借用其他项目终端或关闭其 Worker。
+- 状态：DISPATCHED（2026-09-09 09:07）；同 Run 子任务 `task_7c78851fc4f5` 已启动独立 GLM Reviewer。派发前全局活跃 Dispatch 降至 2，价值/新鲜额度/内存门均 PASS，无 override；未干预其他项目 Worker。实际 Dispatch `ctx_dd53f8f4ccac`、终端 `term_e75a7965-8ac4-46f1-95bf-ad6077339d56`，spawn 退出 0、dispatch_bind=ok，工作树 HEAD 与冻结候选一致；尚未收到复审结果。
 - 输入：冻结 `058ce80c8ae5c317cc2a83dd9980425acbb286ca`；实现身份 `ctx_b54c55728b44` / `cc-lifecycle-n1-0909`。审 N1 增量 `c0c9733..058ce80`，同时核对 R10 后累计生命周期互动；不把本次审查扩大为远端旧 PR #4 或整个工作台验收。
 - 范围：GLM 5.3 Flash，独立短分支/worktree `codex-cc-lifecycle-n1-review-0909`，Session `cc-lifecycle-n1-review-0909`；只读实现和受影响文档，只写自身 Session Context，禁止修代码、提交、push 或新开 PR。安装沿用本波精确 local 命令，不共享依赖。
 - 验收：最终 HEAD 一致；Agent 登记/followup 时序、上游中止与 cancel/dispose 交错、结果投影、早期中止及唯一释放均有具体审查结论；独立复跑 R2 同三条命令，交付 review-acceptance.json 与 postflight-evidence.json 及真实日志。不同 Dispatch/Session、角色门和价值后门通过才可接纳；真实 Web 仍 NOT_VERIFIED。
