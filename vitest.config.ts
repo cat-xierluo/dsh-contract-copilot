@@ -17,7 +17,16 @@ export default defineConfig({
     // 不改 pool 类型与 worker 数（Q45 边界内，详见 Q46）。
     poolOptions: {
       forks: {
-        execArgv: ['--max-old-space-size=2048'],
+        // --report-on-fatalerror：worker 再遇 V8 OOM 时在固定目录自动落
+        // node 诊断报告（含 JS 栈）。2026-09-09 三次 OOM 的 .ips 只有
+        // C++ 栈（ErrorStackGetter → FormatStackTrace 无界增长），JS 层
+        // 引爆点未知且受控复刻不触发（低优先级+裸堆+全量 3 次全绿）；
+        // 此陷阱保证下次真实触发时留下定位证据。
+        execArgv: [
+          '--max-old-space-size=2048',
+          '--report-on-fatalerror',
+          '--report-directory=/tmp/cc-oom-reports',
+        ],
       },
     },
   },
