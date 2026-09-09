@@ -5,7 +5,7 @@
 - Heartbeat：用户于 2026-09-08 明确要求自动回访验收；当前任务已启用 `contract-copilot-glm`（Contract Copilot GLM 成果验收），每 10 分钟执行一次。仅跟进本波三个任务的交付、必要修复、独立 GLM review、已授权 Git 收口和上下文更新；无实质变化保持安静。完成收口或出现需要用户处理的阻塞时暂停并报告。不重复派单、不扩展新波次，也不把定时回访宣称为已验证的 L2/L3 持久控制器。
 - 统筹：2026-09-09 用户指定当前 Codex 任务为唯一 PM；原 GLM PM 已交接并停止自主派发、恢复、合并和清理。Run `run_fce28ffada88` 已绑定新控制端 `term_6edfaa2a-c511-4d7c-846a-4d4d6f99fcf0`（coordinator generation 2）。Heartbeat 曾因双 PM 归属冲突暂停，交接确认后已恢复；交接与控制权证据为 Git common-dir 下的 `orchestration/cc-audit-20260908/pm-handoff-to-codex-20260909.json`、`codex-pm-control-20260909.json`。
 - 08:08 回访：N1 返修已建同 Run 子任务 `task_4ce88f2a778c`，排队原因及完整边界见 CC-V5-009-R2；无新 Dispatch，不能称已派 Worker。进度隔离 r2 的独立角色门、交付价值后门均 PASS（提取其已有 executed[]，并非本轮重跑测试），证据 `isolation-r2-postflight-evidence.json`。PR #11 仍 OPEN / MERGEABLE / CLEAN，head 未变，但云端 checks 为空、真实 Web 未验，不据此直接合并。治理恢复复查仍 UNKNOWN/no_actionable_quota_evidence，无唤醒输入。
-- 状态：REVIEW_RECEIVED / MERGE_HELD（2026-09-09）。两项独立 GLM review 已收到 ACCEPT，但不等于工作台或 PR 整体交付完成。生命周期 N1：Agent 已启动后 upstream abort 先设置 cancelled，后续用户 cancel 可能跳过 agent.cancel；合并前必须完成明确处置及相应证据。治理仍保留原 Dispatch 和未提交改动；现场停在 429 后的空输入提示符，恢复脚本返回 UNKNOWN/no_actionable_quota_evidence，原终端一次“继续”的授权仍待明确。指定 PM 不视为限流恢复豁免；未使用重置卡、未重复派治理 Worker。
+- 状态：SCOPED_REVIEWS_ACCEPTED / MERGE_HELD（2026-09-09）。N1 返修已独立验收，详情以 CC-V5-009-R2 及其 REVIEW 卡为准；进度隔离局部 review 同样通过，但尚不等于工作台或 PR 整体交付完成。下一门禁为 CC-V5-PR4-CANDIDATE-GATE，再做打包及真实工作台验收。治理仍保留原 Dispatch 和未提交改动，恢复脚本为 UNKNOWN/no_actionable_quota_evidence；未获一次“继续”的明确授权，不重复派单或使用重置卡。
 - 独立 review：生命周期 `task_20dd70cb276f` / `ctx_f7b1b13977f3` / `cc-lifecycle-review-0908`，冻结 `c0c973378ca6d623c974c4914a940747bb813afb`，报告 ACCEPT、66/66，另有上述 N1。进度隔离原 `ctx_697af9f99a67` 未形成有效验收；实际交付为同一 `task_9cc39bdac119` 的 `ctx_43e3b330a1d0` / `cc-isolation-review-r2-0908` / worktree `codex-cc-isolation-review-r2`，HEAD 为 `94818478d2470429b9c0d76e7ebbb4fba99ea855`，报告 ACCEPT、30/30，PM 已核对 HEAD 与 review-acceptance-gate。该 reviewer 首次在错误 main 基线上的 21/21 作废，不计入验收；修正后包含新隔离 spec 的 30/30 才是有效证据。两份报告及命令日志保存在各自 Session Context；生命周期 review 仅覆盖本轮 R10 后修复，不代表远端旧 PR #4 全部通过。
 - 本轮验收证据：生命周期 head `c0c973378ca6d623c974c4914a940747bb813afb`，5 个 spec 共 66/66、Host noEmit 与 diff-check 退出 0；进度隔离 head `94818478d2470429b9c0d76e7ebbb4fba99ea855`，3 个 spec 共 30/30、Host noEmit 与 diff-check 退出 0，[PR #11](https://github.com/cat-xierluo/dsh-contract-copilot/pull/11) 为 OPEN，base 为 feat-v5-quality-hardening，远端 head 一致。PM 实际命令日志及结构化 executed[] 证据保存于 Git common-dir 的 `orchestration/cc-audit-20260908/pm-{lifecycle,isolation}-verification.json`；两份 worker-value-postflight 均通过，独立 review 结果见上项；尚未合并，未做全量、真实 Web 或发布验收。
 - 资源与恢复：两个实现 Worker 已释放。2026-09-09，PM 核对交付归属与空闲状态后关闭生命周期 reviewer 和进度隔离 r2 reviewer 的精确终端；两 Dispatch 的 worker-release 均返回 released，pm-orchestrate 确认 provider lease 已释放。实现及 review 分支/worktree 全部保留待 PR 收口；治理终端及脏 worktree 保留，未注入继续或重启。下一步由当前 PM 统筹 N1 处置、治理合法续接、真实工作台验收及 PR 收口，不再重派已完成的相同 review。控制面不能将作者 commands[] 自报当作 PM 的 executed[] 验证证据。
@@ -289,6 +289,16 @@ dsh 是合同审查业务规则工具——bug 类型高度结构化（合同主
 - 合同：Git common-dir `orchestration/cc-audit-20260908/lifecycle-n1-review-{spec.json,prompt.md,receipt.json}`。消费方为当前 Codex PM，目标为既有 PR #4 纳入决策；head 改变旧 review 即失效。派发与资源身份以 receipt 为准。
 - 证据格式：原报告将 review_expiry 写成对象、postflight 写 verdict 而非 decision，原始机械门拒绝；PM 经 internal_recoverable 分类，仅在控制面消费副本中序列化 expiry、将原 ACCEPT 映射为 accept，原报告和测试结论均未改。副本为 `lifecycle-n1-review-{acceptance,postflight}-consumed.json`。RESULT.md 的实现 Session 有笔误，结构化身份与原 Dispatch metadata 一致；不以该笔误否定已核实的角色分离，也不回写作者报告。
 - 下一验收范围：既有 PR #4 远端仍为 `066270d` / OPEN / CONFLICTING / checks 空；本地 `058ce80` 相对真实远端集成 `35527c2` 共 18 文件。GitHub PR 的 baseRefOid 返回旧 `d0bcc97`，分支 API 与 fetch 均确认集成现头仍 `35527c2`，不能误判为他人推进。后续检查原 PR 唯一性、完整出站身份、完整候选配置/抽取/Host 路径、打包与真实工作台；只复用本次 N1 有效结论，不重派相同局部 review。
+
+### CC-V5-PR4-CANDIDATE-GATE：既有 PR #4 完整源码候选门
+
+- 状态：DISPATCHED（2026-09-09 09:54）；价值门 PASS。09:52 全局 3 个活跃 Dispatch 时排队，启动前复查降为 1，额度及内存门通过后启动独立 reviewer。属于本波 PR4 收口，不扩功能波次。
+- 派发：同 Run Task `task_d4ca2b743ab9` / Dispatch `ctx_6b110df3f89d`；已核对实际 worktree HEAD 为候选 `058ce80`、任务输入 accepted。09:55 heartbeat 仅证明活性，不代表审查完成；保留精确终端与 provider lease 等待正式 Delivery。
+- 输入：base `35527c2bc39e969bed807c7b67f3dc64ce83f182`、候选 `058ce80c8ae5c317cc2a83dd9980425acbb286ca`，共 18 文件。既有 PR4 仍用旧 head `066270d`；候选是其后代，不建重复 PR。
+- 目标与非重复边界：复用 N1 及 R10 后生命周期 ACCEPT，补齐尚无完整独立结论的原始异步抽取/R3/R4/R10：抽取进程超时与 TERM→KILL、输出上限、临时目录、配置校验、Host/插件 Signal 接线及公开文档的一致性，形成完整源码候选 ACCEPT/REJECT。
+- 执行：独立 GLM 5.3 Flash reviewer，短分支/worktree `codex-cc-pr4-candidate-review-0909`、Session `cc-pr4-candidate-review-0909`，仅写自身 Session Context；不修业务或测试、不 commit/push/PR/merge。依赖仅本树精确授权 local install；命令逐条原样执行，不加管道或重定向。
+- 验收：7 个受影响 spec（docx-extract、paths-and-skill-config、force-edit-workbench.integration、host-api、agent-analysis-context、agent-command-lifecycle、agent-coordinator）组合 `--bail 1`，Host/Client noEmit、diff-check；全部绑定相同 head/base、独立身份与真实 executed[]。只称源码门，打包/真实 Web/多 Agent/Windows/云端仍 NOT_VERIFIED，后由 PM 独占安排。
+- 合同及退出：Git common-dir `orchestration/cc-audit-20260908/pr4-candidate-{spec.json,prompt.md,receipt.json}` 及 `pr4-candidate-spawn.log`；当前 Codex PM 消费，head/base 改变则旧结论失效；交付后先释放精确运行资源再 ack，工作树保留待真实 PR 收口。不重复注入启动任务或重派同一审查。
 
 ## CC-V4-010：简版文档导航根接线（CC-V4-004 验收退回）
 
