@@ -265,7 +265,7 @@ dsh 是合同审查业务规则工具——bug 类型高度结构化（合同主
 
 ### CC-V5-009：恢复 Agent 命令生命周期与复核入口任务
 
-- 状态：本轮准入/取消/关闭修复及独立 review 已交付，合并前仍须处置 reviewer N1；证据和剩余范围见本页 WAVE-2026-09-08。原统一 beginRecheck 方案需补全任务合同再派发，不能仅按历史标题实现。
+- 状态：本轮准入/取消/关闭及 N1 返修已局部独立验收；完整 PR #4 源码候选、打包与真实工作台仍未验收，详情见下方 R2 和 CANDIDATE-GATE 卡。原统一 beginRecheck 方案需补全任务合同再派发，不能仅按历史标题实现。
 - 目标：一个案件从抽取开始即由一条命令拥有；cancel/dispose 覆盖抽取及 Agent 创建，并等待所拥有的异步工作收束。
 - 范围：`src/agent-coordinator.ts`、`src/host-api.ts` 及对应测试/文档；复核相关 SessionStore/Tool 改动在补齐合同后纳入，避免漏掉旧计划与批准失效语义。
 - 验收：两个请求在首次 await 前后交错只能接受一个；抽取中 cancel 有效；create/resume 未完成时 dispose 不遗留 handle、迟到 followup 或错误持久状态；相关失败有界且零归属资源残留。不得仅以现有“首次 runAnalysis await 完成后再发第二次”的 busy 用例代替并发验证。
@@ -292,13 +292,15 @@ dsh 是合同审查业务规则工具——bug 类型高度结构化（合同主
 
 ### CC-V5-PR4-CANDIDATE-GATE：既有 PR #4 完整源码候选门
 
-- 状态：DISPATCHED（2026-09-09 09:54）；价值门 PASS。09:52 全局 3 个活跃 Dispatch 时排队，启动前复查降为 1，额度及内存门通过后启动独立 reviewer。属于本波 PR4 收口，不扩功能波次。
+- 状态：PARKED_EXTERNAL_DEPENDENCY（2026-09-09 10:10 回访）；reviewer 约 10:06 报告 `API Error: Connection lost mid-response`，尚无正式 Delivery、测试日志或验收报告。机械恢复分类为 `third_party_api_failure → external_dependency → park`，不是代码审查 REJECT。保留原 Dispatch、终端和 lease，不自动续接、重派或释放。
+- 启动记录：09:54 价值、额度和内存门通过后启动独立 reviewer；09:52 全局 3 个活跃 Dispatch 时曾排队，启动前复查已降为 1。属于本波 PR4 收口，不扩功能波次。
 - 派发：同 Run Task `task_d4ca2b743ab9` / Dispatch `ctx_6b110df3f89d`；已核对实际 worktree HEAD 为候选 `058ce80`、任务输入 accepted。09:55 heartbeat 仅证明活性，不代表审查完成；保留精确终端与 provider lease 等待正式 Delivery。
 - 输入：base `35527c2bc39e969bed807c7b67f3dc64ce83f182`、候选 `058ce80c8ae5c317cc2a83dd9980425acbb286ca`，共 18 文件。既有 PR4 仍用旧 head `066270d`；候选是其后代，不建重复 PR。
 - 目标与非重复边界：复用 N1 及 R10 后生命周期 ACCEPT，补齐尚无完整独立结论的原始异步抽取/R3/R4/R10：抽取进程超时与 TERM→KILL、输出上限、临时目录、配置校验、Host/插件 Signal 接线及公开文档的一致性，形成完整源码候选 ACCEPT/REJECT。
 - 执行：独立 GLM 5.3 Flash reviewer，短分支/worktree `codex-cc-pr4-candidate-review-0909`、Session `cc-pr4-candidate-review-0909`，仅写自身 Session Context；不修业务或测试、不 commit/push/PR/merge。依赖仅本树精确授权 local install；命令逐条原样执行，不加管道或重定向。
 - 验收：7 个受影响 spec（docx-extract、paths-and-skill-config、force-edit-workbench.integration、host-api、agent-analysis-context、agent-command-lifecycle、agent-coordinator）组合 `--bail 1`，Host/Client noEmit、diff-check；全部绑定相同 head/base、独立身份与真实 executed[]。只称源码门，打包/真实 Web/多 Agent/Windows/云端仍 NOT_VERIFIED，后由 PM 独占安排。
 - 合同及退出：Git common-dir `orchestration/cc-audit-20260908/pr4-candidate-{spec.json,prompt.md,receipt.json}` 及 `pr4-candidate-spawn.log`；当前 Codex PM 消费，head/base 改变则旧结论失效；交付后先释放精确运行资源再 ack，工作树保留待真实 PR 收口。不重复注入启动任务或重派同一审查。
+- 恢复待办：故障分类输入为 `pr4-candidate-connection-recovery.json`，PM 实测分类器返回 park；10:10 核对候选 HEAD 未变且工作树干净。治理原 worker 同轮仍 UNKNOWN/no_actionable_quota_evidence。请求用户决定是否对两个原会话各做一次有界续接；届时仍须重新核对精确身份和可安全输入状态，不使用重置卡、不新建替代 worker。
 
 ## CC-V4-010：简版文档导航根接线（CC-V4-004 验收退回）
 
