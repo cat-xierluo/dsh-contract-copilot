@@ -30,6 +30,7 @@
 - 负载随后再次连续两轮低于 20，派发前复查为 11.25；generation 8 已并行启动治理独立 review、PR #4 完整候选 review 和 PR #11 单次 runtime gate 三个 GLM 5.3 Flash Worker。机械额度预检的 11% 低于默认判停线，本波依据用户关于重置卡和充足额度的明确指令作限域 override；当前仅表示任务运行中，尚无 Delivery、验收或合并结论。
 - Orca runtime 再次切换导致 generation 8 三个 Worker 同时 terminal_missing；精确 Dispatch 资源已释放，worktree 和证据保留。治理审查已写完整 ACCEPT 报告但缺正式 Delivery，PR #4 尚无报告，PR #11 仅复制运行脚本与 manifest 且单次 runtime 预算未消耗。Run 已改由 generation 10 GLM 控制桥接管；此前临时 Codex 控制桥未领取业务任务、现已关闭，后续派发执行者仅使用 GLM 或 MiniMax。高负载及 Q46 新增保护提交同步完成前不恢复 Worker。
 - 系统负载恢复后将 Run 重绑至 generation 11 GLM 控制桥；新鲜价值门、额度门（GLM 81%）和内存门（8 个 3 GiB 槽位）通过。本波已启动两个 GLM 5.3 Flash Worker：独立审查 main 的 Q46/OOM 安全基线，以及在 PR #4 候选 `058ce80` 修复 Host CLI 与 force-edit acceptance 的无界输出收集并补真实截断行为测试；两个 Dispatch 均已核对冻结 head、隔离 worktree、输入接收和 active provider lease。重型验证继续强制脱离 Orca 进程树，当前尚无 Worker Delivery、合并或产品验收结论。
+- Q46/OOM 安全基线独立审查已正式完成并由 PM 接纳审查交付：实际 2 个 spec 20/20、Host noEmit 与 diff-check 通过，reviewer 未运行重型验证、未修改 tracked 文件，资源已结算。审查同时确认两项必须后续修复的缺口：main 输出上限尚无真实截断行为测试，且保头截断会丢失位于尾部的分类、统计和用户诊断信息；在独立返修与复审前不宣称该安全基线完全收口。PR #4 输出上限 Worker 继续运行。
 
 ### Maintenance（2026-09-08，交付审计）
 
