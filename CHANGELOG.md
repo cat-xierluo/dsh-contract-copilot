@@ -4,6 +4,11 @@
 
 ## [Unreleased] — 推进中
 
+### Fixed（2026-09-10，main 输出收集保尾上限）
+
+- apply 的 Python CLI bridge（`src/python-bridge.ts` `runApplyCli`）子进程 stdout/stderr 收集改为每流独立、UTF-8 字节计量、保尾的 8MiB 上限：超限后继续排空管道，保留的是最新尾部——判类标记（完整性失败块/「存在失败项」都是 `SystemExit(1)` 前最后写入 stderr 的内容）与 `parseStdout` 的收尾 summary 行（产物路径/执行统计）在真实截断后仍存活，分类与产物解析不因超限降级；取消、进程树 TERM/KILL、forced settle 语义不变。此前保头截断在超限时恰好丢掉这些尾部标记（Q46 审查 F2）
+- 新增真实超限行为测试（Q46 审查 F1）：`tests/python-bridge.integration.spec.ts` 以 fixture skillRoot + `sh` 子进程经真实管道向两流各写约 9.5MiB，证明两流独立封顶 ≤8MiB、前部 filler 被淘汰、退出前尾部标记仍驱动 `classify`/`parseStdout`；红绿证据：收集器临时改回保头方向后该测试失败（保留前部 filler、丢尾部标记），恢复保尾后 21/21 绿
+
 ### Maintenance（2026-09-09，PM 交接与验收状态）
 
 - 当前 Codex 任务接任唯一 PM，完成原 GLM PM 交接并恢复 10 分钟 heartbeat；任务源补齐两份独立 review 的有效提交与证据、已完成 reviewer 的资源释放，以及合并前仍待处置的取消路径和治理续接问题。未合并或发布产品变更。
@@ -235,6 +240,6 @@
 - `test`：测试
 - `refactor`：内部重构
 - **Verified** 区块：用户/agent 实测过的功能，不依赖静态检查
-- 2026-09-10 上午第 5 次 worker OOM（09:21/09:33，主动复现触发）定界与永久修复第一批：诊断报告确认 2.11GB 全在 old space（长期对象累积而非巨型字符串）、爆点为 PR4 候选测试的 vitest worker、`/Users/maoking/.hermes` node；`src/python-bridge.ts` 的 `runApplyCli` 输出收集加 8MiB `OUTPUT_CAP_CHARS` 截断（消除无上限 `+= chunk` 模式）；`AGENTS.md` 新增「重负载验证与 ORCA 进程树解耦」——全量/acceptance/DSH 启动类验证只走 GitHub Actions 或独立 Terminal.app（进程树与 ORCA 无父子关系），ORCA 内只跑 scoped 单 spec；PR4 候选 acceptance 脚本的无上限收集已登记为 review finding 待 PM 派返修。隔离定界跑（独立 Terminal.app）进行中。
+- 2026-09-10 上午第 5 次 worker OOM（09:21/09:33，主动复现触发）定界与永久修复：诊断报告确认 2.11GB 全在 old space（长期对象累积而非巨型字符串）、爆点为 PR4 候选测试的 vitest worker、`/Users/maoking/.hermes` node；`src/python-bridge.ts` 的 `runApplyCli` 输出收集改为每流独立 8MiB `OUTPUT_CAP_BYTES` 保尾模式（消除无上限 `+= chunk`，并保留输出末端判类与 summary）；`AGENTS.md` 新增「重负载验证与 ORCA 进程树解耦」——全量/acceptance/DSH 启动类验证只走 GitHub Actions 或独立 Terminal.app（进程树与 ORCA 无父子关系），ORCA 内只跑 scoped 单 spec；PR4 候选 acceptance 脚本的同族缺口已由 `c086b47` 返修并完成专项验收。隔离定界跑（独立 Terminal.app）进行中。
 - ORCA 上游反馈与修复 PR：事故完整证据链已提交 issue [stablyai/orca#19828](https://github.com/stablyai/orca/issues/19828)（子进程 OOM 后 daemon 跟随重启 + 恢复在高压窗口重投重负载命令形成死循环；daemon.log 时间线、崩溃指纹、2.11GB 堆诊断为证据，关联 #12588/#16084/#13653）；基于用户 fork 提交修复 PR [stablyai/orca#19830](https://github.com/stablyai/orca/pull/19830)——startup-command 投递前的 opt-in 负载门（`ORCA_STARTUP_COMMAND_MAX_LOAD_PER_CPU`，默认关闭零行为变化；负载超限时延迟投递、PTY 留提示、`startup-command-deferred-load` 事件记录），断开"恢复→重跑→再崩"的放大环。PR 含 7 项新测试、现有 8/8 无回归、typecheck 干净。另修正一处归因：09:21 的崩溃报告实为本会话验证 `--report-directory` 缺陷的测试进程，非事故（真正事故链为昨晚 4 次 + 09:33 共 5 次）。
-- 2026-09-10 generation 13 独立 GLM 验收完成：main 保尾修复 `b4a126a` 与 PR #4 cap 堆叠 `058ce80..c086b47` 均获 `ACCEPT_WITH_FINDINGS`、零 blocker；对应 scoped specs 分别 21/21 与 35/35，Host noEmit、diff-check 及 PM value-postflight 通过，所有 reviewer terminal、provider lease 与 Delivery 已结算。main 候选获准本地集成；PR #4 仅完成 cap 专项验收，完整源码门和真实工作台路径仍未验证。
+- 2026-09-10 generation 13 独立 GLM 验收完成：main 保尾修复 `b4a126a` 与 PR #4 cap 堆叠 `058ce80..c086b47` 均获 `ACCEPT_WITH_FINDINGS`、零 blocker；对应 scoped specs 分别 21/21 与 35/35，Host noEmit、diff-check 及 PM value-postflight 通过，所有 reviewer terminal、provider lease 与 Delivery 已结算。main 候选已本地集成并在最终树复跑 21/21、Host noEmit 与双 diff-check；PR #4 仅完成 cap 专项验收，完整源码门和真实工作台路径仍未验证。

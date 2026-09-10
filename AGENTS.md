@@ -38,7 +38,7 @@
 - 实测因果链：ORCA 终端树内的 vitest worker V8 OOM（2048 顶下 2.1GB old-space 累积）会**连带 Orca 主进程崩溃重启**（2026-09-09/10 共 5 次 runtime 切换，用户的自动化任务被中断）；agent 会话（claude/codex）跑在 ORCA 终端里时，其子进程全部在传染范围内。
 - 规则：**全量 vitest、acceptance 脚本、启动 DSH/浏览器/本地模型的重验证，一律不在 ORCA 终端树内执行**。执行出口只有两个：① GitHub Actions 手动触发（`workflow_dispatch`，已有）；② 本地独立 Terminal.app（`osascript -e 'tell application "Terminal" to do script ...'` 或用户手开终端），保证进程树与 ORCA 无父子关系。
 - ORCA 内的 worker/PM 验证继续走 scoped 单 spec + 2048 堆顶（`vitest.config.ts` 的 Q46 护栏，任何入口生效）；scoped 失败需要全量佐证时，按上条出口执行并回填证据。
-- 子进程输出收集必须有上限（`python-bridge.ts` `OUTPUT_CAP_CHARS` 模式）；新增 spawn 收集代码不得使用无上限 `+= chunk`。
+- 子进程输出收集必须有上限（`python-bridge.ts` `OUTPUT_CAP_BYTES` 保尾模式）；新增 spawn 收集代码不得使用无上限 `+= chunk`。
 
 ## 范围边界（v1）
 

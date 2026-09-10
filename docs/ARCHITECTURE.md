@@ -109,6 +109,7 @@ tests/                       # Vitest 单元与真实 Python spawn 集成测试
 - **决策与执行分离**：律师备注只进入追加式审计历史；四种决定确定性投影到 Python plan，不把内部备注混入对外文书
 - **案件状态与 Agent 轨迹分层**：ContractSession 保存业务事实；DSH session 保存消息、步骤和 tool 轨迹，两者只通过 `dshSessionId` 关联
 - **一个案件一个在途命令**：Coordinator 在进程内拒绝重复分析或交付；取消和插件卸载均等待 Agent 进入 idle 后再报告完成
+- **子进程输出收集有界且保尾**：apply bridge（`runApplyCli`）对子进程 stdout/stderr 各自独立保留最新 8MiB（UTF-8 字节）；超限后继续排空管道，截断只淘汰最旧前缀——判类标记与产物路径/统计 summary 行都在输出尾部，超限也不丢失；收集内存不随子进程输出规模增长（同族 old-space OOM 防线，真实超限行为测试锁定）
 - **分析对象必须在派发前可用**：Host 只从业务 session 已保存的本地路径提取合同正文；正文以数据而非指令注入，伪造边界会被隔离，失败或空文本不创建 Agent
 - **Word 批注支持两种真实 DOM**：保留带 id 的原生 `.docx-comment-ref` 路径；run-style `.docx_commentreference` 从相邻 `end of comment #id` 注释恢复 id，并增强为可见键盘入口
 

@@ -74,18 +74,50 @@ export function buildArgv(args: ApplyCliArgs): string[] {
 }
 
 /**
- * 子进程输出收集上限（字符）。CLI 正常输出为 KB 级；失控子进程（如死循环
- * 打印）无上限累加会把 host 拖入 GB 级 old-space 累积（2026-09-10 定界：
- * 同款无上限收集模式在 vitest worker 内 2.1GB 堆打满后 V8 OOM）。8MiB
- * 覆盖最大合法输出并在病态时保证收集端有界；分类特征（classify）位于
- * stderr 前部，保头部截断不影响判类。
+ * 子进程输出收集上限（UTF-8 字节，每流独立）。CLI 正常输出为 KB 级；失控
+ * 子进程（如死循环打印）无上限累加会把 host 拖入 GB 级 old-space 累积
+ * （2026-09-10 定界：同款无上限收集模式在 vitest worker 内 2.1GB 堆打满后
+ * V8 OOM）。8MiB 覆盖最大合法输出并在病态时保证收集端有界。截断方向保尾
+ * （Q46 F2）：判类标记（apply_review_plan.py 在 SystemExit(1) 前写入
+ * stderr 的完整性失败块与「存在失败项」）和 parseStdout 解析的收尾
+ * summary 行（产物路径/执行统计）都在输出末端，下游 apply.ts 也按
+ * stderr 尾部（slice(-1500)）向用户展示失败明细。
  */
-const OUTPUT_CAP_CHARS = 8 * 1024 * 1024
+const OUTPUT_CAP_BYTES = 8 * 1024 * 1024
 
-function appendCapped(current: string, chunk: string): string {
-  if (current.length >= OUTPUT_CAP_CHARS) return current
-  const room = OUTPUT_CAP_CHARS - current.length
-  return current + (chunk.length <= room ? chunk : chunk.slice(0, room))
+/**
+ * 保尾有界收集器（每流一个实例）：UTF-8 字节计量，保留最新
+ * OUTPUT_CAP_BYTES 字节、淘汰最旧字节；达上限后继续消费 data 事件排空
+ * 管道——否则失控子进程写满管道缓冲后会永久阻塞，close 事件不会到来。
+ * 无界累计防线：单个 chunk 已达上限时直接只留其尾部，不与既有内容合并；
+ * 其余情况仅在超限或碎片过多时合并一次并立即裁剪回上限，内存瞬态
+ * ≤ 上限 + 单个 chunk，无逐次重扫或成比例放大（Q46 F1 行为测试锁定）。
+ */
+class OutputTailBuffer {
+  private parts: Buffer[] = []
+  private bytes = 0
+
+  push(chunk: Buffer): void {
+    if (chunk.length >= OUTPUT_CAP_BYTES) {
+      this.parts = [chunk.subarray(chunk.length - OUTPUT_CAP_BYTES)]
+      this.bytes = OUTPUT_CAP_BYTES
+      return
+    }
+    this.parts.push(chunk)
+    this.bytes += chunk.length
+    if (this.bytes <= OUTPUT_CAP_BYTES && this.parts.length <= 16) return
+    const merged = this.parts.length === 1 ? this.parts[0] : Buffer.concat(this.parts, this.bytes)
+    this.parts = [merged.subarray(Math.max(0, merged.length - OUTPUT_CAP_BYTES))]
+    this.bytes = this.parts[0].length
+  }
+
+  /** 收尾解码。裁剪缝可能切开多字节 UTF-8 序列：跳过开头的 continuation 字节。 */
+  decode(): string {
+    const merged = Buffer.concat(this.parts, this.bytes)
+    let start = 0
+    while (start < merged.length && (merged[start] & 0xc0) === 0x80) start += 1
+    return merged.toString('utf8', start)
+  }
 }
 
 /** 异步执行 CLI 并分类。仅 spawn 本身失败（如找不到 python）才 reject。 */
@@ -96,14 +128,14 @@ export function runApplyCli(args: ApplyCliArgs): Promise<BridgeResult> {
       env: args.environment === undefined ? process.env : { ...process.env, ...args.environment },
       signal: args.signal,
     })
-    let stdout = ''
-    let stderr = ''
-    child.stdout.setEncoding('utf8')
-    child.stderr.setEncoding('utf8')
-    child.stdout.on('data', (chunk: string) => { stdout = appendCapped(stdout, chunk) })
-    child.stderr.on('data', (chunk: string) => { stderr = appendCapped(stderr, chunk) })
+    const stdoutTail = new OutputTailBuffer()
+    const stderrTail = new OutputTailBuffer()
+    child.stdout.on('data', (chunk: Buffer) => { stdoutTail.push(chunk) })
+    child.stderr.on('data', (chunk: Buffer) => { stderrTail.push(chunk) })
     child.on('error', reject)
     child.on('close', (code) => {
+      const stdout = stdoutTail.decode()
+      const stderr = stderrTail.decode()
       resolve({
         kind: classify(code, stderr),
         exitCode: code,

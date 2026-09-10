@@ -80,3 +80,85 @@ describe.skipIf(!hasPythonDeps)('runApplyCli 集成（真实 spawn）', () => {
     expect(result.parsed.reportDocx).toBeTruthy()
   })
 })
+
+/**
+ * 输出上限行为测试（Q46 F1/F2）：真实子进程经真实管道向 stdout 与 stderr
+ * 各写出约 9.5MiB（超过 8MiB 上限），证明——
+ * ①两流独立封顶且各自 ≤ 8MiB（UTF-8 字节）；②保尾截断淘汰前部 filler；
+ * ③达上限后收集端仍持续排空管道（否则子进程写满管道缓冲会阻塞到超时，
+ * 且退出前最后写入的尾部数据不可能被收集）；④尾部判类标记与 summary 行
+ * 存活，截断后 classify / parseStdout 语义不退化。
+ * fixture 只依赖 POSIX sh（yes/head/printf），无 Python 依赖，CI 可跑。
+ */
+describe('runApplyCli 输出上限（真实超限 spawn）', () => {
+  const CAP_BYTES = 8 * 1024 * 1024
+  const FRONT_FILLER_BYTES = 512 * 1024
+  const LATE_FILLER_BYTES = 9 * 1024 * 1024
+
+  let dir: string
+  let skillRoot: string
+
+  beforeAll(() => {
+    dir = mkdtempSync(path.join(tmpdir(), 'cc-bridge-cap-'))
+    // fixture skillRoot：apply_review_plan.py 以 sh 执行（pythonExecutable: 'sh'）。
+    // 前部 filler（512KiB）整体落在被淘汰的前缀（总量 − 8MiB ≈ 1.5MiB）内；
+    // 后部 filler 跨过截断缝；两流各自的退出前尾部标记必须存活。
+    skillRoot = path.join(dir, 'skill')
+    const scriptDir = path.join(skillRoot, 'scripts', 'review')
+    mkdirSync(scriptDir, { recursive: true })
+    writeFileSync(path.join(scriptDir, 'apply_review_plan.py'), [
+      '#!/bin/sh',
+      `yes 'AAA-FRONT-FILLER-' | head -c ${FRONT_FILLER_BYTES}`,
+      `yes 'BBB-LATE-FILLER-' | head -c ${LATE_FILLER_BYTES}`,
+      "printf '\\n输出 DOCX: /tmp/q46-cap-fixture/out_reviewed.docx\\n'",
+      "printf '\\n输出报告 DOCX: /tmp/q46-cap-fixture/out_report.docx\\n'",
+      "printf '\\n归档目录: /tmp/q46-cap-fixture/archive/run-1\\n'",
+      "printf '\\n执行统计: 成功=3，失败=1，跳过=2，仅意见书=0\\n'",
+      `yes 'STDERR-A-FRONT-' | head -c ${FRONT_FILLER_BYTES} >&2`,
+      `yes 'STDERR-B-LATE-' | head -c ${LATE_FILLER_BYTES} >&2`,
+      "printf '\\n存在失败项，请检查归档目录中的执行日志与审查报告。\\n' >&2",
+      'exit 1',
+    ].join('\n'), 'utf8')
+  })
+
+  afterAll(() => {
+    rmSync(dir, { recursive: true, force: true })
+  })
+
+  it('两流各自保尾封顶 ≤ 8MiB，前部 filler 被淘汰，尾部标记仍驱动 classify/parseStdout', { timeout: 120_000 }, async () => {
+    const result = await runApplyCli({
+      skillRoot,
+      pythonExecutable: 'sh',
+      inputDocx: '/tmp/q46-cap-fixture/in.docx',
+      planPath: '/tmp/q46-cap-fixture/plan.json',
+      outputDocx: '/tmp/q46-cap-fixture/out.docx',
+      reportDocx: '/tmp/q46-cap-fixture/report.docx',
+      clientName: '测试客户', partyRole: '甲方', reviewIntensity: '常规',
+      editPolicy: 'revise-first', author: '测试', organization: '测试所',
+    })
+
+    expect(result.exitCode).toBe(1)
+    // ①每流独立有界：各自 ≤ 上限且都接近上限（真实触发了截断；共享预算
+    // 或单流收集会让其中一流远低于上限）。
+    expect(Buffer.byteLength(result.stdout, 'utf8')).toBeLessThanOrEqual(CAP_BYTES)
+    expect(Buffer.byteLength(result.stderr, 'utf8')).toBeLessThanOrEqual(CAP_BYTES)
+    expect(Buffer.byteLength(result.stdout, 'utf8')).toBeGreaterThan(7 * 1024 * 1024)
+    expect(Buffer.byteLength(result.stderr, 'utf8')).toBeGreaterThan(7 * 1024 * 1024)
+    // ②保尾：前部 filler 必须被淘汰；后部 filler（跨缝内容）必须存活。
+    // 保头截断会保留 AAA-FRONT 并丢掉全部尾部标记，在此断言失败。
+    expect(result.stdout).not.toContain('AAA-FRONT-FILLER-')
+    expect(result.stderr).not.toContain('STDERR-A-FRONT-')
+    expect(result.stdout).toContain('BBB-LATE-FILLER-')
+    expect(result.stderr).toContain('STDERR-B-LATE-')
+    // ③④尾部存活：SystemExit 前最后的判类标记让 classify 判 partial
+    // （而非降级 error），stdout 收尾 summary 行仍被 parseStdout 解析。
+    expect(result.kind).toBe('partial')
+    expect(result.stderr).toContain('存在失败项，请检查归档目录中的执行日志与审查报告。')
+    expect(result.parsed).toEqual({
+      reviewedDocx: '/tmp/q46-cap-fixture/out_reviewed.docx',
+      reportDocx: '/tmp/q46-cap-fixture/out_report.docx',
+      archiveDir: '/tmp/q46-cap-fixture/archive/run-1',
+      stats: { applied: 3, failed: 1, skipped: 2, reportOnly: 0 },
+    })
+  })
+})
