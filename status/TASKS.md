@@ -316,6 +316,7 @@ dsh 是合同审查业务规则工具——bug 类型高度结构化（合同主
 ### CC-V5-PR4-CANDIDATE-GATE：既有 PR #4 完整源码候选门
 
 - 状态：HIGH_LOAD_HOLD（2026-09-09 22:59）；Dispatch `ctx_3e706ba83c71` 因第四次 Orca 重启 terminal_missing 并已 release，未形成正式 Delivery，不构成代码 REJECT。负载 `<20` 且候选同步 Q46 护栏后再生成新的冻结 head并续接完整源码门。
+- Review finding（2026-09-10 10:0x，claude 会话排查 5 次 worker OOM 后登记，供 PM 派返修）：候选 `scripts/acceptance/force-edit-acceptance.mjs` 的 `ownedSpawn` 对子进程 stdout/stderr 用无上限 `+= chunk` 收集（约 line 154-155），子进程失控输出时收集端无界，与 09:33 诊断报告 `old_space.used=2.11GB` 的累积形态同族；main 侧同类模式已修（`src/python-bridge.ts` `OUTPUT_CAP_CHARS` 8MiB 截断）。候选返修时应对 ownedSpawn 加同款上限；另外按 AGENTS.md 新规，acceptance 脚本与全量验证只允许在 CI 或独立 Terminal.app 执行，不得在 ORCA 终端树内跑。
 - 启动记录：09:54 价值、额度和内存门通过后启动独立 reviewer；09:52 全局 3 个活跃 Dispatch 时曾排队，启动前复查已降为 1。属于本波 PR4 收口，不扩功能波次。
 - 派发：原 Task `task_d4ca2b743ab9` / Dispatch `ctx_6b110df3f89d` 及首次恢复 `task_e3ce5eceb635` / `ctx_b7a1b61464dc` 的中断证据保留；当前同 Run Task `task_b8eb352b633a` / Dispatch `ctx_75a8d05811d6` 已核对实际 worktree HEAD 为候选 `058ce80`、任务输入 accepted、exactWorker live。活性不代表审查完成，仍等待正式 Delivery。
 - 输入：base `35527c2bc39e969bed807c7b67f3dc64ce83f182`、候选 `058ce80c8ae5c317cc2a83dd9980425acbb286ca`，共 18 文件。既有 PR4 仍用旧 head `066270d`；候选是其后代，不建重复 PR。

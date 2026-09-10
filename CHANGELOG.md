@@ -229,3 +229,4 @@
 - `test`：测试
 - `refactor`：内部重构
 - **Verified** 区块：用户/agent 实测过的功能，不依赖静态检查
+- 2026-09-10 上午第 5 次 worker OOM（09:21/09:33，主动复现触发）定界与永久修复第一批：诊断报告确认 2.11GB 全在 old space（长期对象累积而非巨型字符串）、爆点为 PR4 候选测试的 vitest worker、`/Users/maoking/.hermes` node；`src/python-bridge.ts` 的 `runApplyCli` 输出收集加 8MiB `OUTPUT_CAP_CHARS` 截断（消除无上限 `+= chunk` 模式）；`AGENTS.md` 新增「重负载验证与 ORCA 进程树解耦」——全量/acceptance/DSH 启动类验证只走 GitHub Actions 或独立 Terminal.app（进程树与 ORCA 无父子关系），ORCA 内只跑 scoped 单 spec；PR4 候选 acceptance 脚本的无上限收集已登记为 review finding 待 PM 派返修。隔离定界跑（独立 Terminal.app）进行中。

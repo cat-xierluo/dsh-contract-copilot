@@ -73,6 +73,21 @@ export function buildArgv(args: ApplyCliArgs): string[] {
   return argv
 }
 
+/**
+ * 子进程输出收集上限（字符）。CLI 正常输出为 KB 级；失控子进程（如死循环
+ * 打印）无上限累加会把 host 拖入 GB 级 old-space 累积（2026-09-10 定界：
+ * 同款无上限收集模式在 vitest worker 内 2.1GB 堆打满后 V8 OOM）。8MiB
+ * 覆盖最大合法输出并在病态时保证收集端有界；分类特征（classify）位于
+ * stderr 前部，保头部截断不影响判类。
+ */
+const OUTPUT_CAP_CHARS = 8 * 1024 * 1024
+
+function appendCapped(current: string, chunk: string): string {
+  if (current.length >= OUTPUT_CAP_CHARS) return current
+  const room = OUTPUT_CAP_CHARS - current.length
+  return current + (chunk.length <= room ? chunk : chunk.slice(0, room))
+}
+
 /** 异步执行 CLI 并分类。仅 spawn 本身失败（如找不到 python）才 reject。 */
 export function runApplyCli(args: ApplyCliArgs): Promise<BridgeResult> {
   return new Promise((resolve, reject) => {
@@ -85,8 +100,8 @@ export function runApplyCli(args: ApplyCliArgs): Promise<BridgeResult> {
     let stderr = ''
     child.stdout.setEncoding('utf8')
     child.stderr.setEncoding('utf8')
-    child.stdout.on('data', (chunk: string) => { stdout += chunk })
-    child.stderr.on('data', (chunk: string) => { stderr += chunk })
+    child.stdout.on('data', (chunk: string) => { stdout = appendCapped(stdout, chunk) })
+    child.stderr.on('data', (chunk: string) => { stderr = appendCapped(stderr, chunk) })
     child.on('error', reject)
     child.on('close', (code) => {
       resolve({
