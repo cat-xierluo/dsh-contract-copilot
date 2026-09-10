@@ -34,6 +34,7 @@
 - PR #4 第一版输出 cap 提交 `4c9cd04` 完成 8 文件范围与 33/33、类型检查、diff-check 的价值后门，但 PM 依据独立审查拒绝冻结该候选：保头截断在真正超限时会丢失退出前的分类标记、产物路径、统计与用户错误尾部。该 Worker 资源已结算，提交保留为下一轮保尾返修起点；main 同类实现也必须补行为测试并改保尾后再独立验收。
 - generation 12 已并行启动两个 GLM 5.3 Flash 保尾返修 Worker：一条从 main `f25b041` 修复 Host bridge 并补真实子进程超限行为测试，另一条从 PR #4 首版 `4c9cd04` 同步修复 Host 与 force-edit acceptance collector。新鲜价值、44% 额度和 6 个 3 GiB 内存槽位门通过且未使用 override；两个 Dispatch 已核对冻结 head、隔离 worktree、input accepted 与 active provider lease。当前仍是返修运行态，不代表 Delivery、验收或合并完成。
 - main 保尾返修已交付 `b4a126a` 并通过 PM 机械与源码检查：stdout/stderr 各自按 UTF-8 字节保留最新 8 MiB、达到上限后继续排空；真实子进程向两流各输出约 9.5 MiB 的测试证明尾部判类、产物路径与统计仍可解析。2 个 spec 21/21、类型检查、diff-check 和价值后门通过，Worker 资源已结算；该实现仍待不同 GLM/MiniMax reviewer，尚未进入 main。PR #4 同类返修继续运行。
+- PR #4 保尾返修也已交付 `c086b47` 并通过 PM 范围、源码与价值后门检查：Host 与 force-edit acceptance 两条收集器均按每流独立 UTF-8 字节预算保留最新 8 MiB，真实超限与多字节边界用例 35/35；类型检查和 diff-check 通过，Worker 资源已结算。随后并行启动两个新的 GLM 独立 reviewer，分别冻结 main `b4a126a` 与 PR #4 `c086b47`；当前仅表示 review 运行中，尚无 verdict、集成或合并结论。
 
 ### Maintenance（2026-09-08，交付审计）
 
