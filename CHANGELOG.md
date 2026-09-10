@@ -28,6 +28,7 @@
 - 分支与 worktree 批量清理（用户确认）：删除 11 个已收口 worker worktree 与 10 个分支 ref（worktree 22→11、本地分支 22→12），判定依据为编排 receipt 终态与 tip 可达性；各 session 证据先归档至 `.git/orchestration/cc-audit-20260908/archive-<session>/` 再删树。保留全部活跃 worker 现场、PR #4/#11 交付链分支、集成分支与远端素材分支；详见同目录 `branch-cleanup-20260909.json` 与 `status/TASKS.md` CC-V5 清理记录。无产品代码变更。
 - 负载门曾连续两个 heartbeat 通过后，PM 将 Q46 的 2048MiB worker 堆顶及致命错误诊断报告配置等价同步至治理、PR #4、PR #11 runtime 三个保留 worktree，并把 Run 重绑为 generation 8；派发前负载回升至 27.86，故未启动新 Worker。三个 Q46 同步提交只改变各自验收环境，不改变冻结业务候选或合并结论。
 - 负载随后再次连续两轮低于 20，派发前复查为 11.25；generation 8 已并行启动治理独立 review、PR #4 完整候选 review 和 PR #11 单次 runtime gate 三个 GLM 5.3 Flash Worker。机械额度预检的 11% 低于默认判停线，本波依据用户关于重置卡和充足额度的明确指令作限域 override；当前仅表示任务运行中，尚无 Delivery、验收或合并结论。
+- Orca runtime 再次切换导致 generation 8 三个 Worker 同时 terminal_missing；精确 Dispatch 资源已释放，worktree 和证据保留。治理审查已写完整 ACCEPT 报告但缺正式 Delivery，PR #4 尚无报告，PR #11 仅复制运行脚本与 manifest 且单次 runtime 预算未消耗。Run 已改由 generation 10 GLM 控制桥接管；此前临时 Codex 控制桥未领取业务任务、现已关闭，后续派发执行者仅使用 GLM 或 MiniMax。高负载及 Q46 新增保护提交同步完成前不恢复 Worker。
 
 ### Maintenance（2026-09-08，交付审计）
 
