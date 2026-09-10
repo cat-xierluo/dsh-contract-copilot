@@ -9,6 +9,10 @@
 - apply 的 Python CLI bridge（`src/python-bridge.ts` `runApplyCli`）子进程 stdout/stderr 收集改为每流独立、UTF-8 字节计量、保尾的 8MiB 上限：超限后继续排空管道，保留的是最新尾部——判类标记（完整性失败块/「存在失败项」都是 `SystemExit(1)` 前最后写入 stderr 的内容）与 `parseStdout` 的收尾 summary 行（产物路径/执行统计）在真实截断后仍存活，分类与产物解析不因超限降级；取消、进程树 TERM/KILL、forced settle 语义不变。此前保头截断在超限时恰好丢掉这些尾部标记（Q46 审查 F2）
 - 新增真实超限行为测试（Q46 审查 F1）：`tests/python-bridge.integration.spec.ts` 以 fixture skillRoot + `sh` 子进程经真实管道向两流各写约 9.5MiB，证明两流独立封顶 ≤8MiB、前部 filler 被淘汰、退出前尾部标记仍驱动 `classify`/`parseStdout`；红绿证据：收集器临时改回保头方向后该测试失败（保留前部 filler、丢尾部标记），恢复保尾后 21/21 绿
 
+### Maintenance（2026-09-10，分支与 worktree 二轮清理）
+
+- 分支与 worktree 二轮批量清理（用户会话内确认，含 g14 树）：删除 13 个已结算/被取代 worker worktree 与 11 条本地分支 ref（worktree 18→5、本地分支 20→9），判定依据为编排 receipt 终态（g11–g13 全部 consumed/released、g14 terminal_missing 零产物）、tip 可达性（交付头经保留分支覆盖）与内容等价核验（governance-repair 树内四文件脏 diff 与已提交 `988d344` 逐字节一致）。16 个 session 证据先归档至 `.git/orchestration/cc-audit-20260908/archive-<session>/` 再删树；分支删除均按 expected-tip 绑定校验。保留：main、feat-v5（PR #4/#11 base）、`glm-cc-q46-main-tail-g12`（b4a126a 交付头）、`glm-cc-pr4-tail-cap-g12`（c086b47 PR #4 冻结候选头）、PR #11 head、governance-r2（988d344 待复审）、execution-r1（停车门冻结资产）、`ci/diagnose-force-edit-oom`（定界续接载体）、PR #4 head 同名本地 ref；远端分支全部不动（`origin/fix-cc-v5-async-docx-extraction` 为 PR #4 关联分支）。g14 recovery 凭证的 worktree:preserved 由本清理取代，恢复按 resumeConditions 新建 worktree 即可。详见 `branch-cleanup-20260910.json`。无产品代码变更。
+
 ### Maintenance（2026-09-09，PM 交接与验收状态）
 
 - 当前 Codex 任务接任唯一 PM，完成原 GLM PM 交接并恢复 10 分钟 heartbeat；任务源补齐两份独立 review 的有效提交与证据、已完成 reviewer 的资源释放，以及合并前仍待处置的取消路径和治理续接问题。未合并或发布产品变更。
