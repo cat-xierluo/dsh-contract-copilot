@@ -1,4 +1,15 @@
+import { mkdirSync } from 'node:fs'
 import { defineConfig } from 'vitest/config'
+
+// node 的 --report-directory 不会自动创建目录：目录缺失时诊断报告
+// 静默丢失（2026-09-10 02:56 第 5 次 worker OOM 因此没留下 JS 栈）。
+// config 在任何入口加载 vitest 时都会执行，在此兜底建目录保证取证
+// 陷阱可用（尽力而为，失败不阻断测试）。
+try {
+  mkdirSync('/tmp/cc-oom-reports', { recursive: true })
+} catch {
+  /* 取证尽力而为 */
+}
 
 export default defineConfig({
   test: {
