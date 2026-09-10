@@ -32,6 +32,7 @@
 - 系统负载恢复后将 Run 重绑至 generation 11 GLM 控制桥；新鲜价值门、额度门（GLM 81%）和内存门（8 个 3 GiB 槽位）通过。本波已启动两个 GLM 5.3 Flash Worker：独立审查 main 的 Q46/OOM 安全基线，以及在 PR #4 候选 `058ce80` 修复 Host CLI 与 force-edit acceptance 的无界输出收集并补真实截断行为测试；两个 Dispatch 均已核对冻结 head、隔离 worktree、输入接收和 active provider lease。重型验证继续强制脱离 Orca 进程树，当前尚无 Worker Delivery、合并或产品验收结论。
 - Q46/OOM 安全基线独立审查已正式完成并由 PM 接纳审查交付：实际 2 个 spec 20/20、Host noEmit 与 diff-check 通过，reviewer 未运行重型验证、未修改 tracked 文件，资源已结算。审查同时确认两项必须后续修复的缺口：main 输出上限尚无真实截断行为测试，且保头截断会丢失位于尾部的分类、统计和用户诊断信息；在独立返修与复审前不宣称该安全基线完全收口。PR #4 输出上限 Worker 继续运行。
 - PR #4 第一版输出 cap 提交 `4c9cd04` 完成 8 文件范围与 33/33、类型检查、diff-check 的价值后门，但 PM 依据独立审查拒绝冻结该候选：保头截断在真正超限时会丢失退出前的分类标记、产物路径、统计与用户错误尾部。该 Worker 资源已结算，提交保留为下一轮保尾返修起点；main 同类实现也必须补行为测试并改保尾后再独立验收。
+- generation 12 已并行启动两个 GLM 5.3 Flash 保尾返修 Worker：一条从 main `f25b041` 修复 Host bridge 并补真实子进程超限行为测试，另一条从 PR #4 首版 `4c9cd04` 同步修复 Host 与 force-edit acceptance collector。新鲜价值、44% 额度和 6 个 3 GiB 内存槽位门通过且未使用 override；两个 Dispatch 已核对冻结 head、隔离 worktree、input accepted 与 active provider lease。当前仍是返修运行态，不代表 Delivery、验收或合并完成。
 
 ### Maintenance（2026-09-08，交付审计）
 
