@@ -1,6 +1,6 @@
 # dsh-contract-copilot 项目协作指南
 
-> 本副本位于 dsh-plugins 的 `plugins/dsh-contract-copilot` subtree。仓库同步规则与外部工具路径见 [接入说明](../../docs/CONTRACT-COPILOT.md)；旧 polyrepo 相对路径先核对，不能直接执行。业务规则与任务仍在本目录；本次接入不授权恢复旧 Orca 波次、安装生产插件或自动合并候选。
+> **主从关系（2026-09-29 用户明确）**：dsh-plugins 仓库的 `plugins/dsh-contract-copilot` 目录是本插件的**唯一权威源**，所有修改在此进行；独立仓库 `cat-xierluo/dsh-contract-copilot` 只是 subtree 派发镜像（单向 `git subtree push` 同步），**禁止在镜像上直接修改**。同步规则与外部工具路径见 [接入说明](../../docs/CONTRACT-COPILOT.md)（镜像仓读者改看 https://github.com/cat-xierluo/dsh-plugins/blob/main/docs/CONTRACT-COPILOT.md ）；旧 polyrepo 相对路径先核对，不能直接执行。业务规则与任务仍在本目录；不授权恢复旧 Orca 波次、安装生产插件或自动合并候选。
 
 本仓库按全局 AI 协作与文档协议（[~/.claude/CLAUDE.md] v4）维护。本文只规定本项目的具体边界与文档职责。
 

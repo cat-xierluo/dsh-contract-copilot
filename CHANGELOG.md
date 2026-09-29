@@ -8,6 +8,7 @@
 - 消息 source 适配 0.1.7 的 merge-extensible 模型：上游移除共享 `kind: 'plugin'`，新增 `src/message-source.ts` 以声明合并注册本插件自有 kind **`contract-copilot`**（沿用 dsh-llm `ContextFormed` mixin，`form: 'snapshot' + sections` 形状与旧 plugin kind 等价）；pre-step 进度注入与 Agent followup 调用点同步改写。
 - `connection.fetch.register` 补 0.1.7 必填字段：工作台 events / download 两条 GET/HEAD 路由显式 `requestBody: 'buffered'`。
 - 版本 0.3.0 → 0.4.0（不占用旧 README 历史描述中从未发布的 v0.3.1 语义）。验收记录见 `docs/acceptance/2026-09-29-runtime-0.1.7-rc.2-alignment.md`（typecheck×2 / build / vitest 267/267 / 版本匹配 lint 0 FAIL；真实桌面装载 NOT_VERIFIED）。
+- 文档：README 与 AGENTS.md 头部固定**主从关系声明**——dsh-plugins `plugins/dsh-contract-copilot` 是唯一权威源，独立仓 `cat-xierluo/dsh-contract-copilot` 仅为 subtree 派发镜像、禁止直接修改（2026-09-29 用户明确，随 subtree 同步到镜像仓）。
 
 ## 2026-09-29 Repository integration
 

@@ -1,6 +1,8 @@
 # dsh-contract-copilot
 
-> 2026-09-29：本副本已通过完整历史 subtree 接入 dsh-plugins。当前接入、同步与运行边界见 [接入说明](../../docs/CONTRACT-COPILOT.md)，当前任务见 [status/TASKS.md](status/TASKS.md)。下文保留原版本使用说明；2026-09-29 已完成对 DSH Desktop 2.0.15 内嵌运行时 **0.1.7-rc.2** 的依赖与 API 对齐（v0.4.0，静态/模拟级验证，真实桌面装载未验证），未修改生产安装。
+> **仓库主从关系（2026-09-29 起固定）**：本插件的**唯一权威源（增值都在这里做）**是 [dsh-plugins](https://github.com/cat-xierluo/dsh-plugins) 仓库的 `plugins/dsh-contract-copilot` 目录。独立仓库 `cat-xierluo/dsh-contract-copilot` 只是经 subtree-publish 派发的镜像（`git subtree push` 单向同步）——**请勿在独立仓直接修改或开发**，改动一律回 dsh-plugins 提交后再同步。接入与同步细则见 [dsh-plugins 的接入说明](https://github.com/cat-xierluo/dsh-plugins/blob/main/docs/CONTRACT-COPILOT.md)；当前任务见 [status/TASKS.md](status/TASKS.md)。
+>
+> 2026-09-29 已完成对 DSH Desktop 2.0.15 内嵌运行时 **0.1.7-rc.2** 的依赖与 API 对齐（v0.4.0，静态/模拟级验证，真实桌面装载未验证），未修改生产安装。
 
 把现有 `contract-copilot` skill（v1.6.3）改造为 [DeepSeek Harness] 插件。审查流程不变（SKILL.md §3.2 四步），把交互、产物落位、长程续接投影到 DSH 的工具链、持久层与内嵌工作台。
 
