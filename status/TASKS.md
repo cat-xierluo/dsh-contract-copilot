@@ -1,5 +1,25 @@
 # 当前任务
 
+## CC-DSH-001 — 纳入 dsh-plugins 并保留历史（2026-09-29）
+
+- 状态：DONE（仓库接入与历史保全；产品兼容性未验收）。
+- 验收证据：[validation.json](../../../docs/evidence/contract-import-20260929/validation.json)：80 个 main 提交保留，107 个全部引用提交、17 refs 与 2 份 WIP 补丁可恢复；原 5 个工作树未改。
+- 来源：用户要求现有合同审查 DSH plugin 嵌入新项目并保留 Git 记录。
+- 范围/验收：原 main 非 squash subtree；源 tree 与导入 tree 相等；main 的 80 个提交不改写；全部分支共 107 个提交可从 bundle 恢复；未提交受跟踪改动有补丁，原 5 个工作树不变。
+- 跨仓库接入事实与配置由 [接入说明](../../../docs/CONTRACT-COPILOT.md)维护；项目任务 DSH-004 只做入口，不复制业务待办。
+- 非目标：旧 V5/PR4/PR11 结项、升级依赖、模型调用、生产安装或 Python 改动。
+
+## CC-DSH-002 — 新宿主适配与旧候选接续审计
+
+- 状态：READY（静态对照）；运行验收依赖项目 DSH-002 固定实际 Desktop 环境；不改变 Pilot 优先的顺序。
+- 输入：当前 sourceCommit、bundle 内 9 个本地分支、下方 CC-V5-008/009 和治理卡、DSH 固定研究版本、原 `docs/DSH-PLUGIN-REFERENCE.md`。
+- 范围：先厘清 main/集成分支/PR 候选中的功能与未验收差异，复用已做修复，再对齐 Host/Client 依赖、slot、Session/Agent API、资源与主题；不要直接重写整个合同业务。
+- 已知阻断：main pre-step 依赖全局 `store.current()`；跨 Agent 进度注入隔离与命令准入/取消/关闭恢复须沿旧任务补验；旧 lint/CI 缺口未关闭。旧 PR 状态只按记录时点理解，接续先只读刷新。
+- 验收：新宿主实际版本/源码一致；七工具、律师批准与 plan hash 门、Word/简版预览及双向批注、跨案件/Agent 隔离、取消/重连/重启恢复、下载鉴权通过合成资料验证；版本匹配的 lint、启动与浏览器证据绑定最终候选。
+- 隔离：显式实验 sessionsDir 与合成 skillRoot/config/archive，不用实际业务默认路径；不改 Python、不读取生产客户材料。遵守原资源/OOM 验证限制。
+- 当前证据：NOT_VERIFIED（此次只接入源码与历史；不沿用旧版本通过记录证明新桌面通过）。静态 [lint](../../../docs/evidence/contract-import-20260929/lint.json) 退出 2：缺少未构建的 lib/index.js 与 lib/client.js；3 WARN 包含依赖版本差异、CJK 语义待核和历史文档引用；1 NOT_VERIFIED 为研究 tar 源码无 Git 元信息。没有执行安装、构建或模型/浏览器验收。
+
+
 ## WAVE-2026-09-08：GLM 审计整改与独立验收
 
 - Heartbeat：用户于 2026-09-08 明确要求自动回访验收；`contract-copilot-glm`（Contract Copilot GLM 成果验收）每 10 分钟跟进本波任务。generation 12 两个保尾返修与 generation 13 两个独立 reviewer 均已结算；generation 14 因第 6 次 worker OOM 后的 Orca runtime 切换失去终端且未形成 Delivery，旧 Dispatch/terminal/provider lease 已精确结算。继续以正式 Delivery 和 PM 独立验收为完成边界。

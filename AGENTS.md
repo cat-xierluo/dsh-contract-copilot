@@ -1,5 +1,7 @@
 # dsh-contract-copilot 项目协作指南
 
+> 本副本位于 dsh-plugins 的 `plugins/dsh-contract-copilot` subtree。仓库同步规则与外部工具路径见 [接入说明](../../docs/CONTRACT-COPILOT.md)；旧 polyrepo 相对路径先核对，不能直接执行。业务规则与任务仍在本目录；本次接入不授权恢复旧 Orca 波次、安装生产插件或自动合并候选。
+
 本仓库按全局 AI 协作与文档协议（[~/.claude/CLAUDE.md] v4）维护。本文只规定本项目的具体边界与文档职责。
 
 ## 适用范围与优先级
@@ -12,7 +14,7 @@
 | 文档角色 | 位置 | 权威内容 |
 |---|---|---|
 | 项目说明 | `README.md` | 项目用途、安装、使用 |
-| 项目协作规则 | `AGENTS.md`（`CLAUDE.md` symlink） | 本文件 |
+| 项目协作规则 | `AGENTS.md`（`CLAUDE.md` 通过 `@AGENTS.md` 引用） | 本文件 |
 | 路线图 | `docs/ROADMAP.md` | 愿景、阶段退出条件、依赖风险 |
 | 当前任务源 | `status/TASKS.md` | 当前任务边界、状态、验收和执行证据 |
 | 决策记录 | `docs/DECISIONS.md` | 真实发生过的取舍（Q1 起，编号连续） |

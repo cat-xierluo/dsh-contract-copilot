@@ -1,5 +1,7 @@
 # dsh-contract-copilot
 
+> 2026-09-29：本副本已通过完整历史 subtree 接入 dsh-plugins。当前接入、同步与运行边界见 [接入说明](../../docs/CONTRACT-COPILOT.md)，当前任务见 [status/TASKS.md](status/TASKS.md)。下文保留原版本使用说明；本轮未验证 DSH 0.2 桌面兼容，也未修改生产安装。
+
 把现有 `contract-copilot` skill（v1.6.3）改造为 [DeepSeek Harness] 插件。审查流程不变（SKILL.md §3.2 四步），把交互、产物落位、长程续接投影到 DSH 的工具链、持久层与内嵌工作台。
 
 - 设计稿：`docs/2026-08-18-dsh-plugin-design.md`

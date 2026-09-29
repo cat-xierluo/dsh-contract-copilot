@@ -1,5 +1,9 @@
 # 变更日志
 
+## 2026-09-29 Repository integration
+
+- 本副本以完整历史 subtree 纳入 dsh-plugins；原 main 提交、分支历史与未提交改动保全。补充新的任务与同步入口，产品源码、锁定依赖、版本与 Python 行为不变。DSH 0.2 Desktop 适配待 CC-DSH-002 验收。
+
 本文件记录本仓库已交付的用户可见变化。
 
 ## [Unreleased] — 推进中
