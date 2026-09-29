@@ -203,6 +203,17 @@
 
 ---
 
+## Q48：0.1.7-rc.2 对齐采用插件自有消息 source kind（2026-09-29）
+
+| 字段 | 内容 |
+|---|---|
+| **结论** | 依赖全量钉定 0.1.7-rc.2 时，消息 source 不再寻找 `kind: 'plugin'` 的替代共享值，而是按上游 merge-extensible 设计在 `src/message-source.ts` 以声明合并注册本插件自有 kind `contract-copilot`（`{ kind } & ContextFormed`）；fetch 路由按新必填字段显式 `requestBody: 'buffered'`。 |
+| **理由** | 0.1.7 的 `MessageSourceMap` 明确「没有共享 catch-all plugin kind，每个生产者在自己的模块声明自己的 kind，消费者对未知 kind fall-through」；内嵌运行时里 schedule、cordis-host-runner 等均自有 kind。借用 `user`/`tool` 等既有 kind 会错误归属生产者。旧 plugin kind 的 `form: 'snapshot'+sections` 形状由公共 `ContextFormed` mixin 原样承接，两处调用点形状等价迁移。`requestBody` 只约束请求体读取方式，两条 GET/HEAD 路由无请求体，`buffered` 即文档化默认。 |
+| **影响** | pre-step 注入与 followup 消息携带 `kind: 'contract-copilot'`；devDeps 以 npm 0.1.7-rc.2 分发 .d.ts 为类型源（`PreStepDecision`/`ToolRunContext` 实测在包导出面，无需改引 api-catalog）；移除 npm 无此版本的 devDep `dsh-code-runtime`。版本升至 0.4.0，不占用历史描述中从未发布的 0.3.1。 |
+| **何时重新评估** | 真实宿主对自定义 kind 的持久化/投影 fall-through 行为与预期不符（CC-DSH-002 运行时验收）；上游为插件注入重新引入共享 kind 或发布迁移指引时；`ContextFormed` 形态变化时。 |
+
+---
+
 ## 决策索引（按主题）
 
 **产品形态**
@@ -215,6 +226,7 @@
 - Q26 / Q27 / Q28 — analyze 必填 summary、re-analyze 状态门、force_edit 授权
 - Q29 — compactUndefinedDeep 适配 lossless JSON
 - Q34 / Q35 / Q38 / Q40 / Q42 — DSH 会话接线、HMR 边界、0.1.2 工作台迁移、专属 Agent 驱动、可观察运行面与分析上下文注入
+- Q48 — 0.1.7-rc.2 对齐：插件自有消息 source kind 与 fetch requestBody 显式化
 
 **作用域与命名**
 - Q1 / Q5 / Q6 / Q7 / Q9 / Q10 / Q11 — 用户、仓库、scope、GitHub 用户名

@@ -117,7 +117,7 @@ tests/                       # Vitest 单元与真实 Python spawn 集成测试
 
 - Python CLI：`apply_review_plan.py`（v1.6.3），硬依赖 `defusedxml`
 - session 文件目录：`~/.dsh/contract-copilot/sessions/<id>.json`（插件可配）
-- DSH harness 0.1.2-rc.1：tools、llm、agent，以及 Web 侧 connection、ui-renderer、ui-sidebar
+- DSH harness 0.1.7-rc.2（DSH Desktop 2.0.15 内嵌）：tools、llm、agent，以及 Web 侧 connection、ui-renderer、ui-sidebar；消息 source 使用本插件自有 kind `contract-copilot`（见 DECISIONS Q48），fetch 路由显式 `requestBody`
 - Cordis：`@deepseek-ai/cordis`（peer）
 
 ## 7. 已知限制（运行时）

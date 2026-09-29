@@ -1,13 +1,13 @@
 # dsh-contract-copilot
 
-> 2026-09-29：本副本已通过完整历史 subtree 接入 dsh-plugins。当前接入、同步与运行边界见 [接入说明](../../docs/CONTRACT-COPILOT.md)，当前任务见 [status/TASKS.md](status/TASKS.md)。下文保留原版本使用说明；本轮未验证 DSH 0.2 桌面兼容，也未修改生产安装。
+> 2026-09-29：本副本已通过完整历史 subtree 接入 dsh-plugins。当前接入、同步与运行边界见 [接入说明](../../docs/CONTRACT-COPILOT.md)，当前任务见 [status/TASKS.md](status/TASKS.md)。下文保留原版本使用说明；2026-09-29 已完成对 DSH Desktop 2.0.15 内嵌运行时 **0.1.7-rc.2** 的依赖与 API 对齐（v0.4.0，静态/模拟级验证，真实桌面装载未验证），未修改生产安装。
 
 把现有 `contract-copilot` skill（v1.6.3）改造为 [DeepSeek Harness] 插件。审查流程不变（SKILL.md §3.2 四步），把交互、产物落位、长程续接投影到 DSH 的工具链、持久层与内嵌工作台。
 
 - 设计稿：`docs/2026-08-18-dsh-plugin-design.md`
 - 原 skill：`legal-skills/skills/contract-copilot/SKILL.md`（**Python 一行不动**，插件只做外壳）
 - 安装：`dsh plugin --profile lawyer add ./dsh-contract-copilot`
-- 当前阶段：**v0.3.1 工作台体验收口已通过独立验收，等待 PR 合并**；7 个 Agent tool 与 Python CLI 保持不变，工作台可直接驱动案件专属 Agent，在修订前执行逐 finding 律师批准，并支持明暗主题、窄屏操作和 Word/简版批注双向定位
+- 当前阶段：**v0.4.0 已对齐 DSH 运行时 0.1.7-rc.2（静态 typecheck/build/267 项测试/版本匹配 lint 通过；真实桌面装载与业务 Web 验收未做）**；7 个 Agent tool 与 Python CLI 保持不变，工作台可直接驱动案件专属 Agent，在修订前执行逐 finding 律师批准，并支持明暗主题、窄屏操作和 Word/简版批注双向定位（v0.3.1 工作台体验收口已通过独立验收，其 PR 合并仍待完成）
 
 ## 快速开始
 

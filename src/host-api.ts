@@ -62,11 +62,13 @@ export function registerHostApi(
     connection.fetch.register({
       path: WORKBENCH_EVENTS_PATH,
       methods: ['GET'],
+      requestBody: 'buffered',
       fetch: request => Promise.resolve(workbenchEventsResponse(request, store)),
     })
     connection.fetch.register({
       path: WORKBENCH_DOWNLOAD_PATH,
       methods: ['GET', 'HEAD'],
+      requestBody: 'buffered',
       fetch: request => Promise.resolve(workbenchDownloadResponse(request, store)),
     })
   })

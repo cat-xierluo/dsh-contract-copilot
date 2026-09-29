@@ -1,5 +1,14 @@
 # 变更日志
 
+## [0.4.0] — 2026-09-29 DSH 运行时对齐 0.1.7-rc.2
+
+### Changed
+
+- `@deepseek-ai/dsh-*` 依赖（dependencies 与 devDependencies）由 0.1.2-rc.1 全量钉定到 **0.1.7-rc.2**，与真实安装的 DSH Desktop 2.0.15 内嵌运行时一致，消除双版本漂移；cordis devDep 对齐内嵌 4.0.4（peer `^4.0.2` 不变）。移除 devDep `@deepseek-ai/dsh-code-runtime`（npm 无该版本分发且源码零引用）。
+- 消息 source 适配 0.1.7 的 merge-extensible 模型：上游移除共享 `kind: 'plugin'`，新增 `src/message-source.ts` 以声明合并注册本插件自有 kind **`contract-copilot`**（沿用 dsh-llm `ContextFormed` mixin，`form: 'snapshot' + sections` 形状与旧 plugin kind 等价）；pre-step 进度注入与 Agent followup 调用点同步改写。
+- `connection.fetch.register` 补 0.1.7 必填字段：工作台 events / download 两条 GET/HEAD 路由显式 `requestBody: 'buffered'`。
+- 版本 0.3.0 → 0.4.0（不占用旧 README 历史描述中从未发布的 v0.3.1 语义）。验收记录见 `docs/acceptance/2026-09-29-runtime-0.1.7-rc.2-alignment.md`（typecheck×2 / build / vitest 267/267 / 版本匹配 lint 0 FAIL；真实桌面装载 NOT_VERIFIED）。
+
 ## 2026-09-29 Repository integration
 
 - 本副本以完整历史 subtree 纳入 dsh-plugins；原 main 提交、分支历史与未提交改动保全。补充新的任务与同步入口，产品源码、锁定依赖、版本与 Python 行为不变。DSH 0.2 Desktop 适配待 CC-DSH-002 验收。

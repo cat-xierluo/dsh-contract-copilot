@@ -13,6 +13,7 @@ import { Config, resolveConfig } from './config.ts'
 import type { PluginConfig } from './config.ts'
 import { registerHostApi } from './host-api.ts'
 import { ContractAgentCoordinator } from './agent-coordinator.ts'
+import type {} from './message-source.ts'
 import { formatProgressMsg, progressChangedSinceLastInjection } from './progress.ts'
 import { registerAnalyzeTool } from './tools/analyze.ts'
 import { registerApplyTool } from './tools/apply.ts'
@@ -71,7 +72,7 @@ export function apply(ctx: Context, raw: PluginConfig): void {
           ...decision.messages,
           createUserMessage({
             content: [{ type: 'text', text }],
-            source: { kind: 'plugin', plugin: name, form: 'snapshot', sections: [{ name: 'contract-copilot-progress', text }] },
+            source: { kind: 'contract-copilot', form: 'snapshot', sections: [{ name: 'contract-copilot-progress', text }] },
           }),
         ],
       }

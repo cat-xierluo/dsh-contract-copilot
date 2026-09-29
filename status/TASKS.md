@@ -11,13 +11,14 @@
 
 ## CC-DSH-002 — 新宿主适配与旧候选接续审计
 
-- 状态：HOLD（用户 2026-09-29 指示：Pilot 真实装载先行，本卡暂缓；静态差距调研已入下方输入，恢复时从静态对照续接）。
+- 状态：IN_PROGRESS（2026-09-29 用户指示恢复：首轮「0.1.7-rc.2 依赖与 API 对齐」已交付 v0.4.0——静态 typecheck×2/build、vitest 267/267、版本匹配 lint 0 FAIL；真实桌面装载与业务 Web 验收仍 NOT_VERIFIED，续接清单见验收记录）。此前 HOLD 期间的静态差距调研仍有效，两处保守结论已实测修正（见下）。
+- 首轮交付（2026-09-29，v0.4.0）：[验收记录](../docs/acceptance/2026-09-29-runtime-0.1.7-rc.2-alignment.md)。要点：dsh-* 依赖钉定 0.1.7-rc.2（与 Desktop 2.0.15 内嵌一致）；消息 source 按上游 merge-extensible 模型注册插件自有 kind `contract-copilot`（Q48；上游已移除共享 `plugin` kind）；fetch 路由补必填 `requestBody:'buffered'`；移除 npm 无版本的 devDep `dsh-code-runtime`。**实测修正调研两处**：npm 0.1.7-rc.2 分发包带完整 .d.ts 且 `PreStepDecision`/`ToolRunContext` 在包导出面（无需改引 api-catalog）；client externals 8 项经版本匹配 lint 确认 ⊆ 0.1.7-rc.2 平台基线（P1-B 静态排除）。机械证据：dsh-plugins `docs/evidence/contract-017rc2-adapt-20260929/lint.json`。
 - 输入：当前 sourceCommit、bundle 内 9 个本地分支、下方 CC-V5-008/009 和治理卡、DSH 固定研究版本、原 `docs/DSH-PLUGIN-REFERENCE.md`、[0.1.7-rc.2 接口差距调研](../../../docs/research/2026-09-29-contract-adapter-gap-017rc2.md)（2026-09-29 静态分析：运行时符号无断裂；`PreStepDecision`/`ToolRunContext` 不在原包导出面、完整声明在 dsh-tool-cordis api-catalog，改引即可；内嵌树 .d.ts 已剥离需以 npm 分发包为类型源；插件钉 0.1.2-rc.1 的 dedupe 风险为 P1）。
 - 范围：先厘清 main/集成分支/PR 候选中的功能与未验收差异，复用已做修复，再对齐 Host/Client 依赖、slot、Session/Agent API、资源与主题；不要直接重写整个合同业务。
 - 已知阻断：main pre-step 依赖全局 `store.current()`；跨 Agent 进度注入隔离与命令准入/取消/关闭恢复须沿旧任务补验；旧 lint/CI 缺口未关闭。旧 PR 状态只按记录时点理解，接续先只读刷新。
 - 验收：新宿主实际版本/源码一致；七工具、律师批准与 plan hash 门、Word/简版预览及双向批注、跨案件/Agent 隔离、取消/重连/重启恢复、下载鉴权通过合成资料验证；版本匹配的 lint、启动与浏览器证据绑定最终候选。
 - 隔离：显式实验 sessionsDir 与合成 skillRoot/config/archive，不用实际业务默认路径；不改 Python、不读取生产客户材料。遵守原资源/OOM 验证限制。
-- 当前证据：NOT_VERIFIED（此次只接入源码与历史；不沿用旧版本通过记录证明新桌面通过）。静态 [lint](../../../docs/evidence/contract-import-20260929/lint.json) 退出 2：缺少未构建的 lib/index.js 与 lib/client.js；3 WARN 包含依赖版本差异、CJK 语义待核和历史文档引用；1 NOT_VERIFIED 为研究 tar 源码无 Git 元信息。没有执行安装、构建或模型/浏览器验收。
+- 后续验证状态：静态/模拟级已通过（2026-09-29）；真实 Desktop 装载（Host apply、client 注入、cordis.patch、dedupe、自定义 source kind 的宿主 fall-through）与真实 Web 业务验收仍 NOT_VERIFIED，沿本卡验收清单续接。
 
 
 ## WAVE-2026-09-08：GLM 审计整改与独立验收

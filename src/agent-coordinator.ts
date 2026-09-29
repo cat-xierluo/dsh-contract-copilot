@@ -9,6 +9,7 @@ import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import { SessionId } from '@deepseek-ai/dsh-session/types'
 import { ANALYSIS_CONTRACT_TEXT_DEFAULT_CHARS } from './config.ts'
 import { extractContractText, extractDocxParts } from './docx-view.ts'
+import type {} from './message-source.ts'
 import { assertApprovedPlan } from './plan-review.ts'
 import type { ContractSession, SessionStore } from './session.ts'
 
@@ -173,7 +174,7 @@ export class ContractAgentCoordinator {
     try {
       agent.followup(createUserMessage({
         content: [{ type: 'text', text: prompt }],
-        source: { kind: 'plugin', plugin: 'contract-copilot' },
+        source: { kind: 'contract-copilot' },
       }))
       command.settled = this.observeSettlement(sessionId, command)
     } catch (error) {
