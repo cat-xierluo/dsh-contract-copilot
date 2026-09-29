@@ -12,7 +12,7 @@
 ## CC-DSH-002 — 新宿主适配与旧候选接续审计
 
 - 状态：HOLD（用户 2026-09-29 指示：Pilot 真实装载先行，本卡暂缓；静态差距调研已入下方输入，恢复时从静态对照续接）。
-- 输入：当前 sourceCommit、bundle 内 9 个本地分支、下方 CC-V5-008/009 和治理卡、DSH 固定研究版本、原 `docs/DSH-PLUGIN-REFERENCE.md`、[0.1.7-rc.2 接口差距调研](../../../docs/research/2026-09-29-contract-adapter-gap-017rc2.md)（2026-09-29 静态分析：运行时符号无断裂，`PreStepDecision`/`ToolRunContext` 两个类型名未找到，内嵌树 .d.ts 已剥离需以 npm 分发包为类型源，插件钉 0.1.2-rc.1 的 dedupe 风险为 P1）。
+- 输入：当前 sourceCommit、bundle 内 9 个本地分支、下方 CC-V5-008/009 和治理卡、DSH 固定研究版本、原 `docs/DSH-PLUGIN-REFERENCE.md`、[0.1.7-rc.2 接口差距调研](../../../docs/research/2026-09-29-contract-adapter-gap-017rc2.md)（2026-09-29 静态分析：运行时符号无断裂；`PreStepDecision`/`ToolRunContext` 不在原包导出面、完整声明在 dsh-tool-cordis api-catalog，改引即可；内嵌树 .d.ts 已剥离需以 npm 分发包为类型源；插件钉 0.1.2-rc.1 的 dedupe 风险为 P1）。
 - 范围：先厘清 main/集成分支/PR 候选中的功能与未验收差异，复用已做修复，再对齐 Host/Client 依赖、slot、Session/Agent API、资源与主题；不要直接重写整个合同业务。
 - 已知阻断：main pre-step 依赖全局 `store.current()`；跨 Agent 进度注入隔离与命令准入/取消/关闭恢复须沿旧任务补验；旧 lint/CI 缺口未关闭。旧 PR 状态只按记录时点理解，接续先只读刷新。
 - 验收：新宿主实际版本/源码一致；七工具、律师批准与 plan hash 门、Word/简版预览及双向批注、跨案件/Agent 隔离、取消/重连/重启恢复、下载鉴权通过合成资料验证；版本匹配的 lint、启动与浏览器证据绑定最终候选。
