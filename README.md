@@ -1,23 +1,32 @@
 # dsh-contract-copilot
 
-> **仓库主从关系（2026-09-29 起固定）**：本插件的**唯一权威源（增值都在这里做）**是 [dsh-plugins](https://github.com/cat-xierluo/dsh-plugins) 仓库的 `plugins/dsh-contract-copilot` 目录。独立仓库 `cat-xierluo/dsh-contract-copilot` 只是经 subtree-publish 派发的镜像（`git subtree push` 单向同步）——**请勿在独立仓直接修改或开发**，改动一律回 dsh-plugins 提交后再同步。接入与同步细则见 [dsh-plugins 的接入说明](https://github.com/cat-xierluo/dsh-plugins/blob/main/docs/CONTRACT-COPILOT.md)；当前任务见 [status/TASKS.md](status/TASKS.md)。
+合同审查 Copilot——把既有 `contract-copilot` 审查 skill（v1.6.3，**Python 一行不动**，插件只做外壳）接入 DeepSeek Harness（DSH）的桌面插件。审查流程不变（SKILL.md §3.2 四步），把交互、产物落位、长程续接投影到 DSH 的工具链、持久层与内嵌工作台。
+
+> **仓库主从关系（2026-09-29 起固定）**：本插件的**唯一权威增值源**是 [dsh-plugins](https://github.com/cat-xierluo/dsh-plugins) 仓库的 `plugins/dsh-contract-copilot` 目录；本独立仓库 `cat-xierluo/dsh-contract-copilot` 只是经 `git subtree push` 单向同步的**派发镜像**——请勿在此直接修改、提交或发 PR，改动一律回 dsh-plugins 进行后再同步。接入与同步细则见 [dsh-plugins 的接入说明](https://github.com/cat-xierluo/dsh-plugins/blob/main/docs/CONTRACT-COPILOT.md)；当前任务见 [status/TASKS.md](status/TASKS.md)。
 >
-> 2026-09-29 已完成对 DSH Desktop 2.0.15 内嵌运行时 **0.1.7-rc.2** 的依赖与 API 对齐（v0.4.0，静态/模拟级验证，真实桌面装载未验证），未修改生产安装。
+> **当前验证状态（v0.4.0，2026-09-29）**：依赖与 API 已对齐 DSH Desktop 2.0.15 内嵌运行时 0.1.7-rc.2——静态 typecheck/build、vitest 267/267、版本匹配 lint 0 FAIL；**真实桌面装载与业务 Web 验收 NOT_VERIFIED**，未修改生产安装。续接清单见[验收记录](docs/acceptance/2026-09-29-runtime-0.1.7-rc.2-alignment.md)。
 
-把现有 `contract-copilot` skill（v1.6.3）改造为 [DeepSeek Harness] 插件。审查流程不变（SKILL.md §3.2 四步），把交互、产物落位、长程续接投影到 DSH 的工具链、持久层与内嵌工作台。
+## 功能一览
 
-- 设计稿：`docs/2026-08-18-dsh-plugin-design.md`
-- 原 skill：`legal-skills/skills/contract-copilot/SKILL.md`（**Python 一行不动**，插件只做外壳）
-- 安装：`dsh plugin --profile lawyer add ./dsh-contract-copilot`
-- 当前阶段：**v0.4.0 已对齐 DSH 运行时 0.1.7-rc.2（静态 typecheck/build/267 项测试/版本匹配 lint 通过；真实桌面装载与业务 Web 验收未做）**；7 个 Agent tool 与 Python CLI 保持不变，工作台可直接驱动案件专属 Agent，在修订前执行逐 finding 律师批准，并支持明暗主题、窄屏操作和 Word/简版批注双向定位（v0.3.1 工作台体验收口已通过独立验收，其 PR 合并仍待完成）
+- 7 个合同领域 Agent tool 与 Python CLI 原样保留；Python 审查 skill 是**外部依赖**，`skillRoot` 必须显式配置指向本机的 `legal-skills/skills/contract-copilot`（不在本仓库内）。
+- 合同业务 SessionStore 与 Agent 协调器：案件按 Agent/session 归属隔离，支持取消、重试与重启恢复。
+- 三栏工作台：左侧审查队列，中间 Word 修订视图，右侧「前置信息 → 风险分析 → 律师决策 → 修订交付 → 完成」五阶段进度。
+- 律师决策门：修订前逐 finding 批准——按建议处理 / 仅批注 / 仅意见书 / 忽略，可调整风险等级、填写内部备注，决定落入可审计历史；批准后由同一 Agent 继续交付。
+- 明暗主题、窄屏操作、Word/简版批注双向定位（v0.3.1 工作台体验已通过独立验收与真实浏览器复验）。
 
 ## 快速开始
 
-```sh
-# 在律师 profile 中安装本插件
-dsh plugin --profile lawyer add ./dsh-contract-copilot
+> 以下安装用法来自 v0.3.1 时代经真实浏览器验收的流程；v0.4.0（运行时 0.1.7-rc.2 对齐版）尚未在真实桌面复验装载，先阅读顶部验证状态。
 
-# profile 的 cordis.patch.yml 配置 skill 根目录（必填）
+安装（在律师 profile 中）：
+
+```sh
+dsh plugin --profile lawyer add ./dsh-contract-copilot
+```
+
+profile 的 `cordis.patch.yml` 配置 skill 根目录（必填）：
+
+```yaml
 - id: contract-copilot
   config:
     skillRoot: /path/to/legal-skills/skills/contract-copilot
@@ -26,7 +35,7 @@ dsh plugin --profile lawyer add ./dsh-contract-copilot
       analysisContractTextMaxChars: 40000
 ```
 
-启动 DSH Web 后，侧栏底部的“合同审查”入口会打开三栏工作台：左侧是审查队列，中间是 Word 修订视图，右侧是“前置信息 → 风险分析 → 律师决策 → 修订交付 → 完成”五阶段进度。律师可逐项选择按建议处理、仅批注、仅意见书或忽略，调整风险等级、填写内部备注，再批准方案并让同一 Agent 继续交付。工作台专属 Agent 不要求 Web profile 开放通用文件或 skill 工具：Host 在分析派发前提取本地 DOCX 正文，并把有界正文和最小审查指导作为数据注入分析回合；`analysisContractTextMaxChars` 默认 40000，可在 1000–200000 之间配置。工作台所有 RPC、实时事件和 DOCX 下载都复用 DSH 的浏览器会话认证；headless profile 不加载界面，但 7 个工具及批准门仍照常工作。
+启动 DSH Web 后，侧栏底部的“合同审查”入口会打开三栏工作台。工作台专属 Agent 不要求 Web profile 开放通用文件或 skill 工具：Host 在分析派发前提取本地 DOCX 正文，并把有界正文和最小审查指导作为数据注入分析回合（`analysisContractTextMaxChars` 默认 40000，可在 1000–200000 之间配置）。工作台所有 RPC、实时事件和 DOCX 下载都复用 DSH 的浏览器会话认证；headless profile 不加载界面，但 7 个工具及批准门仍照常工作。
 
 ## 为什么选择 DSH 工作台
 
@@ -34,12 +43,12 @@ DSH 同时提供可观察的 Agent 生命周期、持久 Session、命名 Tool �
 
 ## 项目协议
 
-本仓库按全局 AGENTS.md（v4）维护协议文件：
+协议文件沿用原独立仓的全局 AGENTS.md（v4）约定随历史保留；其权威维护与新增记录同样只在 dsh-plugins 进行。
 
 | 文件 | 职责 |
 |---|---|
 | `README.md` | 项目说明、安装、使用 |
-| `AGENTS.md`（`CLAUDE.md` symlink） | 项目协作规则 |
+| `AGENTS.md`（`CLAUDE.md` 为其 `@AGENTS.md` 引导文件） | 项目协作规则 |
 | `CHANGELOG.md` | 已交付的 commit 历史 |
 | `docs/DECISIONS.md` | 真实发生过的取舍与影响 |
 | `docs/ROADMAP.md` | 愿景、阶段退出条件、依赖风险 |
@@ -66,8 +75,8 @@ fswatch -o src/ | while read -r _; do pnpm run build; done
 
 只有 profile 的 `cordis.patch.yml`（配置层）是热重载的——调 skillRoot 等配置无需重启。
 
+开发一律在 dsh-plugins 仓库进行（本镜像不接受直接修改）：clone dsh-plugins 后在 `plugins/dsh-contract-copilot/` 内工作，合入 main 后由 `scripts/subtree-push.sh` 同步到本镜像。
+
 ## License
 
 CC-BY-NC-4.0 © 杨卫薪律师（微信 ywxlaw）
-
-[DeepSeek Harness]: 参考项目/deepseek-harness/AGENTS.md

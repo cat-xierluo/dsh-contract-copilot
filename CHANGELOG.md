@@ -1,5 +1,10 @@
 # 变更日志
 
+## 2026-09-30 Maintenance（镜像仓卫生与 README 重写）
+
+- 镜像仓 `cat-xierluo/dsh-contract-copilot` 清理（用户确认）：关闭旧开发线 PR #4/#11（评论指向 dsh-plugins 侧 CC-DSH-002 接续线）；删除 5 个旧开发线远端分支（`ci/diagnose-force-edit-oom`、`codex-cc-agent-progress-isolation-0908`、`contract-copilot-v301-assets`、`feat-v5-quality-hardening`、`fix-cc-v5-async-docx-extraction`），各头端 SHA 均由导入 bundle（dsh-plugins `docs/evidence/contract-import-20260929/source-history.bundle`）保全，镜像仅存 main 与标签 `v0.1.0`；GitHub About 文案重写为面向读者的功能 + 主从说明，Projects 关闭、Issues 保留。
+- README 面向镜像读者重写：主从关系与验证状态上移为顶部横幅；新增「功能一览」；「快速开始」标注 v0.3.1 验证来源与 v0.4.0 NOT_VERIFIED 边界；修复失效的 `参考项目/deepseek-harness/AGENTS.md` 链接脚注与「原 skill」相对路径表述；「项目协议」前言改为镜像语义。
+
 ## [0.4.0] — 2026-09-29 DSH 运行时对齐 0.1.7-rc.2
 
 ### Changed
