@@ -12,7 +12,7 @@
 - 合同业务 SessionStore 与 Agent 协调器：案件按 Agent/session 归属隔离，支持取消、重试与重启恢复。
 - 三栏工作台：左侧审查队列，中间 Word 修订视图，右侧「前置信息 → 风险分析 → 律师决策 → 修订交付 → 完成」五阶段进度。
 - 律师决策门：修订前逐 finding 批准——按建议处理 / 仅批注 / 仅意见书 / 忽略，可调整风险等级、填写内部备注，决定落入可审计历史；批准后由同一 Agent 继续交付。
-- 明暗主题、窄屏操作、Word/简版批注双向定位（v0.3.1 工作台体验已通过独立验收与真实浏览器复验）。
+- 明暗主题、窄屏操作、Word/简版批注双向定位（v0.3.1 工作台体验已通过独立验收与真实 DSH Web 浏览器验收）。
 
 ## 快速开始
 
@@ -75,7 +75,7 @@ fswatch -o src/ | while read -r _; do pnpm run build; done
 
 只有 profile 的 `cordis.patch.yml`（配置层）是热重载的——调 skillRoot 等配置无需重启。
 
-开发一律在 dsh-plugins 仓库进行（本镜像不接受直接修改）：clone dsh-plugins 后在 `plugins/dsh-contract-copilot/` 内工作，合入 main 后由 `scripts/subtree-push.sh` 同步到本镜像。
+开发一律在 dsh-plugins 仓库进行（本镜像不接受直接修改）：clone dsh-plugins 后在 `plugins/dsh-contract-copilot/` 内工作；合入 main 后在 dsh-plugins 仓库根执行 `scripts/subtree-push.sh dsh-contract-copilot`，把本目录同步到本镜像。
 
 ## License
 
